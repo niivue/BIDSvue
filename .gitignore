@@ -1,0 +1,124 @@
+# macOS
+.DS_Store
+
+# OS / editor
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Working drafts for upstream issues / PRs (e.g. bids-specification).
+# Kept locally for iteration; not BIDSvue release content.
+/issue*.md
+
+# Saved-as-HTML pages dropped at the repo root for inspection (e.g.
+# data-proxy Swagger snapshots). Single-shot debugging artefacts; not
+# release content.
+/*.html
+/*_files/
+
+# Personal debugging notes / reproduction scripts dropped at the repo
+# root (often contain live JWTs, tokens, or paths to private datasets).
+# Keep them local; force-push hygiene matters.
+/bash.md
+
+# Local DataLad test corpus: full clones of nested-ds and friends
+# (multi-GB on disk), plus the locally-rebuilt intent-history /
+# update / ssh fixture outputs. The build-*.sh scripts that PRODUCE
+# those outputs DO ship (they're load-bearing for /loop's milestone
+# validation gates — see CLAUDE.md "Milestone validation scaffolding
+# follows a three-layer pattern"). The pattern `/dataladTest/*` then
+# `!/dataladTest/build-*.sh` is load-bearing: a bare `/dataladTest/`
+# directory-ignore would silently exclude the scripts because git
+# refuses to recurse into a fully-ignored directory.
+/dataladTest/*
+!/dataladTest/build-*.sh
+!/dataladTest/.gitignore
+
+# Manuscript draft + supporting reference PDFs for the BIDSvue Nature
+# Methods submission. Author affiliations, reviewer feedback, and bulky
+# upstream-published PDFs — not release content; keep local.
+/PDF/
+
+# Node / Bun
+node_modules/
+bun.lockb
+.bun/
+
+# Build artifacts
+dist/
+build/
+target/
+*.tsbuildinfo
+
+# SvelteKit generated types and runtime — produced by `svelte-kit sync`.
+.svelte-kit/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Mobile icon variants — produced by `bun x tauri icon` alongside the desktop
+# icons. We don't build for mobile in v1; regenerate from the .icns source if
+# we ever do.
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
+# Test / bench output
+coverage/
+bench/results/
+
+# Local secrets
+.env
+.env.local
+.env.macos-release
+
+# /audit workspace scratch file. Regenerated per session; the canonical
+# audit-response trail lives in commit messages + the roadmap docs.
+audit_temp.md
+
+# Local BIDS datasets used for development and testing — not part of the project.
+# Each developer provides their own; example references in spec/milestones use
+# datasets/BrainHealth/AgingBrain and datasets/dbic/QA but the files themselves
+# are not committed.
+datasets/
+datasets-extra/
+
+# E2E fixtures: each developer copies a real BIDS dataset under
+# tests/e2e/fixtures/. The directory's README is committed; the data isn't.
+tests/e2e/fixtures/*/
+
+# Project-local Claude state
+.claude/
+src/lib/validation/_validator.bundle.js
+src/lib/validation/_validator.bundle.meta.json
+static/_validator.schema.json
+
+# Platform-specific sidecar binaries staged for Tauri's externalBin
+# convention. The pristine copies live under resources/<platform>/ and
+# each developer must provide them locally — see decisions/M7-defacing.md
+# and resources/common/README.md.
+src-tauri/binaries/
+
+# Local DICOM fixtures for M8 import development. Each developer
+# provides their own; the project assumes reproin-format DICOMs
+# (see decisions/M8-import.md once it lands).
+DICOMs/
+
+# Throwaway NIfTI / niimath output files at the project root —
+# developers drop these in for ad-hoc testing (e.g. M11 mindgrab
+# manual smokes). Legit NIfTI assets live under resources/common/,
+# datasets/, or tests/fixtures/, all of which already have their own
+# rules above. This guard prevents accidental commits of multi-MB
+# binaries from the root.
+/*.nii
+/*.nii.gz
+
+# Experimental dcm2bids self-contained PyInstaller bundles extracted
+# from https://github.com/UNFmontreal/Dcm2Bids/releases. Used while
+# evaluating whether to ship dcm2bids as a built-in sidecar so users
+# don't need a Python install. Multi-MB; evaluation only.
+/dcm2bids_macOS_*/
+/dcm2bids_linux_*/
+/dcm2bids_windows_*/
+icons/

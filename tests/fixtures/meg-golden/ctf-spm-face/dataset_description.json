@@ -1,0 +1,16 @@
+{
+    "Name": "[Unspecified]",
+    "BIDSVersion": "1.9.0",
+    "DatasetType": "raw",
+    "Authors": [
+        "[Unspecified1]",
+        "[Unspecified2]"
+    ],
+    "GeneratedBy": [
+        {
+            "Name": "MNE-BIDS",
+            "Version": "0.18.0",
+            "CodeURL": "https://mne.tools/mne-bids/"
+        }
+    ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "ignore": [
+      ".svelte-kit/**",
+      "build/**",
+      "src-tauri/target/**",
+      "src-tauri/gen/**",
+      "src-tauri/crates/**",
+      "node_modules/**",
+      "dist/**",
+      "bench/results/**",
+      "**/*.svelte",
+      "tests/fixtures/**",
+      "src/lib/deface/mindgrab/_vendor/mindgrab.ts",
+      "src/lib/deface/mindgrab/_vendor/conform.ts",
+      "tools/pet2bids-prototype/.venv/**",
+      "tools/pet2bids-prototype/out/**"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": "error",
+        "useImportType": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noDoubleEquals": "error"
+      },
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error"
+      },
+      "performance": {
+        "noBarrelFile": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded"
+    }
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  }
+}

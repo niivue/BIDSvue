@@ -1,0 +1,197 @@
+# Builds the x86_64 Linux + Windows bundles. macOS arm64 is released
+# locally (notarized DMG via scripts/macos-release.sh) and is NOT built
+# here. Manual `workflow_dispatch` only for now; switch to a release-tag
+# trigger once the Linux/Windows smoke checklist passes (see
+# ROADMAP.md "Cross-platform deployment" + "Verification owed").
+name: Cross-platform bundles
+
+on:
+  # Cross-platform builds run on main only + manual dispatch — feature-branch
+  # commits never trigger the slow, storage-hungry Windows/Linux Tauri build.
+  # (Proven green on feat/cross-platform 2026-06-29; branch dev-loop trigger
+  # retired.) workflow_dispatch only appears in the Actions UI once this file
+  # is on the default branch, so dispatch becomes available after merge to main.
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crossplatform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    name: Bundle (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+            # AI ships on Linux (Unix control socket compiles). '' = unset.
+            vite_enable_ai: ''
+            disable_ai: ''
+          - label: windows-x86_64
+            runner: windows-latest
+            triple: x86_64-pc-windows-msvc
+            bundles: nsis
+            # Windows ships without AI for v1: the MCP control bridge is a Unix
+            # domain socket. Dead-code the AI UI (VITE_BIDSVUE_ENABLE_AI=0) and
+            # harden the Rust surface (BIDSVUE_DISABLE_AI=1). The ai::bridge
+            # socket code is also cfg(unix)-gated so the crate compiles at all.
+            vite_enable_ai: '0'
+            disable_ai: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux Tauri build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            patchelf \
+            file \
+            wget \
+            build-essential \
+            curl
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # Mirror the macOS CI step: package.json points @niivue/niivue +
+        # @niivue/dev-images at file:../mono/packages/... (rc.9, not yet on
+        # npm). Clone the upstream monorepo as a BIDSvue sibling so
+        # `bun install --frozen-lockfile` resolves the file: dep. Drop this
+        # step once the dep is repinned to a registry release.
+        # `shell: bash` so the same script runs on the Windows runner
+        # (git-bash ships on windows-latest).
+        shell: bash
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+          echo "NiiVue rc.9 staged at $mono_dir"
+
+      - name: Install JS deps
+        # postinstall runs scripts/stage-sidecars.ts, which copies
+        # resources/<platform>/ binaries into
+        # src-tauri/binaries/<basename>-<triple>(.exe).
+        run: bun install --frozen-lockfile
+
+      - name: Sync SvelteKit
+        run: bun x svelte-kit sync
+
+      - name: Verify staged sidecars (exact externalBin names)
+        # Confirms postinstall staging produced the precise filenames
+        # Tauri's bundle.externalBin lookup needs for this triple. On
+        # Windows that is `<name>-<triple>.exe`, NOT `<name>.exe-<triple>`.
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la src-tauri/binaries
+          ext=""
+          if [ "${{ runner.os }}" = "Windows" ]; then ext=".exe"; fi
+          for tool in dcm2niix niimath bids-validator; do
+            staged="src-tauri/binaries/${tool}-${{ matrix.triple }}${ext}"
+            if [ ! -f "$staged" ]; then
+              echo "::error::expected staged sidecar missing: $staged"
+              exit 1
+            fi
+          done
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Rust unit tests
+        # Soft-fail on Windows ONLY: ~41 trust.rs/process.rs tests assume POSIX
+        # absolute paths (/foo, argv shapes, prefix-attack strings) and fail on
+        # C:\ paths. The suite is the authoritative gate on macOS (local) +
+        # Linux (this matrix) where it must pass. Windows path-correctness is a
+        # tracked follow-up (ROADMAP) before a real Windows release; for now the
+        # goal is proving the installer builds, so don't block the bundle on it.
+        continue-on-error: ${{ runner.os == 'Windows' }}
+        working-directory: src-tauri
+        run: cargo test --workspace --quiet
+
+      - name: Build bundle
+        # Per-platform AI gate: Windows sets VITE_BIDSVUE_ENABLE_AI=0 (dead-code
+        # the AI UI) + BIDSVUE_DISABLE_AI=1 (Rust refuses run_ai_prompt). Linux
+        # leaves both unset so AI ships. See the matrix include block.
+        env:
+          VITE_BIDSVUE_ENABLE_AI: ${{ matrix.vite_enable_ai }}
+          BIDSVUE_DISABLE_AI: ${{ matrix.disable_ai }}
+        run: bun x tauri build --ci --target ${{ matrix.triple }} --bundles ${{ matrix.bundles }}
+
+      - name: Verify bundle exists (gate)
+        # `tauri build --target <triple>` writes to
+        # src-tauri/target/<triple>/release/bundle/. Fail loudly if the
+        # bundle dir is missing — a packaging regression should not leave
+        # the job green just because the upload step is best-effort.
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/${{ matrix.triple }}/release/bundle"
+          if [ ! -d "$bundle_dir" ]; then
+            echo "::error::tauri build did not produce $bundle_dir"
+            ls -la "src-tauri/target/${{ matrix.triple }}/release" 2>/dev/null || true
+            exit 1
+          fi
+          found="$(find "$bundle_dir" -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' \) | wc -l | tr -d ' ')"
+          echo "produced $found installer file(s):"
+          find "$bundle_dir" -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' \) -print
+          if [ "$found" -lt 1 ]; then
+            echo "::error::no installer artifact found under $bundle_dir"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        # Upload ONLY on a manual dispatch ("I want the installer now") — routine
+        # main-branch builds verify via the gate above but do NOT store artifacts,
+        # so they don't consume the account's (small, plan-based) Actions storage
+        # quota. On dispatch we DO want the file, so a missing/failed upload is a
+        # hard error worth seeing (e.g. storage full -> free it up).
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bidsvue-${{ matrix.label }}
+          path: |
+            src-tauri/target/${{ matrix.triple }}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${{ matrix.triple }}/release/bundle/deb/*.deb
+            src-tauri/target/${{ matrix.triple }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "importers": [
+    "dcm2niix-reproin",
+    "heudiconv",
+    "dcm2bids",
+    "ezbids-meg",
+    "pet2bids",
+    "mne-bids"
+  ]
+}

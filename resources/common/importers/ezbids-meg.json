@@ -1,0 +1,54 @@
+{
+  "id": "ezbids-meg",
+  "label": "ezBIDS MEG",
+  "description": "Convert vendor MEG data (CTF, Elekta FIF, KIT, BTi).",
+  "binary": "ezbids-meg",
+  "fields": [
+    {
+      "key": "subject",
+      "label": "Subject ID",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only."
+    },
+    {
+      "key": "session",
+      "label": "Session",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Letters and digits only. Empty = no session."
+    },
+    {
+      "key": "task",
+      "label": "Task name",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only. Also becomes _meg.json.TaskName."
+    },
+    {
+      "key": "acquisition",
+      "label": "Acquisition",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Optional. Distinguishes multiple recordings with the same task / run."
+    },
+    {
+      "key": "run",
+      "label": "Run number",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Optional (e.g. '01'). Letters and digits only."
+    },
+    {
+      "key": "powerLineFrequency",
+      "label": "Power-line frequency (Hz)",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "help": "60 (Americas) or 50 (most others). 0 = 'n/a'."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+Tiny BIDS fixture for BIDSvue's E2E suite.
+
+Used by tests/e2e/specs/happy-path.e2e.ts via the BIDSVUE_TEST_OPEN_DATASET
+env var bypass (see src-tauri/src/lib.rs::test_open_dataset). The .nii.gz
+files are intentionally empty; the scanner doesn't read file bytes and the
+M3 validator phase will either accept the placeholder errors or replace
+the files with real NIfTI-1 headers at that point.

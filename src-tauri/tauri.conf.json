@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BIDSvue",
+  "version": "0.1.20260627",
+  "identifier": "com.neurolabusc.bidsvue",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "BIDSvue",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
+        "maximized": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost https://brainlife.io https://openneuro.org https://core.kg.ebrains.eu https://iam.ebrains.eu; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; font-src 'self' data:; worker-src 'self' blob:; media-src 'none'; object-src 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost https://brainlife.io https://openneuro.org https://core.kg.ebrains.eu https://iam.ebrains.eu ws://localhost:* http://localhost:*; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; font-src 'self' data:; worker-src 'self' blob:; media-src 'none'; object-src 'none'; frame-src 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$RESOURCE/**", "$APPCACHE/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../resources/common/avg152T1.nii.gz": "common/avg152T1.nii.gz",
+      "../resources/common/avg152T1mask.nii.gz": "common/avg152T1mask.nii.gz",
+      "../resources/common/importers/*.json": "common/importers/",
+      "../resources/common/importers/mne_bids_runner.py": "common/importers/mne_bids_runner.py",
+      "../resources/common/mindgrab/*.safetensors": "common/mindgrab/",
+      "../resources/common/pet2bids/*.json": "common/pet2bids/"
+    },
+    "externalBin": [
+      "binaries/niimath",
+      "binaries/dcm2niix",
+      "binaries/bids-validator"
+    ],
+    "macOS": {
+      "dmg": {
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 }
+      }
+    }
+  },
+  "plugins": {}
+}

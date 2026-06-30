@@ -1,0 +1,32 @@
+{
+  "id": "heudiconv",
+  "label": "heudiconv",
+  "description": "Convert DICOMs using heudiconv with a built-in or custom Python heuristic.",
+  "binary": "heudiconv",
+  "external": {
+    "installHint": "pip install heudiconv. Also requires dcm2niix on PATH."
+  },
+  "fields": [
+    {
+      "key": "heuristic",
+      "label": "Heuristic",
+      "type": "heuristic",
+      "default": "reproin",
+      "help": "Built-in name (reproin, convertall, …) or absolute path to a .py file."
+    },
+    {
+      "key": "subject",
+      "label": "Subject ID",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Letters and digits only. Empty = derive from PatientID."
+    },
+    {
+      "key": "session",
+      "label": "Session",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Letters and digits only. Empty = derive from ProtocolName."
+    }
+  ]
+}

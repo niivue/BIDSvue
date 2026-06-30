@@ -1,0 +1,341 @@
+﻿name	type	units	low_cutoff	high_cutoff	description	sampling_frequency	status	status_description
+UPPT002	TRIG	V	0.0	240.0	Trigger	480.0	good	n/a
+UPPT001	TRIG	V	0.0	240.0	Trigger	480.0	good	n/a
+SCLK01-177	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+BG1-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BG2-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BG3-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BP1-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BP2-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BP3-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BR1-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BR2-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+BR3-2908	MEGREFMAG	T	0.0	240.0	Magnetometer Reference	480.0	good	n/a
+G11-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+G12-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+G13-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+G22-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+G23-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+P11-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+P12-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+P13-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+P22-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+P23-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+Q11-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+Q12-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+Q13-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+Q22-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+Q23-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+R11-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+R12-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+R13-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+R22-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+R23-2908	MEGREFGRADAXIAL	T	0.0	240.0	Axial Gradiometer Reference	480.0	good	n/a
+MLC11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC15-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC16-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC17-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC61-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC62-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLC63-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF46-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF61-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF62-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF63-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF64-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF65-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF66-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLF67-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLO53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLP57-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT15-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT16-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT26-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT27-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT36-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT37-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT46-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT47-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MLT57-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC15-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC16-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC17-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC61-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC62-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRC63-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF46-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF61-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF62-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF63-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF64-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF65-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF66-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRF67-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRO53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRP57-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT11-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT12-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT13-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT14-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT15-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT16-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT21-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT22-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT23-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT24-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT25-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT26-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT27-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT31-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT32-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT33-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT34-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT35-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT36-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT37-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT41-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT42-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT43-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT44-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT45-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT46-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT47-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT51-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT52-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT53-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT54-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT55-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT56-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MRT57-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZC01-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZC02-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZC03-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZC04-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZF01-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZF02-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZF03-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZO01-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZO02-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZO03-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+MZP01-2908	MEGGRADAXIAL	T	0.0	240.0	Axial Gradiometer	480.0	good	n/a
+HADC001-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HADC002-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HADC003-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HDAC001-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HDAC002-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HDAC003-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+UADC005-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+UADC006-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+UADC007-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+UADC008-2901	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0011-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0012-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0013-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0021-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0022-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0023-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0031-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0032-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0033-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0018-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0028-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0038-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0014-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0015-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0016-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0017-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0024-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0025-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0026-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0027-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0034-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0035-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0036-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a
+HLC0037-2104	MISC	V	0.0	240.0	Miscellaneous	480.0	good	n/a

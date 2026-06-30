@@ -1,0 +1,30 @@
+{
+  "id": "dcm2niix-reproin",
+  "label": "dcm2niix (reproin)",
+  "description": "Convert reproin format DICOMs using dcm2niix.",
+  "binary": "dcm2niix",
+  "allowEmptyDatasetName": true,
+  "fields": [
+    {
+      "key": "anonymize",
+      "label": "Strip dates",
+      "type": "boolean",
+      "default": false,
+      "help": "Off matches reproinx.py: strip PII but keep AcquisitionDateTime and provenance demographics for participants.tsv. On strips dates too; age/sex may be unavailable."
+    },
+    {
+      "key": "saveDerivatives",
+      "label": "Save derivatives",
+      "type": "boolean",
+      "default": false,
+      "help": "Keep dcm2niix's derivatives/ subtree (scouts, DERIVED images). Off = clean main tree only."
+    },
+    {
+      "key": "shiftDates",
+      "label": "Shift dates",
+      "type": "boolean",
+      "default": false,
+      "help": "De-identify acquisition dates (BIDS RECOMMENDED): shift every subject's dates so its earliest scan lands on 1925-01-01, keeping time-of-day and intra-subject intervals. Removes provenance TSVs. Does not rename timestamp-based ses-YYYYMMDD... folders."
+    }
+  ]
+}

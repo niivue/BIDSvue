@@ -1,0 +1,30 @@
+{
+  "description": "Acronym -> full reconstruction-method name expansion table. Sourced from pypet2bids' pet_metadata.PET_reconstruction_methods::reconstruction_names (PET2BIDS 1.4.6). Order is preserved because get_recon_method sorts longest-first to avoid premature prefix matches (e.g. OSEM before OS).",
+  "names": [
+    { "value": "OS", "name": "Ordered Subset" },
+    { "value": "OSEM", "name": "Ordered Subset Expectation Maximization" },
+    { "value": "LOR", "name": "Line Of Response" },
+    { "value": "RAMLA", "name": "Row Action Maximum Likelihood" },
+    { "value": "OP", "name": "Ordinary Poisson" },
+    { "value": "PSF", "name": "Point-Spread Function modelling" },
+    { "value": "TOF", "name": "Time Of Flight" },
+    { "value": "TF", "name": "Time Of Flight" },
+    { "value": "VPHD", "name": "VUE Point HD" },
+    {
+      "value": "VPHD-S",
+      "name": "3D Ordered Subset Expectation Maximization with Point-Spread Function modelling"
+    },
+    { "value": "VPFX", "name": "VUE Point HD using Time Of Flight" },
+    {
+      "value": "VPFXS",
+      "name": "VUE Point HD using Time Of Flight with Point-Spread Function modelling"
+    },
+    {
+      "value": "Q.Clear",
+      "name": "VUE Point HD with regularization (smoothing)"
+    },
+    { "value": "BLOB", "name": "3D spherically symmetric basis function" },
+    { "value": "FilteredBackProjection", "name": "Filtered Back Projection" },
+    { "value": "Kinahan-Rogers", "name": "Reprojection" }
+  ]
+}

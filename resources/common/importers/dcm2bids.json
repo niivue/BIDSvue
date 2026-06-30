@@ -1,0 +1,39 @@
+{
+  "id": "dcm2bids",
+  "label": "dcm2bids",
+  "description": "Convert DICOMs using dcm2bids with a per-protocol JSON config.",
+  "binary": "dcm2bids",
+  "fields": [
+    {
+      "key": "subject",
+      "label": "Subject ID",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only."
+    },
+    {
+      "key": "session",
+      "label": "Session",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Letters and digits only. Empty = omit the ses-* layer."
+    },
+    {
+      "key": "config",
+      "label": "Config file",
+      "type": "filePath",
+      "default": "",
+      "required": true,
+      "extensions": ["json"],
+      "help": "Required. dcm2bids JSON config mapping series to BIDS entities. Generate a template with dcm2bids_helper."
+    },
+    {
+      "key": "cleanupUnmatched",
+      "label": "Clean up unmatched files",
+      "type": "boolean",
+      "default": true,
+      "help": "Delete the tmp_dcm2bids/ working dir after conversion. Off keeps the unmatched series for debugging."
+    }
+  ]
+}

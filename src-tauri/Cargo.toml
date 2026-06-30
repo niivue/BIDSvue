@@ -1,0 +1,176 @@
+[package]
+name = "bidsvue"
+version = "0.1.20260627"
+description = "Cross-platform desktop UI for creating, inspecting, and modifying BIDS datasets."
+authors = ["BIDSvue contributors"]
+edition = "2021"
+# Bumped from 1.77 to 1.85 to allow `gix 0.84` + `md-5 0.10`, both
+# required by the native DataLad implementation (datalad_plan.md
+# M-DL1). The installed toolchain on dev / CI is well above 1.85.
+rust-version = "1.85"
+license = "BSD-2-Clause"
+
+[lib]
+name = "bidsvue_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The native DataLad / git-annex engine lives in the standalone
+# `rordenlab/datalad-rs` crate, vendored as a git submodule at
+# `crates/datalad-rs` (M-DL9, 2026-06-29). `src-tauri` is the workspace
+# root; the engine is a path member. No GitHub fetch during build — the
+# submodule must already be checked out
+# (`git submodule update --init --recursive`).
+[workspace]
+members = [".", "crates/datalad-rs"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Native DataLad / git-annex engine (M-DL9 extraction). Path dep on the
+# vendored submodule; imported in Rust as `datalad_rs`.
+datalad-rs = { path = "crates/datalad-rs" }
+tauri = { version = "2", features = ["protocol-asset", "devtools"] }
+tauri-plugin-dialog = "2"
+# `watch` pulls in the `notify` crate so plugin-fs::watch / unwatch register
+# their Tauri commands. Without this the Phase F file-watcher errors out
+# at runtime with "Command watch not found"; with it, no Rust changes are
+# needed -- the watcher is still TS-driven via @tauri-apps/plugin-fs.
+tauri-plugin-fs = { version = "2", features = ["watch"] }
+tauri-plugin-os = "2"
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Trusted-picker token registry (round-22 P1). `getrandom` mints 256-bit
+# token ids from the OS CSPRNG; `base64` encodes them into URL-safe
+# strings the renderer treats opaquely. See `trust.rs`.
+getrandom = "0.2"
+base64 = "0.22"
+# Used by `open_in_os` to dispatch a trust-validated path to the OS
+# default opener after Rust-side trust validation.
+open = "5"
+# Async process management + cancellation for the DataLad streaming
+# commands. `run_streaming_process` switches from std::process +
+# blocking thread readers to tokio::process + async readers so a
+# concurrent `tokio::select!` on `child.wait()` vs a cancellation
+# `Notify` can deliver `child.start_kill()` on user-driven abort.
+# Tauri already pulls tokio transitively, but the explicit features
+# (`process`, `io-util`, `sync`, `macros`, `rt`) keep this independent
+# of tauri's feature flags.
+# `net` added for the M-AI5 control-bridge UnixListener (AI write tools).
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "time", "fs", "net"] }
+# reqwest is used by the OpenNeuro file-upload command. OpenNeuro's
+# `/uploads/...` endpoint does not include the Tauri WebView origin
+# in its `Access-Control-Allow-Origin` header, so a renderer-side
+# `fetch` is blocked by CORS even though the request would otherwise
+# succeed (the server returns 200 but the WebView refuses to expose
+# the response). Routing the POST through Rust's reqwest bypasses
+# the same-origin policy that only applies to browser-context fetches.
+# `rustls-tls` keeps the binary self-contained — no system OpenSSL
+# linkage on macOS / Windows / Linux. `default-features = false`
+# drops the bundled cookie store / gzip-decode features we don't use.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+# `sha2` provides a streaming SHA-256 Hasher for cloud-share. We hash on the
+# upload path (so the persisted manifest is byte-identical to what hit the
+# wire — closes the "hash recorded for bytes that were not uploaded" gap
+# in CLAUDE.md's beta-readiness section) AND for the local manifest walk
+# (the renderer-side WebCrypto reads whole files into the WebView heap,
+# which OOMs on multi-GB BOLD scans).
+sha2 = "0.10"
+# `futures-util` streams `tokio::fs::File` chunks into the reqwest body
+# so the OpenNeuro upload doesn't buffer multi-GB files in renderer or
+# Rust heap.
+futures-util = "0.3"
+# `bytes::Bytes` is the chunk type for the reqwest streamed body. Reqwest
+# pulls it in transitively but we use it explicitly when building the
+# stream pump in `share.rs`.
+bytes = "1"
+# `gix` reads the `git-annex` branch and resolves commits/objects for the
+# native DataLad command layer (M-DL9: `commands.rs` `gix::open` /
+# `gix::ObjectId` back `datalad_native_revert` et al). The annex
+# content-hashing + ignore-matching crates (`md-5`, `bstr`, `gix-features`,
+# `gix-glob`, `gix-ignore`) moved to the `datalad-rs` crate with the engine
+# and are no longer declared here. `hex` encodes digests; `uuid` v4 is used
+# by importers / AI / the engine-journal path. (`sha2` is declared above for
+# cloud-share + lives on for the native engine via the crate.)
+gix = { version = "0.84", default-features = false, features = [
+    "max-performance-safe",
+    "sha1",
+    # M-DL4: native subdataset install + M-DL5 native clone need a
+    # blocking HTTP transport. Reuse the rustls-tls stack already
+    # pulled in by reqwest above instead of adding a curl backend.
+    # M-DL16 (2026-06-14) note: this feature transitively enables
+    # `blocking-network-client`, which makes `gix-transport`'s SSH
+    # arm (`gix_url::Scheme::Ssh`) compile in alongside HTTP. There
+    # is NO separate Cargo feature for SSH — the SSH transport
+    # spawns the host `ssh` binary via `std::process::Command` and
+    # inherits `$SSH_AUTH_SOCK` for `ssh-agent` auth. If you ever
+    # narrow this feature back to a non-network variant, M-DL16's
+    # `validate_clone_url` widening regresses to a cryptic transport
+    # error at fetch time.
+    "blocking-http-transport-reqwest-rust-tls",
+    # M-DL4 + M-DL5 both checkout into the working tree after fetch,
+    # which gix gates behind worktree-mutation.
+    "worktree-mutation",
+] }
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+# Mock HTTP server used by `datalad_native::fetch` tests to stand in
+# for the OpenNeuro S3 bucket without touching the network.
+wiremock = "0.6"
+# Scoped temporary directories for git-annex object-layout fixtures.
+tempfile = "3"
+# `libc` is used only on Unix (gated behind `cfg(unix)`) for the
+# process-group kill in `run_streaming_process`: `setsid()` at spawn
+# time puts the child in a fresh group, and `kill(-pid, SIGTERM)`
+# during cancellation signals every member (parent + git + git-annex
+# + ssh) so DataLad's spawned children die with the parent. Round-33
+# audit P1 #5.
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+
+# Release-profile size optimizations. Before this block the release
+# build inherited Cargo's defaults — no LTO, debug symbols retained,
+# 16 codegen units — which left the `bidsvue` binary at ~12 MB. The
+# four knobs below are stock Tauri-recommended settings:
+#
+# - `lto = true`: link-time optimization. Lets the linker discard
+#   genuinely-dead Rust code that codegen alone can't see across
+#   crate boundaries. Typically -20%/-30% on a Tauri binary.
+# - `codegen-units = 1`: single codegen unit gives LTO maximum
+#   visibility (cost: ~3-5x slower release link). The dev build
+#   is unaffected.
+# - `strip = "symbols"`: strip the debug-symbol table. We don't
+#   ship .dSYM bundles and the symbol table is the bulk of the
+#   remaining bytes after LTO.
+# - `panic = "abort"`: drop the panic-unwinding tables. Verified
+#   safe (`grep -rn "catch_unwind\|panic::set_hook" src-tauri/src`
+#   is empty); a panic on the Rust side aborts the process,
+#   which is the right behavior for a desktop shell anyway since
+#   the WebView can't recover from a panicked command thread.
+#
+# `bun tauri dev` is unaffected — the dev profile is separate and
+# keeps full debug info for faster compiles + readable backtraces.
+
+# The AI module tree (`src/ai/`) + the `--mcp-server` subcommand are now
+# compiled into EVERY build — there is no Cargo `ai` feature gate. This is
+# required because `tauri dev` hardcodes `cargo run --no-default-features`,
+# so a Cargo-feature-gated AI could never reach a bare `bun tauri dev`. The
+# AI UI is gated at the renderer instead: `VITE_BIDSVUE_ENABLE_AI` (default
+# ON; set to `0` to hide the tile + dead-code the AIWindow). See
+# scripts/macos-release.sh (`BIDSVUE_DISABLE_AI=1` to ship a no-AI DMG) and
+# AGENTS.md.
+[features]
+default = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

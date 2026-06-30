@@ -1,0 +1,26 @@
+{
+    "TaskName": "faces",
+    "Manufacturer": "CTF",
+    "PowerLineFrequency": "n/a",
+    "SamplingFrequency": 480.0,
+    "SoftwareFilters": {
+        "SpatialCompensation": {
+            "GradientOrder": 3
+        }
+    },
+    "RecordingDuration": 631.56875,
+    "RecordingType": "continuous",
+    "DewarPosition": "n/a",
+    "DigitizedLandmarks": true,
+    "DigitizedHeadPoints": false,
+    "MEGChannelCount": 274,
+    "MEGREFChannelCount": 29,
+    "ContinuousHeadLocalization": true,
+    "HeadCoilFrequency": [],
+    "EEGChannelCount": 0,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 35,
+    "TriggerChannelCount": 2
+}

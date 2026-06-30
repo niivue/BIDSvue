@@ -1,0 +1,57 @@
+# src-tauri/ — Rust / backend gotchas
+
+Loads when working under `src-tauri/`. Root invariants live in [../AGENTS.md](../AGENTS.md); this file is the backend-only detail. Deep design rationale: [../ARCHITECTURE.md](../ARCHITECTURE.md) §3 (Rust surface) + §6 (security boundary).
+
+## Security boundary (the whole point of the Rust surface)
+
+The Rust surface is intentionally narrow — security boundary work, no business logic. Renderer names a `(toolId, argv)` or a path + token; Rust selects the fixed binary and re-validates the **complete argv shape** + path before acting. TS-side validators are first-line UX only; Rust is authoritative.
+
+- **Capability is narrow at startup** ([capabilities/default.json](capabilities/default.json)): `fs:scope` = `$APPDATA/**` + `$APPCACHE/**` + `$RESOURCE/**`, `$APPDATA/trust/**` denied. fs permissions declared in **string form** (no per-permission `allow` arrays — Tauri 2 enforces per-permission `allow` BEFORE the runtime scope check). Pre-escaped globs mean `<root>/**` does NOT match dotfiles → atomic-write temp name is `<basename>.bidsvue-tmp-<opId>` (no leading dot); editable dotfiles (`.bidsignore` etc.) need a per-file carve-out in `apply_widen_dataset` AND fall back to `read_authorized_text_file` for reads.
+- **Runtime widening is token-gated.** `pick_dataset_directory`/`pick_file` mint an in-memory token (5-min TTL, descendant-aware); `mint_token` does NOT persist. `allow_dataset_scope(root, token)` widens fs+asset (viewer paths); `allow_fs_scope(path, token)` widens fs only (import sources). Trust-set members widen via `widen_to_trusted_path` (no token). Renderer calls `trust_path(target, token)` explicitly AFTER the op succeeds. Scope API is append-only (only restart drops a scope). `..`/`.` rejected at the trust boundary.
+- **`validate_authorized_path_canonical`** (lexical check THEN `std::fs::canonicalize` through every symlink, re-checked against trust) MUST back any Rust command that follows symlinks on `read`/`write`/`metadata`. The lexical-trust-then-canonical-containment split is the rule: trust membership stays LEXICAL on the as-typed `dataset_root` (so symlinked picker roots match — NEVER canonicalize `dataset_root` into `is_under_any_runtime_path`), then canonicalize root+input+output before containment re-check + a pre-existing-output refusal. `resolve_deface_spawn` / `resolve_niimath_dilate_spawn` / `openneuro_upload_file` are the canonical callers; any new follow-the-path command MUST reuse it.
+- **`run_ai_prompt` dataset root** must canonicalize THEN require EXACT membership in `TrustStore::is_runtime_dataset_root_member` (not `is_under_any_runtime_path` — a child of a trusted root is NOT a valid AI root). Bare-chat (empty string) is the only bypass. AI session IDs validated as v4 UUIDs.
+
+## Process boundary ([process.rs](src/process.rs))
+
+- No `shell:allow-execute` (plugin-shell uninstalled). `run_import_process` / `probe_import_tool` / `run_deface_process` / `run_bids_validator` are the spawn points; each re-validates argv + paths before spawning. `dcm2bids` spawns with `PATH=<bundled sidecar dir>:<inherited PATH>` so its `shutil.which('dcm2niix')` finds the bundled sibling.
+- **dcm2niix `-ba` semantics:** `-ba y` strips PII *and* dates; `-ba n` keeps everything (leaks PII — do NOT revive without an explicit decision); `-ba o` (v1.0.20260520+) strips PII but keeps `AcquisitionDateTime`. `buildReproinArgv` emits `-ba y` for anonymize=true, `-ba o` for false. `validate_dcm2niix_argv` accepts `y`/`n`/`o`/`i`.
+- **Clone-URL validation moved to the `datalad-rs` crate** (`datalad_rs::url::validate_clone_url`); `validate_abs_path` stays in `process.rs`. SSH/SCP validators in the crate's `ssh` module. Startup scrubs `GIT_SSH*`/`GIT_PROXY_COMMAND` + sets `GIT_TERMINAL_PROMPT=0`/`GIT_ASKPASS=/usr/bin/false`/`DISPLAY=""`/`SSH_ASKPASS_REQUIRE=never` BEFORE the WebView (gix SSH inherits these); `SSH_AUTH_SOCK` NOT scrubbed.
+
+## When (and only when) to add Rust
+
+Rust enters only when measurement proves TS is the bottleneck for a specific op. Two pre-identified triggers, **neither fired**: scanner port (M1 measured 1.42 s for 100k files; gate at `bench/baselines/scanner.json`) and backup/undo atomicity (M6 shipped pure-TS LIFO rollback). When you do add Rust: narrow surface, generate TS bindings via `tauri-specta`, **keep the TS fallback** so the cloud port still works. Reaching for Rust outside these triggers → stop and write down the measurement.
+
+## Durable / log / fs escape-hatch commands
+
+- `append_log_line(path, line)` — `O_APPEND`+`sync_all`, validates target is exactly an `operations.log` under `<appDataDir>/datasets/<safeKey>/`; rejects multiline/`\r`. (plugin-fs `writeTextFile` truncates → torn-write zeroes the log.)
+- `read_authorized_text_file` / `purge_legacy_bidsvue_dir` — bypass plugin-fs's broken-for-dotfiles glob matcher; both runtime-authorized-path gated.
+- `read_only_batch` (one per `readDir` → tree lock chips + Save gate) / `chmod_path` (preserve mode across atomic write; Windows no-op).
+- `read_link` / `stat_followed` / `detect_pointers_batch` — DataLad pointer detection. **`stat_followed` bypasses plugin-fs's broken-for-symlinks scope check** (Tauri's `Scope::is_allowed` mis-resolves relative annex targets) — use it for fetched-state detection.
+
+## DataLad native ([datalad_native/](src/datalad_native/))
+
+The engine is the vendored **`datalad-rs` submodule** at `crates/datalad-rs` (path dep, workspace member; `git submodule update --init --recursive` after clone). `datalad_native/commands.rs` (+ thin `mod.rs`) is the BIDSvue boundary ONLY: trust/path validation, cancellation bridging (`CancellationRegistry` → engine `AtomicBool`/`Notify`), `Channel<DataladStreamLine>` progress, operation-log/undo integration. `datalad_native_version()` reports the crate's identity (`datalad_rs::{VERSION,GIX_VERSION,DATALAD_COMPAT_VERSION}`), pinned by `backend_info_uses_crate_constants`. Native `backend: {name, version}` MUST thread into every commit's `operations.log` details + the pending-record refresh after the call. `CancellationScope` ([runtime.rs](src/runtime.rs)) is the canonical shape for any new cancellation-aware command (Drop always signals + deregisters). Push to upstream is out of scope (Save → Cloud Share).
+
+## Sidecars + recompile recipes
+
+Source-of-truth binaries: `resources/<platform>/<basename>` (committed); Tauri reads `binaries/<basename>-<triple>` (gitignored, staged by `scripts/stage-sidecars.ts` from `postinstall`). `stage-sidecars.ts` owns the Windows `<name>-x86_64-pc-windows-msvc.exe` naming rule. Fresh clone: `git clone --recurse-submodules` (the `datalad-rs` engine is a submodule — or run `git submodule update --init --recursive` after a plain clone), then `bun install && bun tauri dev` Just Works on macOS arm64 / Linux x86_64 / Windows x86_64. Swapping a bundled binary → `git add` the new `resources/` file + update CI `sidecar_basenames` + `macos-release.sh`.
+
+- **dcm2niix (macOS):** build upstream via CMake with `-DUSE_OPENJPEG=ON` (the root Makefile path silently drops JP2), then `cp build/bin/dcm2niix resources/darwin/ && bun run scripts/stage-sidecars.ts`. `-v | head -1` MUST show BOTH `(JP2:OpenJPEG)` AND `(JP-LS:CharLS)`.
+- **niimath (macOS):** from `niimath/src`, `rm -f *.o && OMP=0 ZSTD=0 make`. **Do NOT pass `GPL=1`** — the GPL `spm_coreg` / `-spm_deface` path was removed (2026-06-30) so the shipped binary stays **BSD-2** (no GPL infection from the `src/GPL` submodule). **`OMP=0`/`ZSTD=0`** are load-bearing for the notarized bundle — the default links Homebrew `libomp`/`libzstd` signed under a different team ID → dyld refuses them. **Verify `otool -L` lists ONLY `/usr/lib/libSystem.B.dylib` + `/usr/lib/libz.1.dylib`** — any `/opt/homebrew/...` is a team-ID landmine; also confirm `niimath -h` has NO `-spm_deface`. These flags are macOS-only; don't apply to Linux/Windows.
+- Linux/Windows sidecars are pinned AppVeyor artifacts (`bun run fetch-sidecars` + the sha256 map), also BSD builds. niimath is BSD on every platform now; the only deface paths are `allineate` (`-deface`) + the mindgrab `niimath_dilate` mask dilation.
+- **niimath bundled binary is the ONLY niimath** (WASM dep removed). The mindgrab 8 mm dilation runs through the `niimath_dilate` tool: `resolve_niimath_dilate_spawn` builds the spawned argv from the CANONICAL input/output/threshold (zero raw renderer bytes reach the child) + refuses pre-existing output. Same lexical-trust-then-canonical rule as deface.
+
+## Validator
+
+`bids-validator-rs` is the default backend, a bundled sidecar (macOS arm64 / Linux x86_64 / Windows x86_64), spawned by `run_bids_validator` with fixed argv (`--format json --content-mode parity --link-mode no-follow`). Build-time switch `VITE_BIDSVUE_VALIDATOR_BACKEND` — unset/`rust` = sidecar; `js` = in-WebView `@bids/validator` 2.4.1. The dispatcher dead-codes the unused branch so rust-mode doesn't carry the ~9 MB JS chunk. (Validator RUNS in the WebView for the JS backend — see [../src/AGENTS.md](../src/AGENTS.md) / ARCHITECTURE for that path.)
+
+## AI Rust surface ([ai/](src/ai/))
+
+- **Default-ON, compiled into every build** (no Cargo `ai` feature — `tauri dev` hardcodes `--no-default-features`). Off-switch needs BOTH gates: `VITE_BIDSVUE_ENABLE_AI=0` (renderer dead-code) AND `BIDSVUE_DISABLE_AI=1` (`ai::ai_disabled_at_build()` refuses `run_ai_prompt`/`probe_ai_clis`/`--mcp-server`). No-AI DMG: `BIDSVUE_DISABLE_AI=1 bun run release:macos`. **Windows ships without AI** (MCP bridge is a Unix socket — `cfg(unix)`-gated + `run_ai_prompt` refuses).
+- **`BIDSVUE_MCP_TOOL_ALLOWLIST`** ([ai/spawn.rs](src/ai/spawn.rs)) is the single source of MCP read-tool pre-approval; **wildcards forbidden** (would auto-approve future write tools, bypassing the bridge). Bidirectional parity tests pin allowlist ↔ `mcp/tools.rs`. Write tools route through the M-AI5 approval-bridge UI, never CLI pre-approval.
+- Claude variadic flags (`--tools`/`--allowedTools`) MUST be terminated with `--` before the prompt. Codex uses `-c approval_policy="never"` (NOT `--ask-for-approval`, which is a top-level flag). Both pinned by regression tests.
+- Spawn lifecycle: `stdin Stdio::null` + separate-task drain + wait-after-kill; cancellation registers at function entry BEFORE validation/spawn (sticky `PreCancelled` + `select! biased`); early returns deregister + remove the session dir via the `DeregisterGuard` RAII. Path authorization Rust-authoritative at the chokepoint: `.git*`/`.datalad`/`.bidsvue`/`.heudiconv`/`.hg`/`.svn` blocked for read+write; backslashes rejected; top-level `derivatives`/`sourcedata`/`code` refused via `validate_ai_rel_path`.
+
+## CI / release
+
+`bun run check` = the full pre-push gauntlet (validator-artifacts, lint, typecheck, i18n, bun tests, build, `cargo fmt --check`, `cargo test --workspace`). `cargo test`/`cargo check` use `--workspace` (covers the datalad-rs crate). CI checkouts pass `submodules: recursive`; `macos-release.sh` preflights the submodule. macOS arm64 build pinned to `macos-14` (arm64 preflight). Notarized release is local (`bun run release:macos`) — asserts clean tree, version sync (package.json / tauri.conf.json / Cargo.toml), staged sidecars, no `file:`/`link:` dep specs.

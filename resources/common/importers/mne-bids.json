@@ -1,0 +1,57 @@
+{
+  "id": "mne-bids",
+  "label": "MNE-BIDS",
+  "description": "Convert one raw MEG/EEG/NIRS recording (.fif/.edf/.bdf/.snirf) to BIDS",
+  "binary": "python",
+  "external": {
+    "installHint": "Install Python plus mne-bids: pip install mne-bids (also installs mne). BIDSvue probes python3 / python (py on Windows). The detected interpreter path and versions are shown in the form before you convert."
+  },
+  "fields": [
+    {
+      "key": "subject",
+      "label": "Subject ID",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only."
+    },
+    {
+      "key": "task",
+      "label": "Task name",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only. Becomes _meg.json.TaskName."
+    },
+    {
+      "key": "session",
+      "label": "Session",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Optional. Letters and digits only. Empty = no session layer."
+    },
+    {
+      "key": "run",
+      "label": "Run number",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Optional (e.g. '01'). Letters and digits only."
+    },
+    {
+      "key": "acquisition",
+      "label": "Acquisition",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Optional. Distinguishes multiple recordings with the same task / run."
+    },
+    {
+      "key": "powerLineFrequency",
+      "label": "Power-line frequency (Hz)",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "help": "60 (Americas) or 50 (most others). 0 = 'n/a'."
+    }
+  ]
+}

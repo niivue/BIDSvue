@@ -1,0 +1,28 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`fixture: BrainHealth/AgingBrain snapshot summary is stable 1`] = `
+{
+  "bidsIgnoredCount": 0,
+  "files": 0,
+  "folders": 5,
+  "groups": 30,
+  "specialFolders": [],
+  "subjectFolders": [
+    "sub-crlab",
+  ],
+}
+`;
+
+exports[`fixture: dbic/QA snapshot summary is stable 1`] = `
+{
+  "bidsIgnoredCount": 0,
+  "files": 0,
+  "folders": 6,
+  "groups": 12,
+  "specialFolders": [],
+  "subjectFolders": [
+    "sub-emmet",
+    "sub-qa64",
+  ],
+}
+`;

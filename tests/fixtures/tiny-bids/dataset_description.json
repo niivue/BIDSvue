@@ -1,0 +1,8 @@
+{
+  "Name": "BIDSvue tiny E2E fixture",
+  "BIDSVersion": "1.10.0",
+  "DatasetType": "raw",
+  "Authors": [
+    "BIDSvue tests"
+  ]
+}

@@ -1,0 +1,541 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  static:
+    name: Lint / format / typecheck / i18n / tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # package.json points `@niivue/niivue` and `@niivue/dev-images`
+        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
+        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
+        # display — none of which are on npm yet; rc.8 on npm predates
+        # the API). Clone the upstream monorepo as a BIDSvue sibling so
+        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
+        # to the same commit the local maintainer's dist was built from.
+        # Re-pin to a real npm version + drop this step the moment rc.9
+        # ships to npm; `scripts/macos-release.sh` already blocks
+        # notarised cuts while the file: dep is present.
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          # Build the niivue package's dist/ (it is .gitignored upstream).
+          # `--filter=@niivue/niivue` runs only the build script of the
+          # niivue workspace so we don't waste CI time on the rest of
+          # the monorepo.
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+          echo "NiiVue rc.9 staged at $mono_dir"
+
+      - name: Install JS deps
+        run: bun install --frozen-lockfile
+
+      - name: Sync SvelteKit (generates .svelte-kit/tsconfig.json)
+        run: bun x svelte-kit sync
+
+      - name: Biome (lint + format check)
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: i18n catalog freshness
+        run: bun run check-i18n
+
+      - name: Bun unit tests
+        run: bun test
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # `cargo fmt --check` is host-independent and doesn't need the
+      # Tauri Linux build dependencies or staged sidecars.
+      - name: Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      # `cargo test` is intentionally NOT run here. Compiling the Tauri tree on
+      # Linux needs the GTK/WebKitGTK/glib system deps (glib-sys fails pkg-config
+      # otherwise) AND staged Linux sidecars — i.e. a full heavy build on what is
+      # meant to be the fast lint/typecheck job. The Rust unit tests already run
+      # on every PR via the macOS `build` job below (staged aarch64 sidecars, no
+      # GTK needed), and the full Linux build+test runs in
+      # `crossplatform-bundles.yml` (which installs the Linux deps) on `main`.
+      # The `windows-check` job covers Windows compile warnings. So Rust is
+      # covered across all three platforms without bloating this job.
+
+  bench:
+    name: Scanner perf-regression gate
+    needs: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # package.json points `@niivue/niivue` and `@niivue/dev-images`
+        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
+        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
+        # display — none of which are on npm yet; rc.8 on npm predates
+        # the API). Clone the upstream monorepo as a BIDSvue sibling so
+        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
+        # to the same commit the local maintainer's dist was built from.
+        # Re-pin to a real npm version + drop this step the moment rc.9
+        # ships to npm; `scripts/macos-release.sh` already blocks
+        # notarised cuts while the file: dep is present.
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          # Build the niivue package's dist/ (it is .gitignored upstream).
+          # `--filter=@niivue/niivue` runs only the build script of the
+          # niivue workspace so we don't waste CI time on the rest of
+          # the monorepo.
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+          echo "NiiVue rc.9 staged at $mono_dir"
+
+      - name: Install JS deps
+        run: bun install --frozen-lockfile
+
+      # `scripts/bench-scanner.ts` imports `src/lib/bids/scanner.ts`,
+      # which resolves `$lib/...` aliases via SvelteKit's generated
+      # tsconfig at `.svelte-kit/tsconfig.json`. Without this sync the
+      # bench fails with `Cannot find module '$lib/tsv/parse'`.
+      - name: Sync SvelteKit (generates .svelte-kit/tsconfig.json)
+        run: bun x svelte-kit sync
+
+      - name: Run scanner bench (50k files) against committed baseline
+        # bench/baselines/scanner.json is captured on this same CI hardware
+        # (Ubuntu runners). After observing a ~2x outlier in scanMs across
+        # otherwise-identical CI runs, the regression threshold sits at
+        # 2.5x (see scripts/bench-scanner.ts) to absorb runner variance
+        # with margin. The gate is here to catch real order-of-magnitude
+        # regressions, not micro-fluctuations; if it trips again on a
+        # commit that doesn't touch the scanner hot path, the next step is
+        # multi-sampling within a single run, not ratcheting the threshold
+        # further. Rebaseline with `BENCH_SAVE_BASELINE=1 bun run bench:scanner`.
+        run: BENCH_CHECK=1 bun run bench:scanner
+
+      - name: Upload bench result
+        # Non-blocking: the bench GATE is the previous step
+        # (`BENCH_CHECK=1`). This upload is informational — humans
+        # inspect it when debugging a perf regression. Marked
+        # `continue-on-error: true` so an artifact-storage-quota
+        # exhaustion at the GitHub account level doesn't fail the
+        # job. The quota recalculates every 6-12h per GH docs.
+        uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: bench-result-${{ github.run_number }}
+          path: bench/results/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Main CI keeps this bundle-smoke job macOS arm64 only. Linux/Windows
+  # installer artifacts are built by crossplatform-bundles.yml.
+  # `dcm2bids` was unbundled 2026-06-14 (now PATH-resolved like
+  # heudiconv); the verify-staged-sidecars step below MUST stay in
+  # lockstep with this list.
+  # macOS arm64 is a permanent target choice, not a v1.1 deferral
+  # (Apple is dropping x86_64; neuroimaging hardware skews recent).
+  # Intel macOS is not a target.
+  #
+  # Pin `macos-14` rather than `macos-latest` so a future label remap
+  # by GitHub cannot land us on an Intel runner; the uname preflight
+  # below hard-asserts the architecture regardless of label.
+  build:
+    name: Build (macOS arm64)
+    needs: static
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Preflight — arm64 host required
+        # Hard-fail before any tooling runs if the runner isn't arm64;
+        # only aarch64-apple-darwin sidecars are staged so an Intel
+        # runner would fail late at Tauri's externalBin step with a
+        # cryptic missing-binary error.
+        run: |
+          arch="$(uname -m)"
+          if [ "$arch" != "arm64" ]; then
+            echo "::error::macOS build job requires arm64; runner reports $arch"
+            exit 1
+          fi
+          echo "host arch: $arch"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # package.json points `@niivue/niivue` and `@niivue/dev-images`
+        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
+        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
+        # display — none of which are on npm yet; rc.8 on npm predates
+        # the API). Clone the upstream monorepo as a BIDSvue sibling so
+        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
+        # to the same commit the local maintainer's dist was built from.
+        # Re-pin to a real npm version + drop this step the moment rc.9
+        # ships to npm; `scripts/macos-release.sh` already blocks
+        # notarised cuts while the file: dep is present.
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          # Build the niivue package's dist/ (it is .gitignored upstream).
+          # `--filter=@niivue/niivue` runs only the build script of the
+          # niivue workspace so we don't waste CI time on the rest of
+          # the monorepo.
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+          echo "NiiVue rc.9 staged at $mono_dir"
+
+      - name: Install JS deps
+        run: bun install --frozen-lockfile
+
+      - name: Sync SvelteKit
+        run: bun x svelte-kit sync
+
+      - name: Verify staged sidecars
+        # `bun install` runs `scripts/stage-sidecars.ts` from
+        # `postinstall`, which copies every binary in
+        # `resources/<platform>/` to
+        # `src-tauri/binaries/<basename>-<target-triple>`. This step
+        # just confirms staging happened so a future regression in
+        # postinstall fails CI loudly rather than letting `tauri build`
+        # blow up with a cryptic missing-binary error.
+        run: |
+          set -euo pipefail
+          ls -la src-tauri/binaries
+          for tool in dcm2niix niimath bids-validator; do
+            staged="src-tauri/binaries/$tool-aarch64-apple-darwin"
+            if [ ! -f "$staged" ]; then
+              echo "::error::expected staged sidecar missing: $staged"
+              exit 1
+            fi
+          done
+
+      # Runs before `tauri build` so a test failure short-circuits the
+      # macOS bundle-smoke step. The Linux static job also runs Rust
+      # tests now that Linux sidecars are committed and staged there.
+      - name: Rust unit tests
+        working-directory: src-tauri
+        # --workspace so the vendored datalad-rs engine crate is tested too (M-DL9).
+        run: cargo test --workspace --quiet
+
+      - name: Build (frontend + Tauri bundle)
+        run: bun x tauri build --ci --target aarch64-apple-darwin
+
+      - name: Verify bundle exists (gate)
+        # Audit 2026-06-12 P3: assert at LEAST one `.app` and one
+        # `.dmg` exist at the targeted path BEFORE the trailing
+        # informational steps. Without this gate, a future packaging
+        # regression that builds without producing the bundle (e.g.
+        # tauri.conf.json `bundle.active` misconfigured) would leave
+        # the build job green — the upload step is
+        # `continue-on-error: true` for storage-quota reasons, and
+        # `find` exits 0 on zero matches. This gate makes the
+        # "bundle was actually produced" invariant explicit.
+        #
+        # Audit 2026-06-12 internal P3 follow-up: explicitly check
+        # the `bundle/` parent directory exists before `cd`-ing into
+        # it. A build that failed BEFORE bundling would otherwise
+        # produce a generic shell `cd: no such file or directory`
+        # error instead of the explicit `::error::` annotation the
+        # gate is supposed to surface.
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/aarch64-apple-darwin/release/bundle"
+          if [ ! -d "$bundle_dir" ]; then
+            echo "::error::tauri build did not produce $bundle_dir at all"
+            ls -la src-tauri/target/aarch64-apple-darwin/release 2>/dev/null || true
+            exit 1
+          fi
+          cd "$bundle_dir"
+          app_count="$(find macos -maxdepth 2 -name '*.app' 2>/dev/null | wc -l | tr -d ' ')"
+          dmg_count="$(find dmg -maxdepth 2 -name '*.dmg' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "produced: ${app_count} .app, ${dmg_count} .dmg"
+          if [ "$app_count" -lt 1 ] || [ "$dmg_count" -lt 1 ]; then
+            echo "::error::tauri build did not produce the expected .app + .dmg bundle"
+            ls -la macos dmg 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Report bundle sizes
+        # `tauri build --target aarch64-apple-darwin` writes to
+        # `target/aarch64-apple-darwin/release/bundle/...`, NOT
+        # `target/release/bundle/...`. The untargeted-build path was
+        # stale — `find` returned "No such file or directory" and the
+        # whole step exited with code 1 even though the bundle built
+        # cleanly.
+        run: |
+          echo "Bundle sizes for macOS arm64:"
+          find src-tauri/target/aarch64-apple-darwin/release/bundle -maxdepth 3 -type f \
+            \( -name '*.app' -o -name '*.dmg' \) \
+            -print -exec du -h {} +
+
+      - name: Upload artifacts
+        # Non-blocking for the same reason as the bench upload above:
+        # the BUILD GATE is `tauri build` itself (preceding step). The
+        # DMG / .app artifacts are released via the notarised
+        # macos-release.sh flow, not consumed by downstream CI jobs.
+        # `continue-on-error` keeps the job green if artifact-storage
+        # quota is exhausted at the GitHub account level.
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: bidsvue-macos-arm64
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e:
+    # End-to-end smoke through tauri-driver. Linux-only for now -- Windows
+    # and macOS each need their own WebDriver story (WebView2's Edge driver
+    # on Windows, a notarised binary + WKWebView quirks on macOS) and the
+    # value of a third platform here is small while the suite is two tests
+    # deep. Revisit when the M3 validator and M4 editor add cross-platform
+    # surfaces worth proving against.
+    #
+    # 2026-06-29: GATED OFF (`if: false`). Linux sidecars now exist and
+    # are staged, but this suite is still shallow and not a release gate.
+    # Re-enable once the WebDriver/Linux-WebView setup is worth enforcing
+    # for cross-platform smoke.
+    name: E2E (ubuntu-latest)
+    needs: static
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux Tauri build + headless-X dependencies
+        # Same package set as the `build` job above, plus:
+        #   - xvfb: provides a virtual display so we can run the WebView headlessly.
+        #   - webkit2gtk-driver: ships the WebKitWebDriver binary that
+        #     tauri-driver needs on PATH (otherwise tauri-driver fails with
+        #     `CannotFindBinaryPath` and never starts).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            patchelf \
+            file \
+            wget \
+            xvfb \
+            webkit2gtk-driver
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # package.json points `@niivue/niivue` and `@niivue/dev-images`
+        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
+        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
+        # display — none of which are on npm yet; rc.8 on npm predates
+        # the API). Clone the upstream monorepo as a BIDSvue sibling so
+        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
+        # to the same commit the local maintainer's dist was built from.
+        # Re-pin to a real npm version + drop this step the moment rc.9
+        # ships to npm; `scripts/macos-release.sh` already blocks
+        # notarised cuts while the file: dep is present.
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          # Build the niivue package's dist/ (it is .gitignored upstream).
+          # `--filter=@niivue/niivue` runs only the build script of the
+          # niivue workspace so we don't waste CI time on the rest of
+          # the monorepo.
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+          echo "NiiVue rc.9 staged at $mono_dir"
+
+      - name: Install JS deps
+        run: bun install --frozen-lockfile
+
+      - name: Install tauri-driver
+        # `cargo install` caches via rust-cache above; on a warm cache this
+        # is a no-op after the first push.
+        run: cargo install tauri-driver --locked
+
+      - name: Build frontend + Tauri binary (debug)
+        # wdio.conf.ts points at src-tauri/target/debug/bidsvue. We don't
+        # need the full `tauri build` (which packages into .deb/.AppImage);
+        # a plain `cargo build` against the workspace is faster and yields
+        # the binary the driver expects.
+        run: |
+          bun run build
+          cargo build --manifest-path src-tauri/Cargo.toml
+
+      - name: Run E2E suite (xvfb + tauri-driver)
+        env:
+          # Bypass the launch screen via the test_open_dataset Tauri
+          # command (see src-tauri/src/lib.rs). The Tauri binary inherits
+          # the env from tauri-driver, which inherits it from this step.
+          BIDSVUE_TEST_OPEN_DATASET: ${{ github.workspace }}/tests/fixtures/tiny-bids
+        run: |
+          # Start tauri-driver listening on the default :4444. WDIO
+          # connects to it; tauri-driver spawns the binary per session.
+          tauri-driver &
+          TAURI_DRIVER_PID=$!
+          trap "kill $TAURI_DRIVER_PID 2>/dev/null || true" EXIT
+
+          # Wait up to 30 s for the driver's port to accept connections.
+          # /dev/tcp is bash-builtin so we don't add a netcat dependency.
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/localhost/4444) 2>/dev/null; then
+              echo "tauri-driver is up (after ${i}s)"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "tauri-driver failed to start within 30 s"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # xvfb-run wraps the test runner so the WebView has a display.
+          # --auto-servernum picks a free DISPLAY number.
+          xvfb-run --auto-servernum bun run test:e2e
+
+  windows-check:
+    # Fast Windows-target lint gate. Surfaces Windows-specific compiler
+    # warnings (cfg(unix)-gated code leaving unused siblings on windows-msvc)
+    # in ~3-5 min, WITHOUT the ~40 min crossplatform-bundles release build +
+    # NSIS packaging. `cargo check` does no codegen/link and runs no tests, so
+    # the ~41 Unix-path-assuming trust/process tests (soft-failed in the bundle
+    # workflow) are irrelevant here. `RUSTFLAGS=-D warnings` makes a NEW Windows
+    # warning fail the PR (cargo caps dependency lints, so this gates only the
+    # bidsvue crate). This is the local-lint answer for a tree whose `ring` C
+    # dep can't cross-compile on macOS — let CI's native windows-latest do it.
+    name: Windows cargo check (warnings gate)
+    needs: static
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Rust toolchain (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
+        # Same workaround as the other jobs until @niivue/niivue re-pins to npm.
+        shell: bash
+        env:
+          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
+        run: |
+          set -euo pipefail
+          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
+          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
+          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
+          (cd "$mono_dir" && bun install --no-frozen-lockfile)
+          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
+          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
+
+      - name: Install JS deps
+        # postinstall stages resources/windows/ sidecars into
+        # binaries/<name>-x86_64-pc-windows-msvc.exe, which tauri_build's
+        # externalBin verification needs at `cargo check` time.
+        run: bun install --frozen-lockfile
+
+      - name: Sync SvelteKit
+        run: bun x svelte-kit sync
+
+      - name: Build frontend
+        # tauri_build verifies frontendDist exists; build it (fast, ~1 min)
+        # rather than the full `tauri build`.
+        run: bun run build
+
+      - name: cargo check (warnings as errors)
+        working-directory: src-tauri
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo check --workspace --target x86_64-pc-windows-msvc

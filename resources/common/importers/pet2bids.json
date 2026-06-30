@@ -1,0 +1,39 @@
+{
+  "id": "pet2bids",
+  "label": "pet2bids",
+  "description": "Convert PET DICOMs with optional metadata overlay for fields DICOM does not carry.",
+  "binary": "dcm2niix",
+  "datasetNameOptional": true,
+  "fields": [
+    {
+      "key": "subject",
+      "label": "Subject ID",
+      "type": "bidsLabel",
+      "default": "",
+      "required": true,
+      "help": "Required. Letters and digits only."
+    },
+    {
+      "key": "session",
+      "label": "Session",
+      "type": "bidsLabel",
+      "default": "",
+      "help": "Letters and digits only. Empty = omit the ses-* layer."
+    },
+    {
+      "key": "anonymize",
+      "label": "Strip dates",
+      "type": "boolean",
+      "default": false,
+      "help": "Off keeps AcquisitionDateTime so chronological ordering works; PHI is stripped either way. On strips dates too."
+    },
+    {
+      "key": "petMetadataPath",
+      "label": "Metadata file",
+      "type": "filePath",
+      "default": "",
+      "extensions": ["json"],
+      "help": "Optional JSON of PET fields (TracerName, InjectedRadioactivity, ModeOfAdministration, …). Operator values win over dcm2niix-derived ones."
+    }
+  ]
+}

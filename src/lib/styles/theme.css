@@ -1,0 +1,219 @@
+/* App-wide theme variables. Component CSS reads these via var(...).
+ * Lives in a plain CSS file (not in `+layout.svelte`'s `<style>` block)
+ * because every selector is :root / body / [data-*] — none of them scope
+ * to elements inside the layout template, so Svelte 5 emits a
+ * "No scopable elements found in template" warning when these live
+ * alongside a `:global(...)`-only Svelte style block.
+ *
+ * Imported once from `src/routes/+layout.svelte`'s script tag so the
+ * variables are available to every component on the page.
+ */
+
+/* Theme variables. Light by default; the dark overrides apply when the
+   OS theme is dark. */
+:root {
+  /* Surfaces, lightest to darkest emphasis. */
+  --bg-base: #ffffff; /* main "document" surface, e.g. preview pane */
+  --bg-sidebar: #f4f5f7; /* tree pane / left-rail surface */
+  --bg-elevated: #fafbfc; /* launch screen, modal backdrops */
+  --bg-statusbar: #ededef; /* footer bar */
+  --bg-titlebar-tint: #e9eaec; /* implied native title-bar tone for reference */
+
+  /* Borders, subtle to strong. */
+  --border-subtle: rgba(15, 17, 21, 0.08);
+  --border-strong: rgba(15, 17, 21, 0.12);
+
+  /* Text. */
+  --fg-base: #1a1c20;
+  --fg-muted: rgba(15, 17, 21, 0.62);
+  --fg-faint: rgba(15, 17, 21, 0.42);
+
+  /* Selection / brand: Cambridge Blue. This is the colour that signals
+     "you picked this" -- the launch screen primary button, the tree
+     row's selected state, the group-member tab strip's active member. */
+  --selection-bg: #a3c1ad;
+  --selection-bg-hover: #87a892;
+  --selection-text: #1a2620;
+
+  /* Accent: focus rings, hover outlines, info badges. Aliased to the
+     current selection colour so the user's accent choice cascades
+     through every interactive affordance. The non-sage data-accent
+     blocks below also reset --accent* to their own --selection-*
+     palette, so hover / focus / selection all read as a single
+     coherent colour. */
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(163, 193, 173, 0.16);
+
+  /* Tint native form controls (checkbox / radio / range / progress) with
+     the user's accent so the import wizard's "anonymize" checkbox, the
+     status-bar toggles, and any future range slider all read as part of
+     the app's palette instead of the OS default blue. The CSS-wide
+     `accent-color` property is supported in WebKit since Safari 15.4
+     and is the standard way to recolour native form controls without
+     replacing them. Inherits to every form control below; per-control
+     overrides are still possible via the same property. */
+  accent-color: var(--selection-bg);
+
+  color: var(--fg-base);
+  background: var(--bg-base);
+}
+
+/* Hard 1px line under the OS title bar so the white preview pane has a
+   visible seam against the title bar's near-white background. Modern
+   apps (VS Code, Linear, Figma) prefer this over a drop shadow. */
+body {
+  border-block-start: 1px solid var(--border-strong);
+}
+
+/* Dark theme. Two paths:
+
+     1. :root[data-theme='dark'] -- explicit user override set by
+        applyThemeOverride() in appMenu.ts. This is the load-bearing
+        half, because Tauri's setTheme() on macOS sets the OS window
+        chrome but does NOT propagate to the webview's
+        prefers-color-scheme media query, so the CSS below would
+        otherwise never react to a user-chosen Dark.
+
+     2. @media (prefers-color-scheme: dark) on :root:not([data-theme])
+        -- system dark, only when the user hasn't picked an explicit
+        override (data-theme attribute absent). Picking 'system' from
+        the menu removes the attribute and defers to this path.
+
+   The two blocks duplicate variable values rather than share via a
+   custom-property indirection because that approach (--scheme:dark,
+   etc.) makes the variable graph harder to follow at a glance. The
+   duplication is contained to this one file. */
+:root[data-theme="dark"] {
+  --bg-base: #1c1d20;
+  --bg-sidebar: #17181b;
+  --bg-elevated: #202125;
+  --bg-statusbar: #131418;
+  --bg-titlebar-tint: #232428;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --fg-base: #ecedef;
+  --fg-muted: rgba(236, 237, 239, 0.65);
+  --fg-faint: rgba(236, 237, 239, 0.4);
+
+  /* Selection stays Cambridge Blue in dark mode -- it's bright enough
+     against the dark surfaces to read clearly without adjusting the
+     hue. The on-selection text colour shifts darker so contrast holds. */
+  --selection-bg: #a3c1ad;
+  --selection-bg-hover: #87a892;
+  --selection-text: #0d1014;
+
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(163, 193, 173, 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg-base: #1c1d20;
+    --bg-sidebar: #17181b;
+    --bg-elevated: #202125;
+    --bg-statusbar: #131418;
+    --bg-titlebar-tint: #232428;
+
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+
+    --fg-base: #ecedef;
+    --fg-muted: rgba(236, 237, 239, 0.65);
+    --fg-faint: rgba(236, 237, 239, 0.4);
+
+    --selection-bg: #a3c1ad;
+    --selection-bg-hover: #87a892;
+    --selection-text: #0d1014;
+
+    --accent: var(--selection-bg);
+    --accent-hover: var(--selection-bg-hover);
+    --accent-text: var(--selection-text);
+    --accent-soft: rgba(163, 193, 173, 0.22);
+  }
+}
+
+/* Garnet accent override. Set by applyAccentScheme() in appMenu.ts via
+   data-accent="garnet" on <html>. Garnet is dark enough that the on-
+   colour text is white in both light and dark mode -- no separate dark-
+   mode variant needed. This block is placed AFTER the theme blocks so
+   it wins the same-specificity tie when both data-accent and
+   prefers-color-scheme apply; the selection vars override regardless
+   of theme. Sage stays the default with no data-accent attribute. */
+:root[data-accent="garnet"] {
+  --selection-bg: #73000a;
+  --selection-bg-hover: #5e0008;
+  --selection-text: #ffffff;
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(115, 0, 10, 0.16);
+}
+
+/* Periwinkle accent override. Set by applyAccentScheme() in appMenu.ts
+   via data-accent="periwinkle" on <html>. Periwinkle (#88A9F1) is light
+   enough that dark text reads better than white in both light and dark
+   mode, so --selection-text matches sage's near-black. Same ordering
+   and override semantics as the garnet block above. */
+:root[data-accent="periwinkle"] {
+  --selection-bg: #88a9f1;
+  --selection-bg-hover: #6d90e0;
+  --selection-text: #1a2620;
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(136, 169, 241, 0.22);
+}
+
+/* Orange accent override (#BF5700, burnt orange). Set by
+   applyAccentScheme() via data-accent="orange". The hue is dark enough
+   for white on-colour text in both light and dark mode; same ordering
+   and override semantics as the garnet block above. */
+:root[data-accent="orange"] {
+  --selection-bg: #bf5700;
+  --selection-bg-hover: #a44900;
+  --selection-text: #ffffff;
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(191, 87, 0, 0.16);
+}
+
+/* Violet accent override (#967DFF, mid-saturation purple). Set by
+   applyAccentScheme() via data-accent="violet". Relative luminance
+   ~0.29 puts the WCAG contrast ratio at ~5.5:1 against the dark
+   #1a2620 (periwinkle's text) vs ~3.1:1 against white, so dark text
+   wins for both light and dark mode. Same ordering and override
+   semantics as the garnet block above. */
+:root[data-accent="violet"] {
+  --selection-bg: #967dff;
+  --selection-bg-hover: #8269e0;
+  --selection-text: #1a2620;
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(150, 125, 255, 0.16);
+}
+
+/* Indigo accent override (#7A73EC, mid-saturation blue-purple).
+   Set by applyAccentScheme() via data-accent="indigo". Relative
+   luminance ~0.225 puts the WCAG contrast at ~4.8:1 against the
+   dark #1a2620 text vs ~3.3:1 against white, so dark text wins for
+   both light and dark mode — same pattern as violet and periwinkle.
+   NOTE: visually adjacent to violet (#967DFF); kept temporarily as
+   an A/B option until a final indigo hue is chosen. Same ordering
+   and override semantics as the garnet block above. */
+:root[data-accent="indigo"] {
+  --selection-bg: #7a73ec;
+  --selection-bg-hover: #665fcd;
+  --selection-text: #1a2620;
+  --accent: var(--selection-bg);
+  --accent-hover: var(--selection-bg-hover);
+  --accent-text: var(--selection-text);
+  --accent-soft: rgba(122, 115, 236, 0.16);
+}

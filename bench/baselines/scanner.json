@@ -1,0 +1,8 @@
+{
+  "capturedOn": "linux",
+  "capturedAt": "2026-05-11T01:32:59.724Z",
+  "targetFiles": 50000,
+  "scanMs": 1075.1890910000002,
+  "heapDeltaMB": 49.7850227355957,
+  "indexedNodes": 76378
+}

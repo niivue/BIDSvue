@@ -1,0 +1,49 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main window. Capability scope is intentionally NARROW at startup -- $APPDATA/** (per-dataset state, prefs, operations.log, originals/), $APPCACHE/** (ephemeral deface tmp under the bundle-id cache dir; mkdir-via-appCacheDir lives here, see src/lib/deface/tauriExecutor.ts), plus bundled $RESOURCE/** (importer manifests, validator schema, MNI templates, mindgrab weights) and nothing more. The renderer has no shell execute permission; import and deface process spawning is routed through Rust commands that select fixed executables and validate argv shapes. On dataset open the renderer invokes the `allow_dataset_scope` Rust command with a token previously minted by `pick_dataset_directory` / `pick_file`, which uses Tauri 2's runtime fs + asset-protocol scope APIs to widen access to the user-picked dataset root. Import flows additionally use the narrower `allow_fs_scope` for non-viewer source paths (DICOM / MEG sources, PET metadata) — fs scope only, no asset protocol — so a compromised renderer cannot stream those bytes through `asset://` even though it can read them. Pre-open XSS can only reach the three bundled locations; post-open, only the datasets the user actually selected in this session. Append-only at runtime by Tauri 2 design -- closing+reopening the app is the only way to drop a previously-opened scope. See ARCHITECTURE.md §6 for the policy and trade-offs. Write-class permissions are declared in string form (no per-permission `allow` arrays) so they fall back to `fs:scope` -- the runtime widening only reaches that global scope, and a per-permission `allow` array would shadow it (Tauri's permission system checks per-permission scope BEFORE the plugin's runtime scope). $RESOURCE/** stays in fs:scope but writes there are blocked at the OS layer (the .app bundle / Linux install prefix is read-only). The `deny` rules below exclude the Rust-managed trust file AND the cloud-share per-backend token files from renderer access — a compromised renderer cannot forge trust-set entries or peek at brainlife/openneuro JWTs even though both files live under $APPDATA.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
+    "os:allow-platform",
+    "os:allow-arch",
+    "os:allow-locale",
+    "store:default",
+    "fs:allow-read-text-file",
+    "fs:allow-read-file",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "fs:allow-stat",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
+    "fs:allow-open",
+    "fs:allow-seek",
+    "fs:allow-read",
+    "fs:allow-write-text-file",
+    "fs:allow-write-file",
+    "fs:allow-rename",
+    "fs:allow-remove",
+    "fs:allow-copy-file",
+    "fs:allow-mkdir",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$APPCACHE" },
+        { "path": "$APPCACHE/**" },
+        { "path": "$RESOURCE" },
+        { "path": "$RESOURCE/**" }
+      ],
+      "deny": [
+        { "path": "$APPDATA/trust" },
+        { "path": "$APPDATA/trust/**" },
+        { "path": "$APPDATA/share" },
+        { "path": "$APPDATA/share/**" }
+      ]
+    }
+  ]
+}

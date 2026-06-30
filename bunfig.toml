@@ -1,0 +1,9 @@
+[install]
+# Hoist transitive dependencies to the top-level `node_modules/`. Without
+# this, the `file:` dep for `@niivue/niivue` (M-PHY0 — pointed at the
+# in-tree monorepo build at `../mono/packages/niivue`)
+# triggers bun's isolated-install heuristic for the whole tree, leaving
+# scripts like `bundle-validator.ts` unable to resolve `esbuild` and
+# `@jsr/bids__schema` from the root. Re-pin to npm rc.8+ before release
+# (release-script gate enforces this).
+linker = "hoisted"
