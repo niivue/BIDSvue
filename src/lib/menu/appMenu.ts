@@ -144,11 +144,12 @@ export interface AppMenuInitialState {
 /**
  * Apply the user's accent scheme by setting / clearing `data-accent` on
  * <html>. The layout's CSS keys off this attribute to swap the
- * --selection-* variables between sage (default, no attribute) and
- * garnet (data-accent="garnet"). The garnet block is ordered after the
- * theme block in the stylesheet so the same specificity ties resolve to
- * the accent winning, which is the intended override for both light and
- * dark mode.
+ * --selection-* variables between the built-in sage fallback (no
+ * attribute) and explicit accent attributes such as
+ * data-accent="orange". The accent blocks are ordered after the theme
+ * block in the stylesheet so the same specificity ties resolve to the
+ * accent winning, which is the intended override for both light and dark
+ * mode.
  */
 export function applyAccentScheme(a: AccentScheme): void {
   const root = document.documentElement

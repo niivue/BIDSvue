@@ -60,10 +60,10 @@ class PreferencesStore {
 
   /**
    * Brand accent for selection state -- tree-row highlight, launch button,
-   * group-tab strip, contextual bar. 'sage' (#A3C1AD, Cambridge Blue) is
-   * the default; 'garnet' (#73000A), 'periwinkle' (#88A9F1), 'orange'
-   * (#BF5700), and 'violet' (#967DFF) are the alternatives. Set from the
-   * View > Accent menu.
+   * group-tab strip, contextual bar. 'orange' (#BF5700) is the release
+   * default; 'sage' (#A3C1AD, Cambridge Blue), 'garnet' (#73000A),
+   * 'periwinkle' (#88A9F1), and 'violet' (#967DFF) are alternatives. Set
+   * from the View > Accent menu.
    */
   accentScheme = $state<AccentScheme>(ACCENT_SCHEME_DEFAULT)
 

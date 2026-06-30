@@ -613,7 +613,7 @@
      chips so the icon doesn't crush at 14px.
      -------------------------------------------------------------
      Theme-NEUTRAL by design (NOT --accent): a row in the selected
-     state already paints --accent (sage-green by default) across
+     state already paints --accent (orange by default) across
      its background, and the validator-chips' red/amber follow the
      same theme-neutral pattern. A theme-following chip would
      disappear on selected rows whenever the user picked a theme

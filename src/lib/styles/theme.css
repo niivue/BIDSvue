@@ -28,9 +28,9 @@
   --fg-muted: rgba(15, 17, 21, 0.62);
   --fg-faint: rgba(15, 17, 21, 0.42);
 
-  /* Selection / brand: Cambridge Blue. This is the colour that signals
-     "you picked this" -- the launch screen primary button, the tree
-     row's selected state, the group-member tab strip's active member. */
+  /* Selection / brand fallback: Cambridge Blue. Orange is the release
+     default applied via data-accent="orange"; this fallback covers the
+     pre-boot/no-preference-attribute state and the Sage menu option. */
   --selection-bg: #a3c1ad;
   --selection-bg-hover: #87a892;
   --selection-text: #1a2620;
@@ -144,7 +144,8 @@ body {
    mode variant needed. This block is placed AFTER the theme blocks so
    it wins the same-specificity tie when both data-accent and
    prefers-color-scheme apply; the selection vars override regardless
-   of theme. Sage stays the default with no data-accent attribute. */
+   of theme. Sage stays the no-attribute fallback; the release default
+   is applied as data-accent="orange" from preferences. */
 :root[data-accent="garnet"] {
   --selection-bg: #73000a;
   --selection-bg-hover: #5e0008;

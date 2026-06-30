@@ -81,7 +81,7 @@ export type AccentScheme =
   | 'violet'
   | 'indigo'
 
-export const ACCENT_SCHEME_DEFAULT: AccentScheme = 'sage'
+export const ACCENT_SCHEME_DEFAULT: AccentScheme = 'orange'
 
 export function validateAccentScheme(value: unknown): AccentScheme {
   if (

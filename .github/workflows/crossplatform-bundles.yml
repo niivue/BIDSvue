@@ -87,11 +87,11 @@ jobs:
             curl
 
       - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # Mirror the macOS CI step: package.json points @niivue/niivue +
-        # @niivue/dev-images at file:../mono/packages/... (rc.9, not yet on
-        # npm). Clone the upstream monorepo as a BIDSvue sibling so
-        # `bun install --frozen-lockfile` resolves the file: dep. Drop this
-        # step once the dep is repinned to a registry release.
+        # package.json points @niivue/niivue + @niivue/dev-images at
+        # file:../mono/packages/... (rc.9, not yet on npm). Clone the upstream
+        # monorepo as a BIDSvue sibling so `bun install --frozen-lockfile`
+        # resolves the file: dep. Drop this step once the dep is repinned to a
+        # registry release.
         # `shell: bash` so the same script runs on the Windows runner
         # (git-bash ships on windows-latest).
         shell: bash

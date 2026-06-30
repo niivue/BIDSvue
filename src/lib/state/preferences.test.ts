@@ -4,6 +4,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import {
+  ACCENT_SCHEME_DEFAULT,
   AI_CLI_PREFERENCE_DEFAULT,
   AI_CUSTOM_GUIDELINES_MAX_BYTES,
   AI_OLLAMA_BASE_URL_DEFAULT,
@@ -17,6 +18,7 @@ import {
   clampPaneSplit,
   sanitizeAiCustomPrompts,
   sanitizeRecentDatasets,
+  validateAccentScheme,
   validateAiCliPreference,
   validateAiCustomGuidelines,
   validateAiDirectBaseUrl,
@@ -74,6 +76,28 @@ describe('validateLocalePreference', () => {
     expect(validateLocalePreference(undefined)).toBeNull()
     expect(validateLocalePreference(42)).toBeNull()
     expect(validateLocalePreference({})).toBeNull()
+  })
+})
+
+describe('validateAccentScheme', () => {
+  test('release default is orange', () => {
+    expect(ACCENT_SCHEME_DEFAULT).toBe('orange')
+  })
+
+  test('passes through supported accent slugs', () => {
+    expect(validateAccentScheme('sage')).toBe('sage')
+    expect(validateAccentScheme('garnet')).toBe('garnet')
+    expect(validateAccentScheme('periwinkle')).toBe('periwinkle')
+    expect(validateAccentScheme('orange')).toBe('orange')
+    expect(validateAccentScheme('violet')).toBe('violet')
+    expect(validateAccentScheme('indigo')).toBe('indigo')
+  })
+
+  test('rejects unknown / wrong-shape values back to the release default', () => {
+    expect(validateAccentScheme('blue')).toBe(ACCENT_SCHEME_DEFAULT)
+    expect(validateAccentScheme(undefined)).toBe(ACCENT_SCHEME_DEFAULT)
+    expect(validateAccentScheme(42)).toBe(ACCENT_SCHEME_DEFAULT)
+    expect(validateAccentScheme({})).toBe(ACCENT_SCHEME_DEFAULT)
   })
 })
 
