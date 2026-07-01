@@ -26,33 +26,6 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # package.json points `@niivue/niivue` and `@niivue/dev-images`
-        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
-        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
-        # display — none of which are on npm yet; rc.8 on npm predates
-        # the API). Clone the upstream monorepo as a BIDSvue sibling so
-        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
-        # to the same commit the local maintainer's dist was built from.
-        # Re-pin to a real npm version + drop this step the moment rc.9
-        # ships to npm; `scripts/macos-release.sh` already blocks
-        # notarised cuts while the file: dep is present.
-        env:
-          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
-        run: |
-          set -euo pipefail
-          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
-          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
-          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
-          # Build the niivue package's dist/ (it is .gitignored upstream).
-          # `--filter=@niivue/niivue` runs only the build script of the
-          # niivue workspace so we don't waste CI time on the rest of
-          # the monorepo.
-          (cd "$mono_dir" && bun install --no-frozen-lockfile)
-          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
-          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
-          echo "NiiVue rc.9 staged at $mono_dir"
-
       - name: Install JS deps
         run: bun install --frozen-lockfile
 
@@ -106,33 +79,6 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # package.json points `@niivue/niivue` and `@niivue/dev-images`
-        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
-        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
-        # display — none of which are on npm yet; rc.8 on npm predates
-        # the API). Clone the upstream monorepo as a BIDSvue sibling so
-        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
-        # to the same commit the local maintainer's dist was built from.
-        # Re-pin to a real npm version + drop this step the moment rc.9
-        # ships to npm; `scripts/macos-release.sh` already blocks
-        # notarised cuts while the file: dep is present.
-        env:
-          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
-        run: |
-          set -euo pipefail
-          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
-          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
-          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
-          # Build the niivue package's dist/ (it is .gitignored upstream).
-          # `--filter=@niivue/niivue` runs only the build script of the
-          # niivue workspace so we don't waste CI time on the rest of
-          # the monorepo.
-          (cd "$mono_dir" && bun install --no-frozen-lockfile)
-          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
-          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
-          echo "NiiVue rc.9 staged at $mono_dir"
-
       - name: Install JS deps
         run: bun install --frozen-lockfile
 
@@ -175,18 +121,12 @@ jobs:
     # End-to-end smoke through tauri-driver. Linux-only for now -- Windows
     # and macOS each need their own WebDriver story (WebView2's Edge driver
     # on Windows, a notarised binary + WKWebView quirks on macOS) and the
-    # value of a third platform here is small while the suite is two tests
-    # deep. Revisit when the M3 validator and M4 editor add cross-platform
-    # surfaces worth proving against.
-    #
-    # 2026-06-29: GATED OFF (`if: false`). Linux sidecars now exist and
-    # are staged, but this suite is still shallow and not a release gate.
-    # Re-enable once the WebDriver/Linux-WebView setup is worth enforcing
-    # for cross-platform smoke.
-    name: E2E (ubuntu-latest)
+    # value of a third platform here is small while the suite is young.
+    # Linux is now a release gate because it proves the WebKitGTK viewer path
+    # with NiiVue's WebGL2 fallback under a real Tauri WebView.
+    name: E2E (ubuntu-22.04)
     needs: static
-    if: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -214,42 +154,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
             libxdo-dev \
+            libgl1-mesa-dri \
             patchelf \
             file \
             wget \
             xvfb \
             webkit2gtk-driver
-
-      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # package.json points `@niivue/niivue` and `@niivue/dev-images`
-        # at `file:../mono/packages/...` (the in-tree NiiVue rc.9 build
-        # M-PHY0 introduced for `loadSignals` / sidecar / per-signal
-        # display — none of which are on npm yet; rc.8 on npm predates
-        # the API). Clone the upstream monorepo as a BIDSvue sibling so
-        # `bun install --frozen-lockfile` resolves the file: dep. Pinned
-        # to the same commit the local maintainer's dist was built from.
-        # Re-pin to a real npm version + drop this step the moment rc.9
-        # ships to npm; `scripts/macos-release.sh` already blocks
-        # notarised cuts while the file: dep is present.
-        env:
-          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
-        run: |
-          set -euo pipefail
-          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
-          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
-          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
-          # Build the niivue package's dist/ (it is .gitignored upstream).
-          # `--filter=@niivue/niivue` runs only the build script of the
-          # niivue workspace so we don't waste CI time on the rest of
-          # the monorepo.
-          (cd "$mono_dir" && bun install --no-frozen-lockfile)
-          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
-          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
-          echo "NiiVue rc.9 staged at $mono_dir"
 
       - name: Install JS deps
         run: bun install --frozen-lockfile
@@ -274,30 +189,40 @@ jobs:
           # command (see src-tauri/src/lib.rs). The Tauri binary inherits
           # the env from tauri-driver, which inherits it from this step.
           BIDSVUE_TEST_OPEN_DATASET: ${{ github.workspace }}/tests/fixtures/tiny-bids
+          # Make the viewer spec a real Linux WebKitGTK render gate:
+          # attach-error is not accepted and the canvas must contain pixels.
+          BIDSVUE_E2E_REQUIRE_VIEWER_RENDER: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          # Headless WebKitGTK on Xvfb + llvmpipe (no GPU/DRM) can't composite
+          # WebGL through the default DMABUF renderer, which yields a BLACK
+          # canvas and would false-fail the nonblank-pixel gate above. Force the
+          # non-DMABUF GL path so WebGL2 actually renders under software Mesa.
+          # (Real users with a GPU are unaffected; this is a CI-env-only knob.)
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
         run: |
-          # Start tauri-driver listening on the default :4444. WDIO
-          # connects to it; tauri-driver spawns the binary per session.
-          tauri-driver &
-          TAURI_DRIVER_PID=$!
-          trap "kill $TAURI_DRIVER_PID 2>/dev/null || true" EXIT
+          # tauri-driver spawns the Tauri app, so the driver and WDIO runner
+          # must share the same Xvfb DISPLAY. Wrapping only `bun run test:e2e`
+          # leaves the spawned app headless.
+          xvfb-run --auto-servernum bash -c '
+            set -euo pipefail
+            tauri-driver &
+            TAURI_DRIVER_PID=$!
+            trap "kill $TAURI_DRIVER_PID 2>/dev/null || true" EXIT
 
-          # Wait up to 30 s for the driver's port to accept connections.
-          # /dev/tcp is bash-builtin so we don't add a netcat dependency.
-          for i in $(seq 1 30); do
-            if (echo > /dev/tcp/localhost/4444) 2>/dev/null; then
-              echo "tauri-driver is up (after ${i}s)"
-              break
-            fi
-            if [ "$i" = "30" ]; then
-              echo "tauri-driver failed to start within 30 s"
-              exit 1
-            fi
-            sleep 1
-          done
+            for i in $(seq 1 30); do
+              if (echo > /dev/tcp/localhost/4444) 2>/dev/null; then
+                echo "tauri-driver is up (after ${i}s)"
+                break
+              fi
+              if [ "$i" = "30" ]; then
+                echo "tauri-driver failed to start within 30 s"
+                exit 1
+              fi
+              sleep 1
+            done
 
-          # xvfb-run wraps the test runner so the WebView has a display.
-          # --auto-servernum picks a free DISPLAY number.
-          xvfb-run --auto-servernum bun run test:e2e
+            bun run test:e2e
+          '
 
   windows-check:
     # Fast Windows-target lint gate. Surfaces Windows-specific compiler
@@ -328,20 +253,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # Same workaround as the other jobs until @niivue/niivue re-pins to npm.
-        shell: bash
-        env:
-          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
-        run: |
-          set -euo pipefail
-          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
-          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
-          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
-          (cd "$mono_dir" && bun install --no-frozen-lockfile)
-          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
-          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
 
       - name: Install JS deps
         # postinstall stages resources/windows/ sidecars into
