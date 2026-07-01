@@ -36,13 +36,13 @@
 #                          embedded app version matches package metadata.
 #   BIDSVUE_ALLOW_FILE_DEPS=1
 #                          Opt out of the "no local-path deps in package.json"
-#                          gate. Use ONLY for the M-PHY0 beta cycle while
-#                          `@niivue/niivue` rc.8+ is still unreleased on npm —
-#                          the DMG that comes out is technically reproducible
-#                          (vite statically bundles the rc.8 bytes), but anyone
-#                          else trying to rebuild it needs the same in-tree
-#                          NiiVue commit at the same absolute path. Drop this
-#                          override the moment rc.8 lands on npm.
+#                          gate. NOT needed in normal operation: as of
+#                          2026-07-01 `@niivue/niivue` is pinned to the npm
+#                          release `1.0.0-rc.10` and no `file:`/`link:`/relative
+#                          spec remains, so the gate passes clean. This escape
+#                          hatch only exists for a future one-off where someone
+#                          deliberately points a dep back at a local build; a
+#                          DMG produced under it is not reproducible by others.
 #   BIDSVUE_DISABLE_AI=1
 #                          Ship a no-AI DMG. AI is compiled into every build
 #                          and ENABLED by default; this sets
@@ -148,14 +148,11 @@ fi
 APP_VERSION="$package_version"
 
 # Block release if any dependency OR override uses a local-path spec (file:/,
-# link:, or a relative ./ or ../ path). Dev-loop convenience like
-# `"@niivue/niivue": "file:../mono/packages/niivue"` (M-PHY0 —
-# the in-tree NiiVue rc.8 build) MUST be repointed to an npm-published version
-# before notarisation, otherwise the DMG silently embeds a developer-local
-# build that no other machine can reproduce. `overrides` is included because
-# M-PHY0 also wires `@niivue/dev-images` through a sibling `file:` path; a
-# future re-pin that flips niivue back to npm but leaves the override in place
-# would still ship developer-local bytes.
+# link:, or a relative ./ or ../ path). Normal releases should have no
+# offenders: `@niivue/niivue` is now pinned to npm rc.10, and the old M-PHY0
+# sibling-build override is gone. Keep checking `overrides` too, because a
+# future local testing escape hatch there would still embed developer-local
+# bytes in the DMG.
 local_path_offenders="$(
   bun -e '
     const fs = require("node:fs");

@@ -8,15 +8,17 @@ The tests drive a built Tauri binary via the WebDriver protocol using [`tauri-dr
 
 ## What this exercises
 
-The default spec (`specs/happy-path.e2e.ts`) opens [`tests/fixtures/tiny-bids/`](../fixtures/tiny-bids/) via the `BIDSVUE_TEST_OPEN_DATASET` bypass (see [`src-tauri/src/lib.rs::test_open_dataset`](../../src-tauri/src/lib.rs)) and then drives the tree:
+The default specs open [`tests/fixtures/tiny-bids/`](../fixtures/tiny-bids/) via the `BIDSVUE_TEST_OPEN_DATASET` bypass (see [`src-tauri/src/lib.rs::test_open_dataset`](../../src-tauri/src/lib.rs)) and then drive the tree plus the NiiVue preview:
 
 > open dataset (via bypass) → tree renders → Expand All → assert subjects visible → Collapse All → assert back near root
+
+> select `sub-01_T1w.nii.gz` → mount NiiVue → in strict mode, assert WebGL2 attach and nonblank canvas pixels
 
 The bypass exists because `tauri-driver` can't drive the native file picker. In production the env var is never set and the bypass returns null, so the launch screen / auto-open-last-dataset flow runs as normal.
 
 ## CI
 
-The Ubuntu CI job (`.github/workflows/ci.yml#e2e`) runs this suite headlessly via `xvfb-run`. Linux-only for now; Windows / macOS E2E coverage can land alongside any platform-specific issue that shows up.
+The Ubuntu CI job (`.github/workflows/ci.yml#e2e`) runs this suite headlessly via `xvfb-run` on Ubuntu 22.04 with `BIDSVUE_E2E_REQUIRE_VIEWER_RENDER=1`, so the viewer spec is a Linux WebKitGTK WebGL2 render gate. Linux-only for now; Windows / macOS E2E coverage can land alongside any platform-specific issue that shows up.
 
 ## One-time local setup
 
@@ -40,6 +42,8 @@ BIDSVUE_TEST_OPEN_DATASET="$(pwd)/tests/fixtures/tiny-bids" tauri-driver
 # In another shell:
 bun run test:e2e
 ```
+
+To run the same strict viewer gate CI uses, set `BIDSVUE_E2E_REQUIRE_VIEWER_RENDER=1` for the WDIO runner; the viewer spec will fail on attach-error or blank WebGL2 pixels.
 
 On a headless Linux box (SSH session, no display), wrap the first line:
 

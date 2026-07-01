@@ -52,10 +52,10 @@
   let { path }: Props = $props()
 
   let canvasEl: HTMLCanvasElement | undefined = $state()
-  // WebGPU-only NiiVue subpath — see the import block in
-  // `NiivueViewer.svelte` for the trade-off rationale.
+  // Universal NiiVue entry (auto WebGPU->WebGL2 fallback) — see the
+  // import block in `NiivueViewer.svelte` for the trade-off rationale.
   let viewer: InstanceType<
-    typeof import('@niivue/niivue/webgpu').default
+    typeof import('@niivue/niivue').default
   > | null = null
   let pathToAssetUrl: ((p: string) => string) | null = null
   /** See NiivueViewer.svelte for the destroyed-during-attach reasoning. */
@@ -232,7 +232,7 @@
     loadState = 'attaching'
     try {
       const [niivueModule, { convertFileSrc }] = await Promise.all([
-        import('@niivue/niivue/webgpu'),
+        import('@niivue/niivue'),
         import('@tauri-apps/api/core'),
       ])
       if (destroyed) return

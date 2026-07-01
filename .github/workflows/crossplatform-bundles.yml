@@ -86,27 +86,6 @@ jobs:
             build-essential \
             curl
 
-      - name: Stage in-tree NiiVue sources (M-PHY0 sibling clone)
-        # package.json points @niivue/niivue + @niivue/dev-images at
-        # file:../mono/packages/... (rc.9, not yet on npm). Clone the upstream
-        # monorepo as a BIDSvue sibling so `bun install --frozen-lockfile`
-        # resolves the file: dep. Drop this step once the dep is repinned to a
-        # registry release.
-        # `shell: bash` so the same script runs on the Windows runner
-        # (git-bash ships on windows-latest).
-        shell: bash
-        env:
-          NIIVUE_MONO_REF: f54ec406c071512bea9f6f9d4eb4a2a2db867bb7
-        run: |
-          set -euo pipefail
-          mono_dir="$(cd "${{ github.workspace }}/.." && pwd)/mono"
-          git clone --filter=blob:none https://github.com/niivue/mono.git "$mono_dir"
-          git -C "$mono_dir" checkout "$NIIVUE_MONO_REF"
-          (cd "$mono_dir" && bun install --no-frozen-lockfile)
-          (cd "$mono_dir" && bun --filter=@niivue/niivue run build)
-          test -f "$mono_dir/packages/niivue/dist/index.d.ts"
-          echo "NiiVue rc.9 staged at $mono_dir"
-
       - name: Install JS deps
         # postinstall runs scripts/stage-sidecars.ts, which copies
         # resources/<platform>/ binaries into
@@ -156,6 +135,25 @@ jobs:
           VITE_BIDSVUE_ENABLE_AI: ${{ matrix.vite_enable_ai }}
           BIDSVUE_DISABLE_AI: ${{ matrix.disable_ai }}
         run: bun x tauri build --ci --target ${{ matrix.triple }} --bundles ${{ matrix.bundles }}
+
+      - name: Fix Debian package name + assert (bid-svue -> bidsvue)
+        # Tauri 2.11 kebab-cases productName "BIDSvue" into the deb Package
+        # "bid-svue" with no config override; repackage-deb.sh rewrites it to
+        # `bidsvue` (root-owned, in-app/UI names untouched) AND asserts the
+        # result, so a future Tauri change to the derived name fails the build.
+        # (Audit 2026-07-01 P2.1.)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb_dir="src-tauri/target/${{ matrix.triple }}/release/bundle/deb"
+          mapfile -t debs < <(find "$deb_dir" -maxdepth 1 -type f -name '*.deb' | sort)
+          if [ "${#debs[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one .deb under $deb_dir, found ${#debs[@]}"
+            printf '%s\n' "${debs[@]}"
+            exit 1
+          fi
+          bash scripts/repackage-deb.sh "${debs[0]}"
 
       - name: Verify bundle exists (gate)
         # `tauri build --target <triple>` writes to

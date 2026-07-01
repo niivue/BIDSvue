@@ -69,6 +69,54 @@ function pathIsIgnored(path: string): boolean {
 }
 
 /**
+ * True if a watch event represents a change that can affect BIDS validation
+ * (content / existence / name) — i.e. NOT a pure read or metadata-only event.
+ *
+ * **Why this exists (the Linux feedback loop):** every watcher fire runs a full
+ * `rescanCurrentDataset()` → `openDataset()`, which re-reads every dataset file.
+ * On Linux the recursive `notify`/inotify backend reports `access` (open/close)
+ * and `modify`/`metadata` (atime via `access-time`, permissions, …) events — so
+ * the scan's OWN reads bump file atime and re-fire the watcher, which rescans,
+ * which reads, which re-fires: a tight loop that pins the CPU and flickers the
+ * whole UI (continuous re-validation). macOS FSEvents never reports reads or
+ * atime, so the loop is invisible there — which is why it shipped. We gate on
+ * event kind so only real edits (create / delete / rename / data-modify, plus
+ * close-after-write) trigger a revalidation; pure reads and metadata churn are
+ * ignored. See the per-branch comments for the close-write keep and the
+ * (inotify-forced) wholesale metadata drop.
+ *
+ * Conservative on unknown shapes (`'any'` / `'other'` / `modify`-`'any'`):
+ * revalidate, since those may carry a real change.
+ */
+export function isContentRelevantKind(type: WatchEvent['type']): boolean {
+  if (type === 'any' || type === 'other') return true
+  if ('access' in type) {
+    // Close-after-WRITE (`IN_CLOSE_WRITE`) is a real edit-completion signal —
+    // keep it. Everything else here (open, read, close-after-READ) is the
+    // scan's OWN read activity, which is the Linux inotify feedback trigger;
+    // drop it. `notify` reports `IN_CLOSE_WRITE` vs `IN_CLOSE_NOWRITE`
+    // distinctly, and the scan only ever reads (close-nowrite), so keeping
+    // close-write can't re-arm the loop. (Audit 2026-06-30 finding.)
+    return type.access.kind === 'close' && type.access.mode === 'write'
+  }
+  if ('modify' in type && type.modify.kind === 'metadata') {
+    // Metadata change — dropped wholesale, and deliberately NOT narrowed by
+    // `mode`. On Linux `inotify`'s `IN_ATTRIB` carries no sub-type, so
+    // `notify` collapses BOTH the scan's atime bumps AND a real chmod/chown
+    // into `Metadata(Any)` — they're indistinguishable here, so we can't keep
+    // permissions/ownership without re-opening the scan→atime→rescan loop.
+    // Cost: an external `chmod` won't refresh the read-only lock chips until
+    // the next content event. That's a UI-staleness nit, not a data risk —
+    // the save path is independently mode-guarded (see src/AGENTS.md), so a
+    // stale "writable" chip still fails the write closed. (Audit 2026-06-30
+    // finding; narrowing by mode was rejected as inotify-infeasible.)
+    return false
+  }
+  // create / remove / modify(data|rename|any|other) — a real change.
+  return true
+}
+
+/**
  * Start watching `root` recursively. Calls `onRelevantChange` for each
  * debounced event whose path set contains at least one non-ignored entry.
  *
@@ -86,7 +134,12 @@ export async function startDatasetWatcher(
     return await watch(
       root,
       (event) => {
-        if (shouldRevalidate(event.paths)) onRelevantChange(event)
+        if (
+          isContentRelevantKind(event.type) &&
+          shouldRevalidate(event.paths)
+        ) {
+          onRelevantChange(event)
+        }
       },
       { recursive: true, delayMs },
     )

@@ -36,11 +36,11 @@
     "spike:validator": "bun run scripts/spike-validator.ts",
     "test:e2e": "bunx wdio run tests/e2e/wdio.conf.ts",
     "release:macos": "bash scripts/macos-release.sh",
-    "postinstall": "bun run scripts/patch-validator-imports.ts && bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-sidecars.ts"
+    "postinstall": "bun run scripts/ensure-submodules.ts && bun run scripts/patch-validator-imports.ts && bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-sidecars.ts"
   },
   "dependencies": {
     "@bids/validator": "npm:@jsr/bids__validator@2.4.1",
-    "@niivue/niivue": "file:../mono/packages/niivue",
+    "@niivue/niivue": "1.0.0-rc.10",
     "gl-matrix": "^3.4.4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
@@ -48,9 +48,6 @@
     "@tauri-apps/plugin-os": "^2",
     "@tauri-apps/plugin-store": "^2",
     "svelte-i18n": "^4"
-  },
-  "overrides": {
-    "@niivue/dev-images": "file:../mono/packages/dev-images"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

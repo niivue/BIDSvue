@@ -20,18 +20,18 @@ The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `
 - **Package manager + runtime:** [Bun](https://bun.sh). Always `bun` / `bunx` — never `npm` / `npx` / `pnpm` / `yarn`. **Lint/format:** [Biome](https://biomejs.dev/).
 - **Tauri plugins (TS, official):** `plugin-fs` / `-dialog` / `-store` / `-os`. `plugin-shell` is intentionally NOT installed — process spawning is owned by Rust.
 - **i18n:** `svelte-i18n` (ICU). Catalogs `en` (source) / `pt` / `es` at `src/lib/i18n/locales/` (pt/es AI-bootstrapped, `humanReviewed:false`).
-- **Validator:** `bids-validator-rs` (bundled sidecar, default) — JS `@bids/validator` 2.4.1 is an opt-in fallback. **DataLad engine:** the vendored [`datalad-rs`](https://github.com/rordenlab/datalad-rs) submodule. **Viewer:** `@niivue/niivue` (currently a `file:` dep during M-PHY0 — re-pin to npm before any notarized DMG; the release script blocks on `file:`/`link:` specs).
+- **Validator:** `bids-validator-rs` (bundled sidecar, default) — JS `@bids/validator` 2.4.1 is an opt-in fallback. **DataLad engine:** the vendored [`datalad-rs`](https://github.com/rordenlab/datalad-rs) submodule. **Viewer:** `@niivue/niivue` (npm `1.0.0-rc.10`; the universal entry runtime-selects WebGPU with a WebGL2 fallback — see [LIMITATIONS.md](LIMITATIONS.md)).
 - Bundled sidecars (`dcm2niix`, `niimath`, `bids-validator`) + optional PATH-resolved Python tools (`heudiconv`, `dcm2bids`) + in-process WebGPU mindgrab. Recompile recipes + the cross-platform sidecar matrix: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
 
 ## Workspace layout
 
-- `src-tauri/` — Rust; the **Cargo workspace root**. `src-tauri/crates/datalad-rs` is a **git submodule** (path-dep workspace member) → a fresh clone needs `git submodule update --init --recursive`. Backend gotchas: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
+- `src-tauri/` — Rust; the **Cargo workspace root**. `src-tauri/crates/datalad-rs` is a **git submodule** (path-dep workspace member) → `bun install` auto-initializes it (`scripts/ensure-submodules.ts`); to init by hand instead, run `git submodule update --init --recursive`. Backend gotchas: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
 - `src/` — Svelte + TS renderer (browser-portable — keep it so for a future hosted deployment). Frontend gotchas: [src/AGENTS.md](src/AGENTS.md).
 - Data model is plain TS structures (Map/Set/objects) — no SQLite, no IndexedDB.
 
 ## Build / lint / test
 
-- `bun install` — deps (postinstall stages sidecars + builds the offline validator bundle).
+- `bun install` — deps (postinstall auto-inits git submodules via `scripts/ensure-submodules.ts` — non-fatal, noninteractive, skipped when already initialized or via `BIDSVUE_SKIP_SUBMODULES=1`; then stages sidecars + builds the offline validator bundle). Linux x86_64 is a working dev target as of 2026-06-30 (GTK-init, WebGL2 fallback, watcher-loop fixes — rationale in [src/AGENTS.md](src/AGENTS.md), [src-tauri/AGENTS.md](src-tauri/AGENTS.md), [LIMITATIONS.md](LIMITATIONS.md)).
 - `bun tauri dev` — desktop app, HMR. `bun tauri build` — release bundle.
 - `bun test` — Bun tests. `bun run lint` / `format` / `typecheck` (`svelte-check`) / `check-i18n`.
 - **`bun run check`** — full pre-push gauntlet (validator-artifacts, lint, typecheck, i18n, bun tests, build, `cargo fmt --check`, `cargo test --workspace`). **Run before every push.**

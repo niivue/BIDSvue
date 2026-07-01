@@ -13,7 +13,6 @@ The next signed cut. Items users reported or audits escalated.
 | Item | Effort | Notes |
 |---|---|---|
 | Re-establish macOS signing identity | S | New repo needs a fresh Developer ID Application cert + a `bidsvue-notary` notarytool keychain profile before the first signed DMG. `scripts/macos-release.sh` is unchanged — only credentials. Pair with a committed public minisign key for the auto-updater. |
-| Re-pin `@niivue/niivue` to npm rc.8+ | S | M-PHY0 ships a dev-loop `file:../mono/packages/niivue` spec. The release script blocks notarisation while any dep is `file:`/`link:`/`./`/`../`. Flip back to the published tag, drop the `@niivue/dev-images` `overrides` entry, drop `bunfig.toml`'s `linker = "hoisted"`. |
 | Auto-updater redo | M | Build the signing harness as a standalone CLI first, dry-run minisign + notarize on a synthetic artifact, then re-enable `createUpdaterArtifacts`. (Lesson from the prior revert.) |
 | Validator hard-cancel via Web Worker | M | Same scope as a future sidecar fallback. |
 | Validator subprocess cancellation (Rust backend) | M | Mirror DataLad's `cancel_datalad_op` + `CancellationRegistry`: per-spawn UUID handle, `cancel_bids_validator(handle)`, SIGTERM→SIGKILL escalation. |
