@@ -40,23 +40,20 @@
   // chain widens them to `unknown`, so we narrow with an explicit
   // local cast at the read sites.
   //
-  // Using the WebGPU-only subpath (`@niivue/niivue/webgpu`) instead
-  // of the universal entry. The universal bundle picks WebGPU at
-  // runtime when available AND ships the WebGL2 fallback alongside
-  // it; the WebGPU-only build drops the WebGL2 code path entirely
-  // (smaller chunk, fewer renderer branches). Trade-off: WebGPU is
-  // required at runtime. macOS WKWebView + Tauri 2 ship WebGPU on
-  // every shipped target, and that's the explicit v0.1 product
-  // choice (see LIMITATIONS.md "Volume + spectroscopy viewers
-  // require WebGPU"). **There is no runtime gate** — if WebGPU is
-  // unavailable, the constructor throws a clear "This niivuegpu
-  // distribution includes only WebGPU" message that surfaces via
-  // the existing `attach-error` UI. The `probeWebGpu()` helper in
-  // `src/lib/deface/mindgrab/probe.ts` is deface-specific (it also
-  // requires `shader-f16` + 1.4 GiB buffers that NiiVue itself does
-  // not need) and is NOT invoked here. Earlier drafts of this
-  // comment implied otherwise; audit 2026-06-18 closure.
-  import type { NVImage } from '@niivue/niivue/webgpu'
+  // Using the universal `@niivue/niivue` entry (NOT the WebGPU-only
+  // `/webgpu` subpath). The universal bundle ships both renderers and
+  // `attachToCanvas` selects at runtime: it tries `["webgpu","webgl2"]`
+  // and falls back to WebGL2 when `navigator.gpu` is absent. This keeps
+  // WebGPU on macOS WKWebView (where Tauri 2 ships it) while letting the
+  // Linux WebKitGTK WebView — which has no WebGPU — render via WebGL2.
+  // The earlier WebGPU-only choice shrank the shipped macOS DMG but left
+  // the Linux build unusable (the WebGPU-only constructor throws "This
+  // niivuegpu distribution includes only WebGPU"). Trade-off accepted:
+  // the universal bundle is larger because it carries the WebGL2 path.
+  // (The `probeWebGpu()` helper in `src/lib/deface/mindgrab/probe.ts` is
+  // deface-specific — it also needs `shader-f16` + 1.4 GiB buffers that
+  // NiiVue itself does not — and is NOT invoked here.)
+  import type { NVImage } from '@niivue/niivue'
 
   /**
    * Per-load phase profiling. Off by default; opt in via
@@ -196,7 +193,7 @@
   // internal mutable state. `typeof import(...)` is a type-only reference
   // so it does not pull NiiVue into the eager bundle.
   let viewer: InstanceType<
-    typeof import('@niivue/niivue/webgpu').default
+    typeof import('@niivue/niivue').default
   > | null = null
   let pathToAssetUrl: ((p: string) => string) | null = null
   /**
@@ -324,7 +321,7 @@
    * change / empty-path / clear-volume — so `colormap !== null` is
    * a robust "a volume has been hydrated" signal. The previous
    * shape used `volumeId`, but `NVImage.id` is typed optional in
-   * `@niivue/niivue/webgpu`'s `.d.ts`; if a future NiiVue load
+   * `@niivue/niivue`'s `.d.ts`; if a future NiiVue load
    * path ever returns a volume without `.id`, that gate would
    * permanently disable the header viewer (audit 2026-06-18 P3.1
    * closure). The runtime read still goes through `viewer.volumes[0]`
@@ -507,10 +504,10 @@
     loadState = 'attaching'
     try {
       // NiiVue 1.0.0-rc.8/rc.9 exports the viewer class as its default
-      // export (also aliased as `NiiVueGPU`). The `/webgpu` subpath is
-      // the WebGPU-only distribution (see the import comment up top).
+      // export. The universal entry auto-selects WebGPU->WebGL2 at
+      // attach time (see the import comment up top).
       const [niivueModule, { convertFileSrc }] = await Promise.all([
-        import('@niivue/niivue/webgpu'),
+        import('@niivue/niivue'),
         import('@tauri-apps/api/core'),
       ])
       // Bail out before construction if onDestroy fired during the lazy
