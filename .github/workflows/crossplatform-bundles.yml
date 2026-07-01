@@ -1,8 +1,11 @@
 # Builds the x86_64 Linux + Windows bundles. macOS arm64 is released
 # locally (notarized DMG via scripts/macos-release.sh) and is NOT built
-# here. Manual `workflow_dispatch` only for now; switch to a release-tag
-# trigger once the Linux/Windows smoke checklist passes (see
-# ROADMAP.md "Cross-platform deployment" + "Verification owed").
+# here. Three triggers: manual dispatch (grab an installer now), push to
+# main (verify-only, no stored artifact), and a version tag `v*` (build +
+# attach the installers to a DRAFT GitHub Release for public download).
+# The release is a DRAFT on purpose: the Linux/Windows bundles are unsigned
+# and owe a clean-machine smoke test, so a human publishes the draft after
+# smoking it (see ROADMAP.md "Cross-platform deployment" + LIMITATIONS.md).
 name: Cross-platform bundles
 
 on:
@@ -18,6 +21,11 @@ on:
       - '**/*.md'
       - 'docs/**'
       - 'LICENSE'
+    # Version tags (0.MINOR.YYYYMMDD scheme, prefixed `v`) build + publish a
+    # draft Release. paths-ignore does NOT apply to tag pushes, so tagging a
+    # docs-only commit still releases.
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -178,12 +186,13 @@ jobs:
           fi
 
       - name: Upload artifacts
-        # Upload ONLY on a manual dispatch ("I want the installer now") — routine
-        # main-branch builds verify via the gate above but do NOT store artifacts,
-        # so they don't consume the account's (small, plan-based) Actions storage
-        # quota. On dispatch we DO want the file, so a missing/failed upload is a
-        # hard error worth seeing (e.g. storage full -> free it up).
-        if: github.event_name == 'workflow_dispatch'
+        # Upload on a manual dispatch ("I want the installer now") OR a version
+        # tag (the `release` job below re-downloads these to attach them to the
+        # draft Release). Routine main-branch builds verify via the gate above
+        # but do NOT store artifacts, so they don't consume the account's
+        # (small, plan-based) Actions storage quota. When we DO want the file, a
+        # missing/failed upload is a hard error worth seeing (e.g. storage full).
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: bidsvue-${{ matrix.label }}
@@ -193,3 +202,31 @@ jobs:
             src-tauri/target/${{ matrix.triple }}/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 7
+
+  release:
+    # Version-tag builds attach every platform's installer to ONE draft GitHub
+    # Release so end users can download + run them (Actions build artifacts need
+    # a login and expire; a Release asset does not). A single post-matrix job
+    # (not a per-leg step) avoids the concurrent-draft-creation race two matrix
+    # legs would hit racing to create the same draft. DRAFT on purpose: the
+    # bundles are unsigned and owe a clean-machine smoke test, so a human reviews
+    # and clicks Publish. `needs: bundle` => both legs must be green first.
+    name: Draft GitHub Release
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create/refresh draft release with installers
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/**/*
