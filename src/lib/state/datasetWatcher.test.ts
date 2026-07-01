@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { shouldRevalidate } from './datasetWatcher'
+import { isContentRelevantKind, shouldRevalidate } from './datasetWatcher'
 
 describe('shouldRevalidate', () => {
   test('returns false when every path is inside an ignored segment', () => {
@@ -73,5 +73,71 @@ describe('shouldRevalidate', () => {
     expect(
       shouldRevalidate(['/datasets/AgingBrain/derivatives/myderiv/.git/HEAD']),
     ).toBe(false)
+  })
+})
+
+describe('isContentRelevantKind', () => {
+  // Regression: on Linux the recursive inotify watcher reports the scan's own
+  // file reads (access) and atime bumps (modify/metadata). Revalidating on
+  // those re-ran openDataset, which re-read the files, which re-fired the
+  // watcher — a tight loop that flickered the whole UI. macOS FSEvents never
+  // reports these, so it only ever bit Linux.
+  test('ignores read access (open / read / close-read) — the scan-read trigger', () => {
+    expect(
+      isContentRelevantKind({ access: { kind: 'open', mode: 'read' } }),
+    ).toBe(false)
+    expect(
+      isContentRelevantKind({ access: { kind: 'close', mode: 'read' } }),
+    ).toBe(false)
+    expect(isContentRelevantKind({ access: { kind: 'any' } })).toBe(false)
+  })
+
+  test('keeps close-after-write (IN_CLOSE_WRITE) — a real edit signal', () => {
+    // Audit 2026-06-30: dropping ALL access events also dropped close-write,
+    // which is an edit-completion signal, not a read. notify distinguishes it
+    // from close-read, and the scan never emits it, so keeping it is safe.
+    expect(
+      isContentRelevantKind({ access: { kind: 'close', mode: 'write' } }),
+    ).toBe(true)
+  })
+
+  test('ignores ALL metadata modify (atime AND permissions/ownership)', () => {
+    // permissions/ownership are dropped DELIBERATELY, not just atime: Linux
+    // inotify IN_ATTRIB has no sub-type, so notify collapses atime and chmod
+    // into Metadata(Any) — keeping permissions would re-open the scan-read
+    // loop. Do not "narrow by mode" here (audit 2026-06-30 rejected it).
+    expect(
+      isContentRelevantKind({
+        modify: { kind: 'metadata', mode: 'access-time' },
+      }),
+    ).toBe(false)
+    expect(
+      isContentRelevantKind({
+        modify: { kind: 'metadata', mode: 'permissions' },
+      }),
+    ).toBe(false)
+    expect(
+      isContentRelevantKind({ modify: { kind: 'metadata', mode: 'any' } }),
+    ).toBe(false)
+  })
+
+  test('revalidates on content modify (data) and rename', () => {
+    expect(
+      isContentRelevantKind({ modify: { kind: 'data', mode: 'content' } }),
+    ).toBe(true)
+    expect(
+      isContentRelevantKind({ modify: { kind: 'rename', mode: 'both' } }),
+    ).toBe(true)
+  })
+
+  test('revalidates on create and remove', () => {
+    expect(isContentRelevantKind({ create: { kind: 'file' } })).toBe(true)
+    expect(isContentRelevantKind({ remove: { kind: 'file' } })).toBe(true)
+  })
+
+  test('stays conservative on unknown / coarse kinds', () => {
+    expect(isContentRelevantKind('any')).toBe(true)
+    expect(isContentRelevantKind('other')).toBe(true)
+    expect(isContentRelevantKind({ modify: { kind: 'any' } })).toBe(true)
   })
 })
