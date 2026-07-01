@@ -147,11 +147,9 @@ DataLad source is vendored — see the crate's own `LICENSE`.
 
 Upstream: <https://github.com/niivue/niivue> (BSD-2-Clause)
 
-BIDSvue depends on `@niivue/niivue` (1.0.0-rc.8) for in-app NIfTI
-visualisation. No source is vendored. During the M-PHY0 dev cycle the
-dependency is a local `file:` spec against an in-tree rc.8 build; it is
-re-pinned to the npm-published tag before any release DMG (the release
-script blocks notarisation while any `file:` dep remains).
+BIDSvue depends on `@niivue/niivue` (1.0.0-rc.10) for in-app NIfTI
+visualisation, consumed from the npm-published package. No source is
+vendored.
 
 ### mindgrab (BSD-2-Clause)
 

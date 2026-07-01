@@ -15,7 +15,7 @@ bun install
 bun tauri dev
 ```
 
-Prereqs: [Bun](https://bun.sh), the [Rust toolchain](https://www.rust-lang.org/tools/install), and Tauri 2's platform tools — Xcode CLT on macOS, MSVC + WebView2 on Windows, `webkit2gtk-4.1` on Linux ([Tauri prereqs](https://v2.tauri.app/start/prerequisites/)). The first `tauri dev` builds the Rust shell (~few minutes); subsequent runs are fast.
+Prereqs: [Bun](https://bun.sh), the [Rust toolchain](https://www.rust-lang.org/tools/install), and Tauri 2's platform tools — Xcode CLT on macOS, MSVC + WebView2 on Windows, `webkit2gtk-4.1` on Linux ([Tauri prereqs](https://v2.tauri.app/start/prerequisites/)). The first `tauri dev` builds the Rust shell (~few minutes); subsequent runs are fast. `bun install` auto-initializes the `datalad-rs` git submodule.
 
 ## More
 
