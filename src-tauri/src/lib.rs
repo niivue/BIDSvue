@@ -2693,12 +2693,24 @@ mod tests {
     /// TTY; `SSH_ASKPASS_REQUIRE=never` defuses the OpenSSH 8.4+
     /// force-askpass knob. Without either, the `SSH_ASKPASS` scrub
     /// is bypassable by a hostile launcher.
+    ///
+    /// Linux carve-out: blanking `DISPLAY` process-wide breaks the GTK
+    /// WebView (`gtk_init` reads `DISPLAY`), so it is NOT set on Linux —
+    /// the askpass threat there is covered by `SSH_ASKPASS=/usr/bin/false`
+    /// + `SSH_ASKPASS_REQUIRE=never` instead. See
+    /// `git_safety_env_set_for_startup`.
     #[test]
     fn startup_env_set_blocks_x11_askpass_fallback() {
         let set: Vec<(&str, &str)> = git_safety_env_set_for_startup().to_vec();
+        #[cfg(not(target_os = "linux"))]
         assert!(
             set.contains(&("DISPLAY", "")),
             "DISPLAY must be blanked to block X11 askpass; got: {set:?}",
+        );
+        #[cfg(target_os = "linux")]
+        assert!(
+            !set.contains(&("DISPLAY", "")),
+            "DISPLAY must NOT be blanked on Linux (breaks the GTK WebView); got: {set:?}",
         );
         assert!(
             set.contains(&("SSH_ASKPASS_REQUIRE", "never")),
@@ -3803,6 +3815,18 @@ pub(crate) fn git_safety_env_set_for_startup() -> &'static [(&'static str, &'sta
         // External-CLI scrub at `process::git_safety_env_pairs`
         // already does this per-spawn; parity here closes the gap
         // for native gix SSH spawns.
+        //
+        // NOT on Linux: the GTK WebView reads `DISPLAY` at `gtk_init()`,
+        // so blanking it process-wide makes the app window fail to
+        // initialize ("Failed to initialize GTK"). The X11 askpass
+        // threat is already neutralized on every platform by
+        // `SSH_ASKPASS=/usr/bin/false` (askpass runs a no-op that exits
+        // non-zero → no dialog) plus `SSH_ASKPASS_REQUIRE=never`, and
+        // the per-spawn `process::git_safety_env_pairs` scrub still
+        // blanks `DISPLAY` for git/ssh CHILD processes (which doesn't
+        // touch the parent's GTK display). So the Linux carve-out keeps
+        // the security posture while letting the WebView start.
+        #[cfg(not(target_os = "linux"))]
         ("DISPLAY", ""),
         // OpenSSH 8.4+ honours `SSH_ASKPASS_REQUIRE=force` to
         // demand an askpass binary even when stdin is a TTY. Pin
