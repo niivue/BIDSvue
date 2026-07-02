@@ -18,9 +18,12 @@
 /// <reference types="@wdio/types" />
 
 import { describe, it } from 'mocha'
+import { expandTreeFully } from '../helpers/tree'
 
 declare const browser: WebdriverIO.Browser
-declare const expect: Chai.ExpectStatic
+// The runtime `expect` is expect-webdriverio (Jest-style matchers),
+// injected by @wdio/mocha-framework — NOT Chai. Mirror @wdio/globals.
+declare const expect: ExpectWebdriverIO.Expect
 
 describe('BIDSvue happy path (M2 acceptance)', () => {
   it('opens the test fixture via bypass and renders the tree root', async () => {
@@ -33,11 +36,9 @@ describe('BIDSvue happy path (M2 acceptance)', () => {
     // especially the first time the binary runs.
     const tree = await browser.$('[role="tree"]')
     await tree.waitForExist({ timeout: 30_000 })
+    // tree should render at least the dataset-root row
     const treeItems = await browser.$$('[role="treeitem"]')
-    expect(treeItems.length).to.be.greaterThan(
-      0,
-      'tree should render at least the dataset-root row',
-    )
+    expect(treeItems.length).toBeGreaterThan(0)
   })
 
   it('expands the tree and reveals the two committed subjects', async () => {
@@ -50,16 +51,7 @@ describe('BIDSvue happy path (M2 acceptance)', () => {
     // We don't drive native menus from WDIO -- tauri-driver doesn't
     // route through the OS menu bar -- so we click the toolbar chevron
     // instead. Same dispatch path, fewer moving parts.
-    const expandSelector = 'button[aria-label="Expand next level"]'
-    // Loose ceiling so a future fixture grown to ses-/anat-/sub- depth
-    // still terminates promptly. Each click opens one more depth.
-    for (let i = 0; i < 8; i++) {
-      const btn = await browser.$(expandSelector)
-      const disabled = await btn.getAttribute('disabled')
-      if (disabled !== null) break
-      await btn.waitForClickable({ timeout: 10_000 })
-      await btn.click()
-    }
+    await expandTreeFully(browser)
 
     // After full expansion, every folder under root is open. The
     // fixture's shape (dataset / sub-01 / anat + sub-02 / anat) means
@@ -78,6 +70,7 @@ describe('BIDSvue happy path (M2 acceptance)', () => {
         timeoutMsg: 'tree did not expand to reveal the fixture subjects',
       },
     )
+    const expandedCount = (await browser.$$('[role="treeitem"]')).length
 
     // Collapse back via the chevrons-right Collapse-All button. Its
     // accessible name comes from i18n key tree.collapseAll.
@@ -85,17 +78,20 @@ describe('BIDSvue happy path (M2 acceptance)', () => {
     await collapseBtn.waitForClickable({ timeout: 5_000 })
     await collapseBtn.click()
 
-    // After collapse-all we should be back near root -- usually 1-2
-    // rows depending on whether the root is shown collapsed or only
-    // its first level. Assert the row count shrank.
+    // Collapse-all closes every folder, but the tiny-bids tree keeps its
+    // top-level rows visible when collapsed (root children: sub-01,
+    // sub-02, dataset_description, participants, README). So the count
+    // does NOT drop to 1-2 — it drops to the top-level row count. Assert
+    // the tree genuinely collapsed by requiring strictly fewer rows than
+    // when fully expanded.
     await browser.waitUntil(
       async () => {
         const after = await browser.$$('[role="treeitem"]')
-        return after.length <= 3
+        return after.length < expandedCount
       },
       {
         timeout: 5_000,
-        timeoutMsg: 'tree did not collapse back near root',
+        timeoutMsg: 'tree did not collapse (row count did not shrink)',
       },
     )
   })

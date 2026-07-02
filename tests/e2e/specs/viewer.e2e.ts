@@ -15,9 +15,12 @@
 /// <reference types="@wdio/types" />
 
 import { describe, it } from 'mocha'
+import { expandTreeFully } from '../helpers/tree'
 
 declare const browser: WebdriverIO.Browser
-declare const expect: Chai.ExpectStatic
+// The runtime `expect` is expect-webdriverio (Jest-style matchers),
+// injected by @wdio/mocha-framework — NOT Chai. Mirror @wdio/globals.
+declare const expect: ExpectWebdriverIO.Expect
 
 type CanvasProbe = {
   ok: boolean
@@ -163,13 +166,12 @@ describe('BIDSvue NiiVue viewer (M5 acceptance)', () => {
     const tree = await browser.$('[role="tree"]')
     await tree.waitForExist({ timeout: 30_000 })
 
-    // Expand everything so the .nii.gz rows are reachable. The
-    // toolbar buttons' title text is the stable selector (same as the
-    // happy-path spec). Expand-all is idempotent; if a prior spec
-    // already expanded the tree this is a no-op.
-    const expandAllBtn = await browser.$('button[title*="Expand every folder"]')
-    await expandAllBtn.waitForClickable({ timeout: 10_000 })
-    await expandAllBtn.click()
+    // Expand everything so the .nii.gz rows are reachable. There is no
+    // single "expand all" control — only the progressive Expand-Next-Level
+    // chevron — so drive it to full expansion via the shared helper (same
+    // path the happy-path spec uses). Idempotent: a no-op if a prior spec
+    // already expanded the tree.
+    await expandTreeFully(browser)
 
     // The fixture has sub-01_T1w.{nii.gz,json} which the pairing
     // logic coalesces into a single group whose label is the
@@ -180,10 +182,20 @@ describe('BIDSvue NiiVue viewer (M5 acceptance)', () => {
     await t1Row.waitForExist({ timeout: 10_000 })
     await t1Row.click()
 
-    // The NiivueViewer's outer container mounts as soon as the
-    // Preview pane routes to it (kind === 'nifti'). Existence is
-    // independent of WebGL — even an attach-error path keeps this
-    // div rendered with the .error overlay on top.
+    // Navigation is sidecar-first: selecting the paired T1w group routes
+    // the Preview pane to the .json sidecar, NOT the volume — the viewer
+    // deliberately does not auto-mount (audit 2026-06-17 P2.1, the
+    // viewedVolumeForGroupKey latch; see Preview.svelte). The group-tab
+    // strip exposes one role="tab" per member with title=<filename>; click
+    // the .nii.gz tab to view the volume and arm the latch. Match by the
+    // filename title (locale-independent — the visible label is i18n'd).
+    const imageTab = await browser.$('[role="tab"][title*=".nii"]')
+    await imageTab.waitForClickable({ timeout: 10_000 })
+    await imageTab.click()
+
+    // The NiivueViewer's outer container mounts once the volume tab has
+    // been viewed. Existence is independent of WebGL — even an attach-error
+    // path keeps this div rendered with the .error overlay on top.
     const niivue = await browser.$('.niivue')
     await niivue.waitForExist({ timeout: 10_000 })
 
@@ -208,8 +220,8 @@ describe('BIDSvue NiiVue viewer (M5 acceptance)', () => {
     const errorOverlay = await browser.$('.niivue .error')
     const errorVisible = await errorOverlay.isExisting()
     if (requireRender) {
-      const errorText = errorVisible ? await errorOverlay.getText() : ''
-      expect(errorVisible, `viewer attach-error: ${errorText}`).to.equal(false)
+      // On failure the error text is surfaced by the afterTest DOM probe.
+      expect(errorVisible).toBe(false)
 
       let lastProbe: CanvasProbe = { ok: false, reason: 'not-run' }
       try {
@@ -236,13 +248,11 @@ describe('BIDSvue NiiVue viewer (M5 acceptance)', () => {
     // label changes. In permissive local mode, skip when the viewer is in
     // attach-error mode.
     if (!errorVisible) {
+      // expected at least one axis button in the control row
       const multiBtn = await browser.$(
         '[aria-label="NiiVue controls"] button[role="radio"]',
       )
-      expect(await multiBtn.isExisting()).to.equal(
-        true,
-        'expected at least one axis button in the control row',
-      )
+      expect(await multiBtn.isExisting()).toBe(true)
     }
   })
 })
