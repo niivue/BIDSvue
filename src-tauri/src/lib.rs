@@ -669,7 +669,16 @@ fn validate_authorized_path_canonical(
     let path_buf = validate_authorized_path(state, path, cmd)?;
     let resolved = std::fs::canonicalize(&path_buf)
         .map_err(|e| format!("{cmd}: canonicalize({}) failed: {e}", path_buf.display()))?;
-    if !state.is_under_any_runtime_path(&resolved)? {
+    // `std::fs::canonicalize` returns a `\\?\`-verbatim path on Windows, whose
+    // prefix component (`\\?\D:`) is NOT a lexical prefix of the non-verbatim
+    // authorized roots (`D:\…` / `D:/…`), so `Path::starts_with` in
+    // `is_under_any_runtime_path` would spuriously reject an in-dataset target.
+    // Strip the verbatim prefix for the containment check only (identity on
+    // non-Windows). The check is still against the FULLY-canonical path — the
+    // strip is a lexical identity on the same file, so it can't widen scope.
+    // The verbatim `resolved` is returned unchanged for the caller's FS ops.
+    let for_check = crate::process::simplify_verbatim(&resolved);
+    if !state.is_under_any_runtime_path(&for_check)? {
         return Err(format!(
             "{cmd}: {path} resolves outside any runtime-authorized path (target: {})",
             resolved.display()

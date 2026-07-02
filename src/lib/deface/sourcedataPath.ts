@@ -12,7 +12,7 @@
 // from there (so switching algorithms doesn't compound defacing on
 // already-defaced data).
 
-import { detectSeparator, stripTrailingSeparators } from '$lib/util/paths'
+import { relativeToParent, stripTrailingSeparators } from '$lib/util/paths'
 
 /**
  * Map an in-dataset absolute path to its sourcedata/ mirror.
@@ -42,12 +42,16 @@ export function sourcedataMirrorPath(
   datasetRoot: string,
   targetPath: string,
 ): string | null {
-  const sep = detectSeparator(stripTrailingSeparators(datasetRoot))
   const root = stripTrailingSeparators(datasetRoot)
-  const prefix = `${root}${sep}`
-  if (!targetPath.startsWith(prefix)) return null
-  const rel = targetPath.slice(prefix.length)
-  const firstSeg = rel.split(sep)[0] ?? ''
+  // Separator-agnostic containment + relative extraction. A Windows or
+  // mixed-separator root (`D:\src\ds/sub-01/...`, which a native-backslash
+  // root plus a `/`-joined tail produces) previously defeated the single-
+  // separator `startsWith` here and threw "not a sourcedata-mirrorable
+  // path". `relativeToParent` normalises both sides and returns a POSIX
+  // rel, so the special-folder checks split on `/`.
+  const rel = relativeToParent(root, targetPath)
+  if (rel === null) return null
+  const firstSeg = rel.split('/')[0] ?? ''
   // Reject sourcedata/ (no nesting), other BIDS special folders, and
   // any dotfile top-level entry.
   if (
@@ -58,7 +62,16 @@ export function sourcedataMirrorPath(
   ) {
     return null
   }
-  return `${root}${sep}sourcedata${sep}${rel}`
+  // Reconstruct by splicing `sourcedata` in right after the root prefix,
+  // reusing the exact separator char the target already uses at that
+  // boundary (guaranteed present by `relativeToParent`). This keeps the
+  // emitted mirror in the SAME separator shape as `targetPath` — POSIX,
+  // Windows, or mixed — instead of inventing a third convention, so
+  // `dirname()` / atomic-write / the revert round-trip all see a
+  // consistent path.
+  const sepChar = targetPath.charAt(root.length)
+  const tail = targetPath.slice(root.length) // leading separator + rel
+  return `${targetPath.slice(0, root.length)}${sepChar}sourcedata${tail}`
 }
 
 /**
