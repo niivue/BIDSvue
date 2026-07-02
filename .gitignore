@@ -67,6 +67,8 @@ src-tauri/icons/ios/
 # Test / bench output
 coverage/
 bench/results/
+# E2E failure diagnostics (screenshots written by wdio.conf.ts afterTest hook).
+tests/e2e/artifacts/
 
 # Local secrets
 .env
