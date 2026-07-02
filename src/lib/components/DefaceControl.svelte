@@ -274,6 +274,12 @@
     border-radius: 50%;
     animation: deface-spin 0.9s linear infinite;
     flex-shrink: 0;
+    /* Promote to its own compositor layer so the rotation keeps running on
+       the GPU thread independent of any main-thread jank during the deface
+       commit (post-niimath byte read/write). Without this, WebView2/Chromium
+       can leave the animation un-composited and it appears frozen. WKWebView
+       (macOS) composites it regardless, which is why it spins there. */
+    will-change: transform;
   }
   @media (prefers-reduced-motion: reduce) {
     .spinner {
