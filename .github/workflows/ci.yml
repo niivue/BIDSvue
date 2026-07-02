@@ -174,14 +174,16 @@ jobs:
         # is a no-op after the first push.
         run: cargo install tauri-driver --locked
 
-      - name: Build frontend + Tauri binary (debug)
-        # wdio.conf.ts points at src-tauri/target/debug/bidsvue. We don't
-        # need the full `tauri build` (which packages into .deb/.AppImage);
-        # a plain `cargo build` against the workspace is faster and yields
-        # the binary the driver expects.
-        run: |
-          bun run build
-          cargo build --manifest-path src-tauri/Cargo.toml
+      - name: Build Tauri binary (debug, no bundle)
+        # Use `tauri build` (NOT plain `cargo build`) so the binary loads the
+        # bundled frontendDist. A debug `cargo build` runs Tauri in dev mode and
+        # loads devUrl (http://localhost:1420); no Vite dev server runs during
+        # the e2e, so the WebView shows "Could not connect to localhost:
+        # Connection refused" and `[role="tree"]` never renders. `--debug` keeps
+        # the binary at target/debug/bidsvue (where wdio.conf.ts points);
+        # `--no-bundle` skips the .deb/.AppImage packaging for speed.
+        # `tauri build` runs beforeBuildCommand (`bun run build`) itself.
+        run: bun tauri build --debug --no-bundle
 
       - name: Run E2E suite (xvfb + tauri-driver)
         env:
