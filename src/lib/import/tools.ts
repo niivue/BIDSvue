@@ -28,6 +28,8 @@
 //      normalisation). External + js tools that arrange BIDS
 //      themselves skip both.
 
+import { isAbsolutePath } from '../util/paths'
+
 /**
  * Stable identifier for the chosen import tool. Appears in the
  * operations-log entry's details and in any future history-UI
@@ -278,12 +280,14 @@ function assertAbsoluteNonFlagPath(
   field: string,
 ): string | null {
   if (value === '') return `${field} is required`
-  if (!value.startsWith('/')) {
+  if (!isAbsolutePath(value)) {
     return `${field} must be an absolute path (got "${value}")`
   }
-  // The first segment after `/` is what the importer would see; a
-  // leading `-` would be interpreted as a flag.
-  if ((value[1] ?? '') === '-') {
+  // Strip the root marker (POSIX `/`, Windows drive `C:\`, or UNC `\\`)
+  // so we can inspect the first real segment: a leading `-` would be
+  // interpreted as a flag by the importer.
+  const afterRoot = value.replace(/^([A-Za-z]:)?[\\/]+/, '')
+  if (afterRoot.startsWith('-')) {
     return `${field} must not start with a dash (got "${value}")`
   }
   return null
@@ -313,7 +317,7 @@ export function validateHeuristicArg(
   // Built-in heuristic name: alphanumeric + underscore stem.
   if (/^[a-zA-Z0-9_]+$/.test(value)) return null
   // Custom heuristic: absolute `.py` path.
-  if (value.startsWith('/') && value.endsWith('.py')) return null
+  if (isAbsolutePath(value) && value.endsWith('.py')) return null
   return `${field} must be a built-in heuristic name (letters / digits / underscore) or an absolute path to a .py file (got "${value}")`
 }
 

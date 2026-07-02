@@ -44,6 +44,7 @@ import {
   detectSeparator,
   dirname,
   stripTrailingSeparators,
+  toPosixSeparators,
 } from '$lib/util/paths'
 import {
   readFileWithSymlinkResolve,
@@ -492,7 +493,7 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('copyInto', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `copyInto: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -540,7 +541,7 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('writeNewText', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `writeNewText: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -604,7 +605,7 @@ export class OperationContext {
     }
     this._children.push({
       kind: 'write',
-      target: posixRelative(this.datasetRoot, target, this.sep),
+      target: posixRelative(this.datasetRoot, target),
       backupRelPath: null,
       details,
     })
@@ -624,12 +625,12 @@ export class OperationContext {
     this._ensureOpen()
     assertNoUnsafePathSegments('rename', from)
     assertNoUnsafePathSegments('rename', to)
-    if (!isUnderRoot(this.datasetRoot, from, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, from)) {
       throw new Error(
         `rename: from "${from}" is not under datasetRoot "${this.datasetRoot}"`,
       )
     }
-    if (!isUnderRoot(this.datasetRoot, to, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, to)) {
       throw new Error(
         `rename: to "${to}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -648,8 +649,8 @@ export class OperationContext {
     await this.fs.rename(from, to)
     this._children.push({
       kind: 'rename',
-      from: posixRelative(this.datasetRoot, from, this.sep),
-      to: posixRelative(this.datasetRoot, to, this.sep),
+      from: posixRelative(this.datasetRoot, from),
+      to: posixRelative(this.datasetRoot, to),
       details,
     })
     this._undo.push({ kind: 'rename', from, to })
@@ -670,12 +671,12 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('delete', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `delete: targetPath "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
     }
-    const relPathPosix = posixRelative(this.datasetRoot, target, this.sep)
+    const relPathPosix = posixRelative(this.datasetRoot, target)
     const relPathNativeForBackup =
       this.stateSep === '/' ? relPathPosix : relPathPosix.split('/').join('\\')
 
@@ -743,14 +744,14 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('recordCreatedTree', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `recordCreatedTree: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
     }
     this._children.push({
       kind: 'created-tree',
-      target: posixRelative(this.datasetRoot, target, this.sep),
+      target: posixRelative(this.datasetRoot, target),
       details,
     })
   }
@@ -788,7 +789,7 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('removeTree', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `removeTree: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -806,7 +807,7 @@ export class OperationContext {
     }
     this._children.push({
       kind: 'removed-tree',
-      target: posixRelative(this.datasetRoot, target, this.sep),
+      target: posixRelative(this.datasetRoot, target),
       details: removeError
         ? {
             ...(details ?? {}),
@@ -839,7 +840,7 @@ export class OperationContext {
   ): Promise<void> {
     this._ensureOpen()
     assertNoUnsafePathSegments('removeEmptyDir', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `removeEmptyDir: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -854,7 +855,7 @@ export class OperationContext {
     await this.fs.remove(target, { recursive: false })
     this._children.push({
       kind: 'removed-tree',
-      target: posixRelative(this.datasetRoot, target, this.sep),
+      target: posixRelative(this.datasetRoot, target),
       details,
     })
   }
@@ -999,7 +1000,7 @@ export class OperationContext {
     details: Record<string, unknown> | undefined,
   ): Promise<void> {
     assertNoUnsafePathSegments('atomicWrite', target)
-    if (!isUnderRoot(this.datasetRoot, target, this.sep)) {
+    if (!isUnderRoot(this.datasetRoot, target)) {
       throw new Error(
         `atomicWrite: targetPath "${target}" is not under datasetRoot "${this.datasetRoot}"`,
       )
@@ -1012,7 +1013,7 @@ export class OperationContext {
       )
     }
 
-    const relPathPosix = posixRelative(this.datasetRoot, target, this.sep)
+    const relPathPosix = posixRelative(this.datasetRoot, target)
     // Native subpath for the BACKUP location uses the app-data separator
     // (which can differ from the dataset's separator on weird cross-mount
     // configurations). The on-disk `backupRelPath` stored in the log is
@@ -1330,14 +1331,17 @@ function assertNoUnsafePathSegments(fn: string, target: string): void {
   }
 }
 
-function isUnderRoot(
-  root: string,
-  candidate: string,
-  sep: '/' | '\\',
-): boolean {
-  const stripped = stripTrailingSeparators(candidate)
-  if (stripped === root) return true
-  return stripped.startsWith(`${root}${sep}`)
+// Separator-agnostic containment. A dataset root can arrive with mixed
+// separators on Windows (e.g. `D:\src\ds/sub-01/...`, a native-backslash base
+// with a `/`-joined tail), which defeated the old single-`sep` prefix test and
+// made deface's sourcedata write throw "not under datasetRoot". Normalising
+// both sides to `/` before the prefix check (both separators are single chars,
+// so this never changes containment semantics) fixes it on every platform.
+function isUnderRoot(root: string, candidate: string): boolean {
+  const rootN = toPosixSeparators(stripTrailingSeparators(root))
+  const candN = toPosixSeparators(stripTrailingSeparators(candidate))
+  if (candN === rootN) return true
+  return candN.startsWith(`${rootN}/`)
 }
 
 function warnRollback(
@@ -1353,12 +1357,9 @@ function warnRollback(
  * result regardless of platform. Log entries stay portable if a
  * dataset moves between platforms.
  */
-function posixRelative(
-  root: string,
-  candidate: string,
-  sep: '/' | '\\',
-): string {
-  if (candidate === root) return ''
-  const rel = candidate.slice(root.length + 1)
-  return sep === '/' ? rel : rel.split('\\').join('/')
+function posixRelative(root: string, candidate: string): string {
+  const rootN = toPosixSeparators(root)
+  const candN = toPosixSeparators(candidate)
+  if (candN === rootN) return ''
+  return candN.slice(rootN.length + 1)
 }

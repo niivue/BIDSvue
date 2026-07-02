@@ -3,9 +3,32 @@ import {
   basename,
   detectSeparator,
   dirname,
+  isAbsolutePath,
   isUnderPath,
+  normalizeSeparators,
+  relativeToParent,
   stripTrailingSeparators,
+  toPosixSeparators,
 } from './paths'
+
+describe('isAbsolutePath', () => {
+  test('accepts POSIX absolute paths', () => {
+    expect(isAbsolutePath('/data/in')).toBe(true)
+    expect(isAbsolutePath('/')).toBe(true)
+  })
+  test('accepts Windows drive and UNC absolute paths', () => {
+    expect(isAbsolutePath('C:\\Users\\me')).toBe(true)
+    expect(isAbsolutePath('D:\\src\\datasets')).toBe(true)
+    expect(isAbsolutePath('C:/Users/me')).toBe(true)
+    expect(isAbsolutePath('\\\\server\\share')).toBe(true)
+  })
+  test('rejects relative, drive-relative, and rootless paths (matches Rust)', () => {
+    expect(isAbsolutePath('relative/path')).toBe(false)
+    expect(isAbsolutePath('')).toBe(false)
+    expect(isAbsolutePath('C:temp')).toBe(false)
+    expect(isAbsolutePath('\\temp')).toBe(false)
+  })
+})
 
 describe('isUnderPath', () => {
   test('true for a path strictly under the parent', () => {
@@ -21,8 +44,70 @@ describe('isUnderPath', () => {
   test('normalises a trailing separator on the parent', () => {
     expect(isUnderPath('/data/ds/', '/data/ds/sub-01/x')).toBe(true)
   })
-  test('POSIX-only: a backslash-separated path fails closed (documented contract)', () => {
-    expect(isUnderPath('C:\\data\\ds', 'C:\\data\\ds\\sub-01\\x')).toBe(false)
+  test('separator-agnostic: Windows backslash paths work', () => {
+    expect(isUnderPath('C:\\data\\ds', 'C:\\data\\ds\\sub-01\\x')).toBe(true)
+    expect(isUnderPath('C:\\data\\ds', 'C:\\data\\ds')).toBe(false)
+    // Sibling that string-prefixes the parent is still rejected.
+    expect(isUnderPath('C:\\data\\ds', 'C:\\data\\ds-evil\\x')).toBe(false)
+  })
+  test('separator-agnostic: a mixed-separator root works (Windows deface bug)', () => {
+    // The exact shape that broke deface: native-backslash base + `/` tail.
+    expect(
+      isUnderPath(
+        'D:\\src\\datasets\\a/crlab/AgingBrain',
+        'D:\\src\\datasets\\a/crlab/AgingBrain/sub-ro/anat/sub-ro_T1w.nii.gz',
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('relativeToParent', () => {
+  test('returns the POSIX rel for a POSIX path', () => {
+    expect(relativeToParent('/d', '/d/sub-01/anat/x.nii.gz')).toBe(
+      'sub-01/anat/x.nii.gz',
+    )
+  })
+  test('null when child is not under parent (or equals it)', () => {
+    expect(relativeToParent('/d', '/other/x')).toBeNull()
+    expect(relativeToParent('/d', '/d')).toBeNull()
+    expect(relativeToParent('/d', '/d-evil/x')).toBeNull()
+  })
+  test('separator-agnostic: Windows and mixed roots yield a POSIX rel', () => {
+    expect(relativeToParent('C:\\data\\ds', 'C:\\data\\ds\\sub-01\\x')).toBe(
+      'sub-01/x',
+    )
+    expect(
+      relativeToParent(
+        'D:\\src\\datasets\\a/crlab/AgingBrain',
+        'D:\\src\\datasets\\a/crlab/AgingBrain/sub-ro/anat/x.nii.gz',
+      ),
+    ).toBe('sub-ro/anat/x.nii.gz')
+  })
+})
+
+describe('toPosixSeparators', () => {
+  test('rewrites backslashes to forward slashes', () => {
+    expect(toPosixSeparators('C:\\a\\b')).toBe('C:/a/b')
+    expect(toPosixSeparators('D:\\src\\ds/sub-01/x')).toBe('D:/src/ds/sub-01/x')
+  })
+  test('leaves an all-POSIX path unchanged', () => {
+    expect(toPosixSeparators('/a/b/c')).toBe('/a/b/c')
+  })
+})
+
+describe('normalizeSeparators', () => {
+  test('unifies a mixed Windows root to forward slash (the deface report case)', () => {
+    expect(normalizeSeparators('D:\\src\\datasets\\a/crlab/AgingBrain')).toBe(
+      'D:/src/datasets/a/crlab/AgingBrain',
+    )
+  })
+  test('is a no-op for an already-uniform path (common picker case)', () => {
+    expect(normalizeSeparators('/data/ds')).toBe('/data/ds')
+    expect(normalizeSeparators('D:/src/ds')).toBe('D:/src/ds')
+  })
+  test('is idempotent', () => {
+    const once = normalizeSeparators('D:\\a\\b/c')
+    expect(normalizeSeparators(once)).toBe(once)
   })
 })
 

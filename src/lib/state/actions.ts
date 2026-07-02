@@ -119,6 +119,7 @@ import {
   basename,
   detectSeparator,
   dirname,
+  normalizeSeparators,
   stripTrailingSeparators,
 } from '$lib/util/paths'
 import {
@@ -695,7 +696,14 @@ export async function openDataset(
     trustedForReopen?: boolean
   } = {},
 ): Promise<void> {
-  let path = requestedPath
+  // Normalize separators at the single ingestion chokepoint so a mixed
+  // path (`D:\src\ds/sub-01`, from a recents entry / drag-drop / `/`-joined
+  // import target — the native picker returns a uniform path) never reaches
+  // the store, the scanner-derived child paths, or the UI. The Rust trust
+  // boundary compares via `Path`, which is separator-insensitive on Windows,
+  // so the picker's token still matches after this. No-op for the common
+  // (already-uniform) case.
+  let path = normalizeSeparators(requestedPath)
   // Per-open info logs were trimmed back to just the validator end-of-
   // cycle summary (line ~500); back-to-back rescans (a deface fires
   // one in `withOpenDatasetAndRescan` finally) used to flood the

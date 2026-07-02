@@ -28,6 +28,23 @@ describe('validateImportPath', () => {
     expect(validateImportPath('relative/path', 'srcDir')).not.toBeNull()
     expect(validateImportPath('/-malicious', 'srcDir')).not.toBeNull()
   })
+
+  test('accepts Windows absolute paths (drive, forward-slash drive, UNC)', () => {
+    expect(
+      validateImportPath('D:\\src\\datasets\\reproin_DICOM', 'srcDir'),
+    ).toBeNull()
+    expect(validateImportPath('C:/Users/me/data', 'srcDir')).toBeNull()
+    expect(validateImportPath('\\\\server\\share\\data', 'srcDir')).toBeNull()
+  })
+
+  test('rejects Windows drive-relative / rootless paths and dash segments', () => {
+    // No root separator after the drive → not absolute (matches Rust).
+    expect(validateImportPath('C:temp', 'srcDir')).not.toBeNull()
+    // Rootless backslash path → not absolute.
+    expect(validateImportPath('\\temp', 'srcDir')).not.toBeNull()
+    // First real segment is a flag.
+    expect(validateImportPath('C:\\-malicious', 'srcDir')).not.toBeNull()
+  })
 })
 
 describe('validateHeuristicArg (round-9 audit H2)', () => {
@@ -42,9 +59,12 @@ describe('validateHeuristicArg (round-9 audit H2)', () => {
     expect(validateHeuristicArg('dbic_bids', 'heuristic')).toBeNull()
   })
 
-  test('accepts absolute .py paths', () => {
+  test('accepts absolute .py paths (POSIX and Windows)', () => {
     expect(
       validateHeuristicArg('/home/me/custom_heuristic.py', 'heuristic'),
+    ).toBeNull()
+    expect(
+      validateHeuristicArg('C:\\Users\\me\\custom_heuristic.py', 'heuristic'),
     ).toBeNull()
   })
 
@@ -72,8 +92,11 @@ describe('validateFilePathArg (round-9 audit H2)', () => {
     expect(validateFilePathArg('', 'config', ['json'])).not.toBeNull()
   })
 
-  test('accepts absolute paths', () => {
+  test('accepts absolute paths (POSIX and Windows)', () => {
     expect(validateFilePathArg('/home/me/config.json', 'config')).toBeNull()
+    expect(
+      validateFilePathArg('C:\\Users\\me\\config.json', 'config', ['json']),
+    ).toBeNull()
   })
 
   test('rejects relative paths and flag-shaped values', () => {

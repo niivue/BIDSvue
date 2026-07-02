@@ -562,15 +562,17 @@ fn resolve_deface_spawn(
     }
     let template_canon = canonicalize_existing(expected_template, "template")?;
     let mask_canon = canonicalize_existing(expected_mask, "mask")?;
+    // Hand niimath verbatim-stripped paths (Windows `\\?\` prefix removed);
+    // the canonical PathBufs above already passed every containment check.
     let argv = vec![
-        input_canon.to_string_lossy().into_owned(),
+        child_path_string(&input_canon),
         "-robustfov".into(),
         op_flag.into(),
-        template_canon.to_string_lossy().into_owned(),
-        mask_canon.to_string_lossy().into_owned(),
-        output_canon.to_string_lossy().into_owned(),
+        child_path_string(&template_canon),
+        child_path_string(&mask_canon),
+        child_path_string(&output_canon),
     ];
-    Ok((argv, out_parent_canon))
+    Ok((argv, simplify_verbatim(&out_parent_canon)))
 }
 
 /// The deface privilege-boundary policy, factored out of `validate_deface_run`
@@ -742,16 +744,19 @@ fn resolve_niimath_dilate_spawn(
         ));
     }
     // Spawn canonical paths + constant flags + the re-stringified validated
-    // threshold — no raw renderer byte survives into the child argv.
+    // threshold — no raw renderer byte survives into the child argv. Paths
+    // are verbatim-stripped (Windows `\\?\`) so niimath can open them; the
+    // canonical forms above already passed every containment check.
     run.argv = vec![
-        input_canon.to_string_lossy().into_owned(),
+        child_path_string(&input_canon),
         "-binv".into(),
         "-edt".into(),
         "-thr".into(),
         thr.to_string(),
         "-binv".into(),
-        output_canon.to_string_lossy().into_owned(),
+        child_path_string(&output_canon),
     ];
+    run.cwd = simplify_verbatim(&run.cwd);
     Ok(run)
 }
 
@@ -765,6 +770,48 @@ fn canonicalize_existing(path: &Path, label: &str) -> Result<PathBuf, String> {
             path.display()
         )
     })
+}
+
+/// Strip the Windows extended-length (`\\?\`) verbatim prefix that
+/// `std::fs::canonicalize` ALWAYS adds on Windows, so a bundled C sidecar
+/// (`niimath`, which opens files through the CRT / zlib `gzopen`) can
+/// actually open the path — CRT file-open functions do NOT accept a
+/// `\\?\`-prefixed path and treat it as a bogus filename. `\\?\C:\x` ->
+/// `C:\x`; `\\?\UNC\srv\share` -> `\\srv\share`. Truly verbatim device
+/// paths (nothing drive/UNC-shaped after the prefix) are left untouched.
+/// Identity on non-Windows and on any path already lacking the prefix.
+///
+/// SECURITY: this touches ONLY the strings handed to the child process
+/// (argv + cwd). Every containment / trust check still runs against the
+/// fully-canonical `PathBuf`, and stripping `\\?\` is a lexical identity
+/// on the target file, so it can't widen what the child may open. (Mirrors
+/// `dunce::simplified`, hand-rolled to avoid adding a dependency.)
+#[cfg(windows)]
+pub(crate) fn simplify_verbatim(path: &Path) -> PathBuf {
+    let Some(s) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
+#[cfg(not(windows))]
+pub(crate) fn simplify_verbatim(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+/// The child-process argv/cwd form of a canonical path: verbatim-prefix
+/// stripped (Windows) so bundled C sidecars can open it.
+fn child_path_string(path: &Path) -> String {
+    simplify_verbatim(path).to_string_lossy().into_owned()
 }
 
 fn authorize_import_run(
@@ -1870,6 +1917,33 @@ mod tests {
         .contains("not under app cache"));
 
         fs::remove_dir_all(&base).ok();
+    }
+
+    /// On Windows, `std::fs::canonicalize` returns a `\\?\`-verbatim path that
+    /// bundled C sidecars (niimath) can't open; `simplify_verbatim` must strip
+    /// the prefix for the child argv while leaving already-plain paths intact.
+    /// Regression guard for the Windows deface failure.
+    #[cfg(windows)]
+    #[test]
+    fn simplify_verbatim_strips_windows_extended_length_prefix() {
+        assert_eq!(
+            simplify_verbatim(&PathBuf::from(r"\\?\C:\Users\me\sub-01_T1w.nii.gz")),
+            PathBuf::from(r"C:\Users\me\sub-01_T1w.nii.gz")
+        );
+        assert_eq!(
+            simplify_verbatim(&PathBuf::from(r"\\?\UNC\server\share\a.nii.gz")),
+            PathBuf::from(r"\\server\share\a.nii.gz")
+        );
+        // Already-plain paths pass through unchanged.
+        assert_eq!(
+            simplify_verbatim(&PathBuf::from(r"D:\data\x.nii.gz")),
+            PathBuf::from(r"D:\data\x.nii.gz")
+        );
+        // A real canonicalize round-trips to a non-verbatim (openable) path.
+        let canon = std::env::temp_dir().canonicalize().expect("canon temp");
+        assert!(!simplify_verbatim(&canon)
+            .to_string_lossy()
+            .starts_with(r"\\?\"));
     }
 
     /// `resolve_niimath_dilate_spawn` must emit CANONICAL paths + constant
