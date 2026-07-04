@@ -6,7 +6,7 @@
 // since they require reading sidecar contents — see phi.ts.
 
 import type { FileNode } from '$lib/bids/types'
-import { detectSeparator, stripTrailingSeparators } from '$lib/util/paths'
+import { stripTrailingSeparators, toPosixSeparators } from '$lib/util/paths'
 import type {
   DonorInput,
   MergeInputs,
@@ -31,21 +31,23 @@ function fingerprintFiles(sortedRelFiles: string[]): string {
   return (h >>> 0).toString(16).padStart(8, '0')
 }
 
-/** Dataset-relative POSIX path, or null if `path` isn't under `root`. */
-function relativeTo(root: string, sep: string, path: string): string | null {
-  const prefix = `${root}${sep}`
-  if (!path.startsWith(prefix)) return null
-  return path.slice(prefix.length).split(sep).join('/')
+/** Dataset-relative POSIX path, or null if `path` isn't under `root`.
+ *  Both sides are canonicalized to `/` (audit 2026-07-04) so a native/mixed
+ *  Windows root can't defeat the prefix match — see copyScope/scanInputs. */
+function relativeTo(root: string, path: string): string | null {
+  const prefix = `${toPosixSeparators(root)}/`
+  const posixPath = toPosixSeparators(path)
+  if (!posixPath.startsWith(prefix)) return null
+  return posixPath.slice(prefix.length)
 }
 
 function buildSourceManifest(donor: DonorInput): SourceManifest {
-  const sep = detectSeparator(donor.root)
-  const root = stripTrailingSeparators(donor.root)
+  const root = toPosixSeparators(stripTrailingSeparators(donor.root))
   const subjectLabels = [...donor.dataset.index.bySubject.keys()].sort()
   const files: string[] = []
   for (const [path, node] of donor.dataset.index.byPath) {
     if (node.kind !== 'file') continue
-    const rel = relativeTo(root, sep, path)
+    const rel = relativeTo(root, path)
     if (rel !== null) files.push(rel)
   }
   files.sort()
@@ -73,8 +75,7 @@ const MAX_POINTER_WARNINGS_PER_DONOR = 50
 /** Collect unfetched-pointer warnings from a donor's scanned index,
  *  capped + summarised so a heavily-annexed donor can't explode the list. */
 function pointerWarnings(donor: DonorInput, donorId: string): MergeWarning[] {
-  const sep = detectSeparator(donor.root)
-  const root = stripTrailingSeparators(donor.root)
+  const root = toPosixSeparators(stripTrailingSeparators(donor.root))
   const out: MergeWarning[] = []
   let total = 0
   for (const [path, node] of donor.dataset.index.byPath) {
@@ -84,7 +85,7 @@ function pointerWarnings(donor: DonorInput, donorId: string): MergeWarning[] {
     if (ptr === undefined || ptr.contentPresent) continue
     total++
     if (out.length < MAX_POINTER_WARNINGS_PER_DONOR) {
-      const rel = relativeTo(root, sep, path)
+      const rel = relativeTo(root, path)
       out.push({
         kind: 'unfetched-pointer',
         donorId,
@@ -112,18 +113,20 @@ function normalizedRoots(
   const out = [
     {
       label: 'recipient',
-      root: stripTrailingSeparators(inputs.recipientRoot),
+      root: toPosixSeparators(stripTrailingSeparators(inputs.recipientRoot)),
     },
   ]
   inputs.donors.forEach((d, i) => {
-    out.push({ label: `donor ${i + 1}`, root: stripTrailingSeparators(d.root) })
+    out.push({
+      label: `donor ${i + 1}`,
+      root: toPosixSeparators(stripTrailingSeparators(d.root)),
+    })
   })
   return out
 }
 
 function overlapBlocks(inputs: MergeInputs): PreflightBlock[] {
   const roots = normalizedRoots(inputs)
-  const sep = detectSeparator(inputs.recipientRoot)
   const blocks: PreflightBlock[] = []
   for (let i = 0; i < roots.length; i++) {
     for (let j = i + 1; j < roots.length; j++) {
@@ -144,10 +147,7 @@ function overlapBlocks(inputs: MergeInputs): PreflightBlock[] {
         }
         continue
       }
-      if (
-        a.root.startsWith(`${b.root}${sep}`) ||
-        b.root.startsWith(`${a.root}${sep}`)
-      ) {
+      if (a.root.startsWith(`${b.root}/`) || b.root.startsWith(`${a.root}/`)) {
         blocks.push({
           kind: 'nested-roots',
           detail: `${a.label} (${a.root}) and ${b.label} (${b.root}) are nested — one root is inside the other.`,

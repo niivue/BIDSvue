@@ -28,7 +28,7 @@
 import { beginOperation } from '$lib/mutate/backup'
 import type { MutateFs } from '$lib/mutate/backup'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { basename } from '$lib/util/paths'
+import { basename, normalizeSeparators } from '$lib/util/paths'
 import { btiRecordingFromHeaders } from './formats/bti/btiRecording'
 import {
   parseBtiConfigHeader,
@@ -237,7 +237,12 @@ export async function runMegImport(
   opts: RunMegImportOptions,
 ): Promise<RunMegImportResult> {
   const startedAt = Date.now()
-  const { fs, statePaths, srcPath, destDir } = opts
+  const { fs, statePaths, srcPath } = opts
+  // Normalize the MIXED-separator destDir the Windows picker composes to POSIX
+  // at entry, symmetric with `runImport` (audit 2026-07-03). DEFENSIVE
+  // REDUNDANCY (round 10): `importMeg` already normalizes at the action boundary
+  // before statePaths/lease/trust, and `datasetSafeKey` is separator-invariant.
+  const destDir = normalizeSeparators(opts.destDir)
 
   const vendor = opts.vendor ?? (await detectMegVendorAsync(srcPath, fs))
   if (vendor === null) {

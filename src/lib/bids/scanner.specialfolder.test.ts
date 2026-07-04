@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toPosix } from '$lib/test-utils/posix'
 import { type FileSystemAdapter, scanDataset } from './scanner'
 import type { TreeNode } from './types'
 
@@ -69,9 +70,11 @@ describe('special-folder detection is depth-aware', () => {
     let nestedFlagged = false
     for (const node of walk(result.dataset.tree)) {
       if (node.kind !== 'folder' || node.name !== 'derivatives') continue
-      if (node.path === join(root, 'derivatives')) {
+      if (toPosix(node.path) === toPosix(join(root, 'derivatives'))) {
         topFlagged = node.flags.specialFolder === 'derivatives'
-      } else if (node.path === join(root, 'sub-01', 'derivatives')) {
+      } else if (
+        toPosix(node.path) === toPosix(join(root, 'sub-01', 'derivatives'))
+      ) {
         nestedFlagged = node.flags.specialFolder !== undefined
       }
     }

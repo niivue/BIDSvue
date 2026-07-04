@@ -7,7 +7,7 @@
 
 import type { Dataset, FileNode } from '$lib/bids/types'
 import { makeEntityTokenReplacer } from '$lib/rename/tokenReplace'
-import { detectSeparator, stripTrailingSeparators } from '$lib/util/paths'
+import { stripTrailingSeparators, toPosixSeparators } from '$lib/util/paths'
 import type {
   Clobber,
   CopyOp,
@@ -112,9 +112,18 @@ export function buildCopies(
   const copies: CopyOp[] = []
   const clobbers: Clobber[] = []
   let skippedPointers = 0
-  const recSep = detectSeparator(inputs.recipientRoot)
-  const recRoot = stripTrailingSeparators(inputs.recipientRoot)
-  const recipientPaths = recipientFilePaths(inputs.recipient)
+  // Compare everything in POSIX form (audit 2026-07-04). A native Windows
+  // picker root (`C:\recipient`) plus scanner-appended `/` children yields
+  // MIXED index keys (`C:\recipient/sub-01`); mixing `detectSeparator(root)`
+  // with those keys made the donor prefix filter and the recipient clobber
+  // check silently miss files. Normalizing both roots AND indexed paths to `/`
+  // makes the merge separator-invariant regardless of the picked root's shape.
+  const recRoot = toPosixSeparators(
+    stripTrailingSeparators(inputs.recipientRoot),
+  )
+  const recipientPaths = new Set(
+    Array.from(recipientFilePaths(inputs.recipient), toPosixSeparators),
+  )
   const plannedDests = new Set<string>()
 
   // Index rows by donor -> donorSubject -> {row, remaps} so each donor
@@ -134,14 +143,14 @@ export function buildCopies(
 
   for (const [donorIndex, bySubject] of rowsByDonor) {
     const donor = inputs.donors[donorIndex]
-    const donorSep = detectSeparator(donor.root)
-    const donorRoot = stripTrailingSeparators(donor.root)
-    const prefix = `${donorRoot}${donorSep}`
+    const donorRoot = toPosixSeparators(stripTrailingSeparators(donor.root))
+    const prefix = `${donorRoot}/`
 
     for (const [path, node] of donor.dataset.index.byPath) {
       if (node.kind !== 'file') continue
-      if (!path.startsWith(prefix)) continue
-      const rel = path.slice(prefix.length).split(donorSep).join('/')
+      const posixPath = toPosixSeparators(path)
+      if (!posixPath.startsWith(prefix)) continue
+      const rel = posixPath.slice(prefix.length)
       const subject = subjectOfPath(rel)
       if (subject === null) continue
       const match = bySubject.get(subject)
@@ -168,7 +177,10 @@ export function buildCopies(
       }
 
       const destRel = applyRemaps(rel, remaps)
-      const dest = `${recRoot}${recSep}${destRel.split('/').join(recSep)}`
+      // POSIX dest (recRoot + `/`-separated relative). Tauri plugin-fs accepts
+      // forward slashes on Windows, and the recipient's own state keys on the
+      // separator-invariant `datasetSafeKey`, so a POSIX dest is consistent.
+      const dest = `${recRoot}/${destRel}`
       if (recipientPaths.has(dest) || plannedDests.has(dest)) {
         clobbers.push({
           donorIndex,
@@ -178,7 +190,7 @@ export function buildCopies(
         continue
       }
       plannedDests.add(dest)
-      copies.push({ donorIndex, src: path, dest, remaps })
+      copies.push({ donorIndex, src: posixPath, dest, remaps })
     }
   }
 

@@ -32,12 +32,17 @@ export function autoOpenRootSatisfiesTarget(
   openedRoot: string,
   target: string,
 ): boolean {
-  const t = target.replace(/[/\\]+$/, '')
-  const r = openedRoot.replace(/[/\\]+$/, '')
+  // Separator-agnostic AND trailing-slash-agnostic (audit 2026-07-03 round 10).
+  // `openedRoot` returns from `openDataset` in POSIX form; `target` can still
+  // be a raw/mixed Windows path on some callers. Canonicalize both to `/` so a
+  // mixed `C:\parent/name` target matches the opened `C:/parent/name` root
+  // instead of reporting a false auto-open failure.
+  const t = target.replace(/\\/g, '/').replace(/\/+$/, '')
+  const r = openedRoot.replace(/\\/g, '/').replace(/\/+$/, '')
   if (t === r) return true
   // Empty `t` after trimming would mean target was just "/" or "\\",
   // which can't sensibly be an ancestor we widened scope for. Refuse
   // to accept any root in that edge case.
   if (t === '') return false
-  return r.startsWith(`${t}/`) || r.startsWith(`${t}\\`)
+  return r.startsWith(`${t}/`)
 }

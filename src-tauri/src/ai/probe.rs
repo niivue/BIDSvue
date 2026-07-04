@@ -24,6 +24,7 @@
 // network probe at startup would otherwise hang the AI panel mount.
 // Three seconds is generous; in practice each probe returns in <50ms.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -83,23 +84,126 @@ fn probe_one(id: &'static str, path_env: &str) -> AiCliStatus {
     }
 }
 
-/// Walk `path_env`'s components, return the first entry whose join
-/// with `name` is an executable file. Mirrors `which(1)` semantics
-/// minus PATHEXT (we don't support Windows in v1).
-fn which_with_path(name: &str, path_env: &str) -> Option<PathBuf> {
+/// Walk `path_env`'s components, return the first entry whose join with `name`
+/// is a runnable CLI. On Windows this tries the PATHEXT extensions
+/// (`.EXE`/`.CMD`/`.BAT`/…) plus `.ps1`, because the AI CLIs install as npm
+/// shims — Claude Code is `claude.cmd` (and `claude.ps1`), NOT `claude.exe`, so
+/// a bare-name lookup misses it (and the extensionless npm bash shim it would
+/// otherwise find can't be run by CreateProcess).
+pub(crate) fn which_with_path(name: &str, path_env: &str) -> Option<PathBuf> {
     let sep = if cfg!(windows) { ';' } else { ':' };
     for dir in path_env.split(sep) {
         if dir.is_empty() {
             continue;
         }
-        let candidate = Path::new(dir).join(name);
-        if is_executable(&candidate) {
-            return Some(candidate);
+        #[cfg(not(windows))]
+        {
+            let candidate = Path::new(dir).join(name);
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+        #[cfg(windows)]
+        {
+            // If `name` already carries an executable extension, take it as-is.
+            let direct = Path::new(dir).join(name);
+            if direct.extension().is_some() && direct.is_file() {
+                return Some(direct);
+            }
+            // Otherwise probe the runnable shim extensions in PATHEXT order.
+            for ext in windows_exec_exts() {
+                let cand = Path::new(dir).join(format!("{name}{ext}"));
+                if cand.is_file() {
+                    return Some(cand);
+                }
+            }
         }
     }
     None
 }
 
+/// Executable extensions to probe on Windows, RESTRICTED to the shim shapes
+/// `cli_launch` can actually launch: PATHEXT intersected with
+/// `.com`/`.exe`/`.bat`/`.cmd`, plus `.ps1` (pnpm/scoop shims — never a default
+/// PATHEXT entry). We deliberately do NOT honour arbitrary PATHEXT types
+/// (`.vbs`/`.js`/`.py`/`.wsf`/…): `which_with_path` would report such a match as
+/// the resolved CLI and `cli_launch` would then hand it to CreateProcess with no
+/// wrapper, which fails or invokes undefined behaviour (audit 2026-07-03 P3).
+#[cfg(windows)]
+fn windows_exec_exts() -> Vec<String> {
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    launchable_exts_from(&pathext)
+}
+
+/// Pure core of [`windows_exec_exts`] (parameterised for testability): keep only
+/// the PATHEXT entries this launcher supports, in PATHEXT order, then append any
+/// supported shape PATHEXT omitted (notably `.ps1`).
+#[cfg(windows)]
+fn launchable_exts_from(pathext: &str) -> Vec<String> {
+    const LAUNCHABLE: &[&str] = &[".com", ".exe", ".bat", ".cmd", ".ps1"];
+    let mut exts: Vec<String> = pathext
+        .split(';')
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| LAUNCHABLE.contains(&e.as_str()))
+        .collect();
+    for want in LAUNCHABLE {
+        if !exts.iter().any(|e| e == want) {
+            exts.push((*want).to_string());
+        }
+    }
+    exts
+}
+
+/// The `(program, prefix_args)` needed to launch the resolved CLI at `bin`,
+/// honouring the Windows shim shapes: `.cmd`/`.bat` are passed DIRECTLY as the
+/// program (see below), `.ps1` runs through PowerShell `-File` (CreateProcess
+/// can't exec a script directly), and `.exe`/`.com` + Unix binaries run directly
+/// (empty prefix). Returning a spec rather than a `Command` lets the version
+/// probe build a `std::process::Command` and `run_ai_prompt` a
+/// `tokio::process::Command`, both agreeing on how a CLI is launched. Callers
+/// append the CLI's own args.
+///
+/// **BatBadBut / CVE-2024-24576 (audit 2026-07-03 P1).** We do NOT hand-wrap
+/// `cmd /C <shim>` and then let the caller append the user prompt as further
+/// args: that routes the args through std's ORDINARY (non-batch) quoting, which
+/// cmd.exe's batch parser does not honour — a `"` in the prompt can close the
+/// quoting and let `& | < > ^ %` be interpreted by cmd (command injection once
+/// any prompt content is machine-/dataset-derived). Instead we pass the
+/// `.cmd`/`.bat` path directly as the program; Rust std (>= 1.77.2) detects the
+/// batch extension and internally routes through `cmd.exe` while escaping every
+/// appended argument with cmd's batch rules — the battle-tested std impl. The
+/// process-tree shape (cmd -> node -> mcp) that `taskkill /T` reaps is unchanged.
+pub(crate) fn cli_launch(bin: &Path) -> (OsString, Vec<OsString>) {
+    #[cfg(windows)]
+    {
+        let ext = bin
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+        match ext.as_deref() {
+            // `.cmd`/`.bat`: direct program, std does the batch-safe escaping.
+            Some("cmd") | Some("bat") => {
+                return (bin.as_os_str().to_owned(), Vec::new());
+            }
+            Some("ps1") => {
+                return (
+                    crate::ai::win::powershell_exe().into_os_string(),
+                    vec![
+                        OsString::from("-NoProfile"),
+                        OsString::from("-ExecutionPolicy"),
+                        OsString::from("Bypass"),
+                        OsString::from("-File"),
+                        bin.as_os_str().to_owned(),
+                    ],
+                );
+            }
+            _ => {}
+        }
+    }
+    (bin.as_os_str().to_owned(), Vec::new())
+}
+
+#[cfg(not(windows))]
 fn is_executable(p: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -122,7 +226,9 @@ fn is_executable(p: &Path) -> bool {
 /// to stdout reliably and stderr noise (deprecation warnings,
 /// telemetry notices) would muddy the comparison surface.
 fn version_probe(bin: &Path) -> Option<String> {
-    let mut child = Command::new(bin)
+    let (prog, prefix) = cli_launch(bin);
+    let mut child = Command::new(prog)
+        .args(&prefix)
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -176,6 +282,21 @@ pub fn ai_path_env() -> String {
         if let Ok(root) = std::env::var("SystemRoot") {
             parts.push(format!(r"{root}\System32"));
             parts.push(root);
+        }
+        // Per-CLI install locations a GUI-launched app won't inherit on PATH —
+        // the Windows analogue of the Unix `$HOME/...` backfill below. The
+        // native Claude installer drops `claude.exe` in `~\.local\bin`; npm
+        // global installs land `claude.cmd`/`codex.cmd`/`gemini.cmd` in
+        // `%APPDATA%\npm`; Claude's local install uses `~\.claude\local`.
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            parts.push(format!(r"{profile}\.local\bin"));
+            parts.push(format!(r"{profile}\.claude\local"));
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            parts.push(format!(r"{appdata}\npm"));
+        }
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            parts.push(format!(r"{local}\Programs"));
         }
     } else {
         parts.extend(
@@ -293,5 +414,112 @@ mod tests {
         assert_eq!(result.id, CLAUDE);
         assert!(result.path.is_none());
         assert!(result.version.is_none());
+    }
+
+    // ---- Windows CLI-discovery tests (npm/native shim shapes) ----
+
+    #[cfg(windows)]
+    #[test]
+    fn which_with_path_finds_cmd_shim_via_pathext() {
+        // npm global installs drop `<cli>.cmd`; a bare-name lookup must find it.
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = tmp.path().join("foo.cmd");
+        std::fs::write(&cmd, b"@echo off\r\n").unwrap();
+        let found = which_with_path("foo", &tmp.path().to_string_lossy());
+        assert_eq!(found.as_deref(), Some(cmd.as_path()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn which_with_path_prefers_exe_over_extensionless_bash_shim() {
+        // npm also drops an extensionless bash shim `foo` that CreateProcess
+        // can't run; resolution must pick the runnable `foo.exe`, not `foo`.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("foo"), b"#!/bin/sh\n").unwrap();
+        let exe = tmp.path().join("foo.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let found = which_with_path("foo", &tmp.path().to_string_lossy());
+        assert_eq!(found.as_deref(), Some(exe.as_path()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cli_launch_routes_shim_shapes() {
+        use std::ffi::OsString;
+        // .cmd -> direct program (std applies batch-safe arg escaping); NOT
+        // hand-wrapped `cmd /C`, which would bypass that escaping (BatBadBut).
+        let (prog, pre) = cli_launch(Path::new(r"C:\x\claude.cmd"));
+        assert_eq!(prog, OsString::from(r"C:\x\claude.cmd"));
+        assert!(pre.is_empty());
+        // .bat likewise passed directly.
+        let (prog, pre) = cli_launch(Path::new(r"C:\x\claude.bat"));
+        assert_eq!(prog, OsString::from(r"C:\x\claude.bat"));
+        assert!(pre.is_empty());
+        // .ps1 -> powershell -File <path>
+        let (prog, pre) = cli_launch(Path::new(r"C:\x\claude.ps1"));
+        assert_eq!(prog, crate::ai::win::powershell_exe().into_os_string());
+        assert!(pre.iter().any(|a| a == "-File"));
+        // .exe -> direct, no prefix
+        let (prog, pre) = cli_launch(Path::new(r"C:\x\claude.exe"));
+        assert_eq!(prog, OsString::from(r"C:\x\claude.exe"));
+        assert!(pre.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launchable_exts_excludes_unlaunchable_pathext() {
+        // A PATHEXT carrying types cli_launch can't wrap (.VBS/.JS/.PY/.WSF)
+        // must NOT be probed — else which_with_path could report `claude.vbs`
+        // as the CLI and hand it to CreateProcess unwrapped (audit P3).
+        let exts = launchable_exts_from(".COM;.EXE;.BAT;.CMD;.VBS;.JS;.PY;.WSF");
+        for good in [".com", ".exe", ".bat", ".cmd", ".ps1"] {
+            assert!(exts.iter().any(|e| e == good), "missing {good}: {exts:?}");
+        }
+        for bad in [".vbs", ".js", ".py", ".wsf"] {
+            assert!(
+                !exts.iter().any(|e| e == bad),
+                "should exclude {bad}: {exts:?}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cmd_shim_arg_metacharacters_do_not_inject() {
+        // End-to-end proof of the BatBadBut fix: spawn a real `.cmd` via the
+        // `cli_launch` spec with a prompt full of cmd metacharacters. If the
+        // args were routed through `cmd /C` with std's non-batch quoting, cmd
+        // would split on the unescaped `&` and run `echo INJECTED` as its own
+        // command. Passing the shim directly makes std escape the arg for the
+        // batch parser, so the payload is delivered as data, never executed.
+        use std::process::Command;
+        let tmp = tempfile::tempdir().unwrap();
+        let shim = tmp.path().join("echoarg.cmd");
+        std::fs::write(&shim, b"@echo off\r\necho GOT:%*\r\n").unwrap();
+        let payload = r#"x" & echo INJECTED & echo "y"#;
+        let (prog, prefix) = cli_launch(&shim);
+        let out = Command::new(&prog)
+            .args(&prefix)
+            .arg(payload)
+            .output()
+            .expect("spawn .cmd shim");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.lines().any(|l| l.trim() == "INJECTED"),
+            "cmd metacharacter injection reached the parser; stdout: {stdout:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ai_path_env_backfills_local_bin_on_windows() {
+        // The native Claude installer's `~\.local\bin` must be searched.
+        let env_str = ai_path_env();
+        if let Ok(profile) = env::var("USERPROFILE") {
+            assert!(
+                env_str.contains(&format!(r"{profile}\.local\bin")),
+                "env: {env_str}"
+            );
+        }
     }
 }

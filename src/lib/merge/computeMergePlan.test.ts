@@ -84,6 +84,52 @@ describe('computeMergePlan — no collision', () => {
   })
 })
 
+describe('computeMergePlan — Windows native picker root (mixed separators)', () => {
+  // Regression (audit 2026-07-04): a native Windows picker root like `C:\donor`
+  // fed to scanDataset yields MIXED index keys (`C:\donor/sub-02/...`) because
+  // the scanner joins descendants with `/`. The copy-scope prefix filter must
+  // normalize BOTH the root and every indexed key to POSIX — mixing
+  // `detectSeparator(root)` (`\`) with `/`-joined keys silently skipped every
+  // donor file (incomplete merge, no clobber reported) and suppressed PHI
+  // warnings. `ds()` builds `${root}/${rel}`, so a backslash root reproduces
+  // the exact mixed-key shape identically on POSIX and Windows CI.
+  test('donor files under a backslash root are still copied (POSIX src/dest)', () => {
+    const recip = ds('C:\\r', 'R', ['sub-01/anat/sub-01_T1w.nii.gz'])
+    const donor = ds('C:\\d', 'D', ['sub-02/anat/sub-02_T1w.nii.gz'])
+    const plan = computeMergePlan({
+      inputs: mk(recip, [{ root: 'C:\\d', dataset: donor }]),
+      policy: POL,
+      resolutions: RES,
+    })
+    expect(plan.blocked).toBe(false)
+    expect(plan.subjectMap[0].action).toBe('copy-new')
+    expect(plan.copies).toHaveLength(1)
+    // Emitted in canonical POSIX form regardless of the picked root's shape.
+    expect(plan.copies[0].src).toBe('C:/d/sub-02/anat/sub-02_T1w.nii.gz')
+    expect(plan.copies[0].dest).toBe('C:/r/sub-02/anat/sub-02_T1w.nii.gz')
+  })
+
+  test('the recipient prefix set is read in POSIX space under a backslash root', () => {
+    const donor = ds('C:\\d', 'D', ['sub-01/anat/sub-01_T1w.nii.gz'])
+    // Recipient already holds sub-01 AND sub-02 (mixed-key `C:\r/sub-02/...`).
+    // Force donor sub-01 -> distinct: the renumber walk must SEE the recipient's
+    // sub-02 (POSIX-normalized) and skip to sub-03. A mixed-key recipient set
+    // would have missed sub-02 and mis-assigned sub-02.
+    const recip = ds('C:\\r', 'R', [
+      'sub-01/anat/sub-01_T1w.nii.gz',
+      'sub-02/anat/sub-02_T1w.nii.gz',
+    ])
+    const plan = computeMergePlan({
+      inputs: mk(recip, [{ root: 'C:\\d', dataset: donor }]),
+      policy: POL,
+      resolutions: withResolutions({ subject: { '0:01': 'distinct' } }),
+    })
+    expect(plan.blocked).toBe(false)
+    expect(plan.copies).toHaveLength(1)
+    expect(plan.copies[0].dest).toBe('C:/r/sub-03/anat/sub-03_T1w.nii.gz')
+  })
+})
+
 describe('computeMergePlan — subject collision', () => {
   const recip = ds('/r', 'R', ['sub-01/anat/sub-01_T1w.nii.gz'])
   const donor = ds('/d', 'D', ['sub-01/anat/sub-01_T1w.nii.gz'])

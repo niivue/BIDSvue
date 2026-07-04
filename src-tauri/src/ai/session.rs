@@ -21,8 +21,9 @@
 // absent" as collectible (covers crash-between-mkdir-and-write).
 
 use std::fs;
-// `Write::write_all` is only used by the cfg(unix) 0o600 session-file writer.
-#[cfg(unix)]
+// `Write::write_all` is used by both the cfg(unix) and cfg(windows) 0o600
+// session-file writers (audit 2026-07-03 round 5 P3 gave Windows a no-clobber
+// create_new + sync write too).
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,8 +38,13 @@ use serde::{Deserialize, Serialize};
 pub struct SessionRecord {
     pub session_id: String,
     pub pid: u32,
-    /// Best-effort process start time (epoch milliseconds). Falls
-    /// back to spawn wall-clock when the kernel API can't be read.
+    /// Best-effort process start-time liveness key. On Unix this is epoch
+    /// milliseconds (falling back to spawn wall-clock when the kernel API
+    /// can't be read); on Windows it is raw process-creation FILETIME ticks
+    /// (`ai::win::process_creation_time`), NOT epoch ms — the field name is a
+    /// historical Unix-ism. Only ever compared for EQUALITY (stale-PID reuse
+    /// detection), so the differing unit across platforms is not a bug; do not
+    /// treat the value as a wall-clock time.
     pub started_at_epoch_ms: u64,
     pub bearer_token: String,
     /// CLI the user picked for this session ("claude", "codex", "gemini").
@@ -68,6 +74,12 @@ pub fn create_session_dir(app_cache_dir: &Path, session_id: &str) -> Result<Path
         // Best-effort 0o700 on the parent; if a previous run created
         // it 0o755 we tighten on the next boot. Failure is non-fatal.
         let _ = fs::set_permissions(&sessions_root, fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(windows)]
+    {
+        // 0o700 analogue on the parent dir.
+        crate::ai::win::restrict_path_to_current_user(&sessions_root)
+            .map_err(|e| format!("restrict ai-sessions ACL: {e}"))?;
     }
 
     for attempt in 0..16 {
@@ -101,7 +113,14 @@ fn mkdir_exclusive(path: &Path) -> Result<(), String> {
     fs::DirBuilder::new()
         .recursive(false)
         .create(path)
-        .map_err(|e| format!("mkdir_exclusive({}): {e}", path.display()))
+        .map_err(|e| format!("mkdir_exclusive({}): {e}", path.display()))?;
+    // 0o700 analogue on Windows: restrict the new dir's DACL to the current user.
+    #[cfg(windows)]
+    {
+        crate::ai::win::restrict_path_to_current_user(path)
+            .map_err(|e| format!("restrict session dir ACL: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Best-effort process start time in epoch milliseconds. Falls back
@@ -162,6 +181,15 @@ pub fn read_process_start_time(pid: u32) -> u64 {
             }
         }
     }
+    #[cfg(windows)]
+    {
+        // The process creation FILETIME (100-ns ticks) — stable for the life
+        // of the process and distinct across a PID reuse, so it disambiguates a
+        // live owner from a stale record. Analogue of Linux `starttime`.
+        if let Some(t) = crate::ai::win::process_creation_time(pid) {
+            return t;
+        }
+    }
     // Fallback: epoch millis at the moment of the call. This makes
     // the scavenger more pessimistic (every PID-reuse case ends up
     // collectible after a fresh boot) which is the safer side.
@@ -216,7 +244,26 @@ pub(crate) fn write_file_0o600(path: &Path, bytes: &[u8]) -> Result<(), String> 
     }
     #[cfg(not(unix))]
     {
-        fs::write(path, bytes).map_err(|e| format!("write({}): {e}", path.display()))?;
+        // Same no-clobber defensive invariant as the Unix branch (audit
+        // 2026-07-03 round 5 P3): `create_new(true)` refuses to overwrite an
+        // existing credential file, and we `sync_all` before applying the DACL
+        // rather than `fs::write` (which clobbers and doesn't flush).
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|e| format!("open({}): {e}", path.display()))?;
+        f.write_all(bytes)
+            .map_err(|e| format!("write({}): {e}", path.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("sync({}): {e}", path.display()))?;
+        drop(f);
+        // 0o600 analogue on Windows: tighten the file's DACL to the current
+        // user's SID (the bearer + session-config live here). Fail-closed — a
+        // credential file we can't restrict must not be left readable.
+        #[cfg(windows)]
+        crate::ai::win::restrict_path_to_current_user(path)
+            .map_err(|e| format!("restrict({}): {e}", path.display()))?;
         Ok(())
     }
 }
@@ -315,10 +362,20 @@ fn is_process_live_with_same_start_time(pid: u32, recorded_started_at: u64) -> b
     live_started_at == recorded_started_at
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn is_process_live_with_same_start_time(pid: u32, recorded_started_at: u64) -> bool {
+    // Live iff a process with this PID exists AND its creation time matches the
+    // recorded one (OpenProcess + GetProcessTimes, see ai::win). A gone process
+    // yields None (collectible); a PID reuse yields a different creation time
+    // (collectible). Mirrors the Unix kill(0) + start-time comparison.
+    match crate::ai::win::process_creation_time(pid) {
+        Some(t) => t == recorded_started_at,
+        None => false,
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn is_process_live_with_same_start_time(_pid: u32, _recorded_started_at: u64) -> bool {
-    // Windows: no kill(0) equivalent in std; a future PR can wire
-    // OpenProcess + GetProcessTimes. M-AI3 ships Unix-only.
     false
 }
 
@@ -336,6 +393,22 @@ mod tests {
         // guaranteed at 2^256 collision space).
         let t2 = mint_bearer_token().expect("getrandom should succeed");
         assert_ne!(t, t2);
+    }
+
+    #[test]
+    fn write_file_0o600_refuses_to_clobber() {
+        // No-clobber invariant on BOTH platforms (audit round 5 P3 / round 6
+        // test): a credential file must never be overwritten in place.
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("bearer");
+        write_file_0o600(&p, b"first").unwrap();
+        let err = write_file_0o600(&p, b"second").unwrap_err();
+        assert!(
+            err.to_ascii_lowercase().contains("open") || err.contains("exists"),
+            "second write should fail create_new: {err}"
+        );
+        // Original bytes are intact — the failed write did not truncate.
+        assert_eq!(fs::read(&p).unwrap(), b"first");
     }
 
     #[test]

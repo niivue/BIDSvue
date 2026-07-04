@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toPosix } from '$lib/test-utils/posix'
 import { nodeFsPostPassAdapter } from './__testFs'
 import {
   planDatasetDescriptionUpgrade,
@@ -175,9 +176,9 @@ describe('planTaskBoldJsons', () => {
       join(root, 'README.md'),
       'Generated using dcm2niix v1.0.20260513. Describe your dataset here.\n',
     )
-    expect(await planReadmeMdCleanup(root, nodeFsPostPassAdapter)).toBe(
-      join(root, 'README.md'),
-    )
+    expect(
+      toPosix((await planReadmeMdCleanup(root, nodeFsPostPassAdapter)) ?? ''),
+    ).toBe(toPosix(join(root, 'README.md')))
   })
 
   test('planReadmeMdCleanup: returns null when README.md is absent', async () => {
@@ -246,7 +247,9 @@ describe('planTaskBoldStubCleanup', () => {
       `${JSON.stringify({ TaskName: 'rest', CogAtlasID: 'http://...' })}\n`,
     )
     const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
-    expect(out).toEqual([join(root, 'task-rest_bold.json')])
+    expect(out.map(toPosix)).toEqual([
+      toPosix(join(root, 'task-rest_bold.json')),
+    ])
   })
 
   test('also matches the TaskName-only shape (CogAtlasID absent)', async () => {
@@ -256,7 +259,9 @@ describe('planTaskBoldStubCleanup', () => {
       `${JSON.stringify({ TaskName: 'rest' })}\n`,
     )
     const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
-    expect(out).toEqual([join(root, 'task-rest_bold.json')])
+    expect(out.map(toPosix)).toEqual([
+      toPosix(join(root, 'task-rest_bold.json')),
+    ])
   })
 
   test('skips when no _acq- variant exists for the task', async () => {
@@ -323,9 +328,9 @@ describe('planTaskBoldStubCleanup', () => {
       `${JSON.stringify({ TaskName: 'faces' })}\n`,
     )
     const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
-    expect(out).toEqual([
-      join(root, 'task-faces_bold.json'),
-      join(root, 'task-rest_bold.json'),
+    expect(out.map(toPosix)).toEqual([
+      toPosix(join(root, 'task-faces_bold.json')),
+      toPosix(join(root, 'task-rest_bold.json')),
     ])
   })
 
@@ -384,8 +389,10 @@ describe('planPerRunTaskNameBackfill', () => {
     })
     const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
     expect(out.length).toBe(1)
-    expect(out[0]?.path).toBe(
-      join(root, 'sub-01/func', 'sub-01_task-rest_acq-mb2_run-1_bold.json'),
+    expect(toPosix(out[0]?.path ?? '')).toBe(
+      toPosix(
+        join(root, 'sub-01/func', 'sub-01_task-rest_acq-mb2_run-1_bold.json'),
+      ),
     )
     const parsed = JSON.parse(out[0]?.content ?? '{}')
     expect(parsed.TaskName).toBe('rest')
@@ -455,8 +462,8 @@ describe('planPerRunTaskNameBackfill', () => {
     })
     const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
     expect(out.length).toBe(1)
-    expect(out[0]?.path).toBe(
-      join(root, 'sub-01/func', 'sub-01_task-rest_bold.json'),
+    expect(toPosix(out[0]?.path ?? '')).toBe(
+      toPosix(join(root, 'sub-01/func', 'sub-01_task-rest_bold.json')),
     )
     // Negative assertion: nothing under sourcedata/ in the output.
     expect(out.every((e) => !e.path.includes('/sourcedata/'))).toBe(true)
@@ -480,7 +487,11 @@ describe('planPerRunTaskNameBackfill', () => {
     // the POST_PASS_MAX_DEPTH guard the walker would recurse
     // forever (PostPassFs.readDir follows symlinks).
     await mkdir(join(root, 'loop'), { recursive: true })
-    await symlink(root, join(root, 'loop', 'back'))
+    // `'junction'` so this works on Windows too: a plain directory
+    // symlink needs elevated privilege there (EPERM), but a junction
+    // (an absolute-dir reparse point that readDir follows the same way)
+    // does not. On POSIX the type argument is ignored.
+    await symlink(root, join(root, 'loop', 'back'), 'junction')
     // Place a real bold above the loop so the walker has something
     // legit to find. The loop-traversal version of this same bold
     // (encountered via the symlink) is bounded by the depth cap,
@@ -619,7 +630,9 @@ describe('planDatasetDescriptionUpgrade', () => {
       nodeFsPostPassAdapter,
     )
     expect(entry).not.toBeNull()
-    expect(entry?.path).toBe(join(root, 'dataset_description.json'))
+    expect(toPosix(entry?.path ?? '')).toBe(
+      toPosix(join(root, 'dataset_description.json')),
+    )
     const parsed = JSON.parse(entry?.content ?? '{}')
     expect(parsed.Name).toBe('TODO: name of the dataset')
     expect(parsed.BIDSVersion).toBe('1.8.0')

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toPosix } from '$lib/test-utils/posix'
 import { nodeFsPostPassAdapter } from './__testFs'
 import {
   isParentDerivativesEmpty,
@@ -34,9 +35,11 @@ describe('planDropDerivatives', () => {
       [join(root, 'StudyA'), join(root, 'StudyB')],
       nodeFsPostPassAdapter,
     )
-    expect(plan.paths).toEqual([join(root, 'StudyA', 'derivatives', 'scanner')])
-    expect(plan.emptyParentCandidates).toEqual([
-      join(root, 'StudyA', 'derivatives'),
+    expect(plan.paths.map(toPosix)).toEqual([
+      toPosix(join(root, 'StudyA', 'derivatives', 'scanner')),
+    ])
+    expect(plan.emptyParentCandidates.map(toPosix)).toEqual([
+      toPosix(join(root, 'StudyA', 'derivatives')),
     ])
   })
 
@@ -61,7 +64,9 @@ describe('planDropDerivatives', () => {
       [join(root, 'Study')],
       nodeFsPostPassAdapter,
     )
-    expect(plan.paths).toEqual([join(root, 'Study', 'derivatives', 'scanner')])
+    expect(plan.paths.map(toPosix)).toEqual([
+      toPosix(join(root, 'Study', 'derivatives', 'scanner')),
+    ])
     // The plan only marks `scanner` for removal; the orchestrator's
     // ctx.removeTree call won't touch fmriprep / freesurfer.
   })
@@ -95,8 +100,12 @@ describe('planDropDerivatives', () => {
       nodeFsPostPassAdapter,
       new Set([studyA]),
     )
-    expect(plan.paths).toEqual([join(studyB, 'derivatives', 'scanner')])
-    expect(plan.emptyParentCandidates).toEqual([join(studyB, 'derivatives')])
+    expect(plan.paths.map(toPosix)).toEqual([
+      toPosix(join(studyB, 'derivatives', 'scanner')),
+    ])
+    expect(plan.emptyParentCandidates.map(toPosix)).toEqual([
+      toPosix(join(studyB, 'derivatives')),
+    ])
   })
 })
 

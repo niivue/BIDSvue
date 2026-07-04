@@ -646,6 +646,7 @@ fn sync_parent_dir(parent: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testpath::{abs, absp};
 
     fn tmp_trust_file() -> PathBuf {
         let dir =
@@ -657,12 +658,8 @@ mod tests {
     #[test]
     fn mint_token_returns_distinct_ids() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let t1 = store
-            .mint_token(PathBuf::from("/Users/a/datasets/one"))
-            .unwrap();
-        let t2 = store
-            .mint_token(PathBuf::from("/Users/a/datasets/two"))
-            .unwrap();
+        let t1 = store.mint_token(absp("/Users/a/datasets/one")).unwrap();
+        let t2 = store.mint_token(absp("/Users/a/datasets/two")).unwrap();
         assert_ne!(t1, t2);
         assert!(t1.len() >= 40);
     }
@@ -670,18 +667,18 @@ mod tests {
     #[test]
     fn validate_accepts_bound_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/data")).unwrap();
+        let token = store.mint_token(absp("/Users/a/data")).unwrap();
         store
-            .validate_token(&token, Path::new("/Users/a/data"))
+            .validate_token(&token, &absp("/Users/a/data"))
             .unwrap();
     }
 
     #[test]
     fn validate_accepts_descendant_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/data")).unwrap();
+        let token = store.mint_token(absp("/Users/a/data")).unwrap();
         store
-            .validate_token(&token, Path::new("/Users/a/data/child/grandchild"))
+            .validate_token(&token, &absp("/Users/a/data/child/grandchild"))
             .unwrap();
     }
 
@@ -691,30 +688,30 @@ mod tests {
         // descendants so a token for a picked dir can't promote an arbitrary
         // sub-subtree into runtime_dataset_roots.
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/data")).unwrap();
+        let token = store.mint_token(absp("/Users/a/data")).unwrap();
         // exact bound path (open-via-picker / drag-drop / example / clone) — OK
         store
-            .validate_token_dataset_root(&token, Path::new("/Users/a/data"))
+            .validate_token_dataset_root(&token, &absp("/Users/a/data"))
             .unwrap();
         // direct child (import destDir = <pickedParent>/<name>) — OK
         store
-            .validate_token_dataset_root(&token, Path::new("/Users/a/data/study1"))
+            .validate_token_dataset_root(&token, &absp("/Users/a/data/study1"))
             .unwrap();
         // deeper descendant — REJECTED (the too-broad promotion the audit closed)
         assert!(store
-            .validate_token_dataset_root(&token, Path::new("/Users/a/data/study1/sub-01"))
+            .validate_token_dataset_root(&token, &absp("/Users/a/data/study1/sub-01"))
             .is_err());
         assert!(store
-            .validate_token_dataset_root(&token, Path::new("/Users/a/data/sub-01/anat"))
+            .validate_token_dataset_root(&token, &absp("/Users/a/data/sub-01/anat"))
             .is_err());
     }
 
     #[test]
     fn validate_rejects_unrelated_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/data")).unwrap();
+        let token = store.mint_token(absp("/Users/a/data")).unwrap();
         let err = store
-            .validate_token(&token, Path::new("/Users/a/secret"))
+            .validate_token(&token, &absp("/Users/a/secret"))
             .unwrap_err();
         assert!(err.contains("not under bound path"), "got: {err}");
     }
@@ -723,9 +720,9 @@ mod tests {
     fn validate_rejects_prefix_attack() {
         // `/Users/alice` token must NOT authorize `/Users/alice-evil`.
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/alice")).unwrap();
+        let token = store.mint_token(absp("/Users/alice")).unwrap();
         let err = store
-            .validate_token(&token, Path::new("/Users/alice-evil"))
+            .validate_token(&token, &absp("/Users/alice-evil"))
             .unwrap_err();
         assert!(err.contains("not under bound path"), "got: {err}");
     }
@@ -734,7 +731,7 @@ mod tests {
     fn validate_rejects_unknown_token() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
         let err = store
-            .validate_token("not-a-real-token", Path::new("/Users/a/data"))
+            .validate_token("not-a-real-token", &absp("/Users/a/data"))
             .unwrap_err();
         assert!(err.contains("unknown or expired"), "got: {err}");
     }
@@ -742,7 +739,8 @@ mod tests {
     #[test]
     fn validate_rejects_relative_target() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/data")).unwrap();
+        let token = store.mint_token(absp("/Users/a/data")).unwrap();
+        // Target stays deliberately relative — the assertion under test.
         let err = store
             .validate_token(&token, Path::new("relative/path"))
             .unwrap_err();
@@ -764,7 +762,7 @@ mod tests {
         // gains entries only via explicit `trust()` calls after the
         // operation (open / import) succeeds.
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let path = PathBuf::from("/Users/a/datasets/foo");
+        let path = absp("/Users/a/datasets/foo");
         store.mint_token(path.clone()).unwrap();
         assert!(!store.is_trusted(&path).unwrap());
     }
@@ -772,7 +770,7 @@ mod tests {
     #[test]
     fn trust_command_persists_bound_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let path = PathBuf::from("/Users/a/datasets/foo");
+        let path = absp("/Users/a/datasets/foo");
         let token = store.mint_token(path.clone()).unwrap();
         store.trust(path.clone(), &token).unwrap();
         assert!(store.is_trusted(&path).unwrap());
@@ -781,8 +779,8 @@ mod tests {
     #[test]
     fn trust_command_persists_descendant_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let parent = PathBuf::from("/Users/a/imports");
-        let dest = PathBuf::from("/Users/a/imports/new-dataset");
+        let parent = absp("/Users/a/imports");
+        let dest = absp("/Users/a/imports/new-dataset");
         let token = store.mint_token(parent).unwrap();
         store.trust(dest.clone(), &token).unwrap();
         assert!(store.is_trusted(&dest).unwrap());
@@ -791,10 +789,10 @@ mod tests {
     #[test]
     fn trust_command_rejects_unrelated_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let parent = PathBuf::from("/Users/a/imports");
+        let parent = absp("/Users/a/imports");
         let token = store.mint_token(parent).unwrap();
         let err = store
-            .trust(PathBuf::from("/Users/a/secrets/keys"), &token)
+            .trust(absp("/Users/a/secrets/keys"), &token)
             .unwrap_err();
         assert!(err.contains("not under bound path"), "got: {err}");
     }
@@ -806,9 +804,9 @@ mod tests {
         // validate_trust_path guard rejects any path with `..` or `.`
         // components before the containment check runs.
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let token = store.mint_token(PathBuf::from("/Users/a/imports")).unwrap();
+        let token = store.mint_token(absp("/Users/a/imports")).unwrap();
         let err = store
-            .validate_token(&token, Path::new("/Users/a/imports/x/../../etc/passwd"))
+            .validate_token(&token, &absp("/Users/a/imports/x/../../etc/passwd"))
             .unwrap_err();
         assert!(err.contains("'..'") || err.contains(".."), "got: {err}");
     }
@@ -816,9 +814,7 @@ mod tests {
     #[test]
     fn mint_rejects_parent_dir_in_bound_path() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let err = store
-            .mint_token(PathBuf::from("/Users/a/../etc"))
-            .unwrap_err();
+        let err = store.mint_token(absp("/Users/a/../etc")).unwrap_err();
         assert!(err.contains("'..'") || err.contains(".."), "got: {err}");
     }
 
@@ -826,37 +822,42 @@ mod tests {
     fn list_trusted_round_trips_through_disk() {
         let trust_file = tmp_trust_file();
         let store = TrustStore::load(trust_file.clone()).unwrap();
-        let token1 = store.mint_token(PathBuf::from("/Users/a/one")).unwrap();
-        store.trust(PathBuf::from("/Users/a/one"), &token1).unwrap();
-        let token2 = store.mint_token(PathBuf::from("/Users/a/two")).unwrap();
-        store.trust(PathBuf::from("/Users/a/two"), &token2).unwrap();
+        let token1 = store.mint_token(absp("/Users/a/one")).unwrap();
+        store.trust(absp("/Users/a/one"), &token1).unwrap();
+        let token2 = store.mint_token(absp("/Users/a/two")).unwrap();
+        store.trust(absp("/Users/a/two"), &token2).unwrap();
 
         // Fresh store reads back what the first one wrote.
         let reopened = TrustStore::load(trust_file).unwrap();
         let listed = reopened.list_trusted().unwrap();
         assert_eq!(listed.len(), 2);
-        assert!(listed.iter().any(|p| p == "/Users/a/one"));
-        assert!(listed.iter().any(|p| p == "/Users/a/two"));
+        assert!(listed.iter().any(|p| p == &abs("/Users/a/one")));
+        assert!(listed.iter().any(|p| p == &abs("/Users/a/two")));
     }
 
     #[test]
     fn load_drops_relative_or_dot_component_entries() {
         let trust_file = tmp_trust_file();
-        std::fs::write(
-            &trust_file,
-            r#"{
+        // Seed one valid absolute entry plus three that must be dropped: a
+        // relative path and two with `.`/`..` components. `abs` keeps forward
+        // slashes so no JSON backslash-escaping is needed on Windows.
+        let seed = format!(
+            r#"{{
   "paths": [
-    "/Users/a/ok",
+    "{ok}",
     "relative/path",
-    "/Users/a/../bad",
-    "/Users/a/./bad"
+    "{dotdot}",
+    "{dot}"
   ]
-}"#,
-        )
-        .expect("seed trust file");
+}}"#,
+            ok = abs("/Users/a/ok"),
+            dotdot = abs("/Users/a/../bad"),
+            dot = abs("/Users/a/./bad"),
+        );
+        std::fs::write(&trust_file, seed).expect("seed trust file");
         let store = TrustStore::load(trust_file).unwrap();
         let listed = store.list_trusted().unwrap();
-        assert_eq!(listed, vec!["/Users/a/ok".to_string()]);
+        assert_eq!(listed, vec![abs("/Users/a/ok")]);
     }
 
     #[test]
@@ -868,7 +869,7 @@ mod tests {
         std::fs::write(&parent_file, "not a dir").unwrap();
         let trust_file = parent_file.join("trusted_dataset_roots.json");
         let store = TrustStore::empty_for_test(trust_file);
-        let path = PathBuf::from("/Users/a/datasets/not-persisted");
+        let path = absp("/Users/a/datasets/not-persisted");
         let token = store.mint_token(path.clone()).unwrap();
         let err = store.trust(path.clone(), &token).unwrap_err();
         assert!(err.contains("create_dir_all"), "got: {err}");
@@ -883,7 +884,7 @@ mod tests {
     fn clear_removes_memory_tokens_and_disk_file() {
         let trust_file = tmp_trust_file();
         let store = TrustStore::load(trust_file.clone()).unwrap();
-        let path = PathBuf::from("/Users/a/datasets/clear-me");
+        let path = absp("/Users/a/datasets/clear-me");
         let token = store.mint_token(path.clone()).unwrap();
         store.trust(path.clone(), &token).unwrap();
         assert!(store.is_trusted(&path).unwrap());
@@ -924,43 +925,43 @@ mod tests {
     #[test]
     fn is_under_any_trusted_root_matches_descendants() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let root = PathBuf::from("/Users/a/datasets/study1");
+        let root = absp("/Users/a/datasets/study1");
         let token = store.mint_token(root.clone()).unwrap();
         store.trust(root.clone(), &token).unwrap();
         assert!(store.is_under_any_trusted_root(&root).unwrap());
         assert!(store
-            .is_under_any_trusted_root(Path::new("/Users/a/datasets/study1/sub-01/anat/T1w.nii.gz"))
+            .is_under_any_trusted_root(&absp("/Users/a/datasets/study1/sub-01/anat/T1w.nii.gz"))
             .unwrap());
         assert!(!store
-            .is_under_any_trusted_root(Path::new("/etc/passwd"))
+            .is_under_any_trusted_root(&absp("/etc/passwd"))
             .unwrap());
         // Prefix attack: `/Users/a/datasets/study1` does NOT cover
         // `/Users/a/datasets/study1-evil`. target_is_under is
         // component-wise.
         assert!(!store
-            .is_under_any_trusted_root(Path::new("/Users/a/datasets/study1-evil"))
+            .is_under_any_trusted_root(&absp("/Users/a/datasets/study1-evil"))
             .unwrap());
     }
 
     #[test]
     fn runtime_authorization_matches_descendants_but_not_siblings() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let root = PathBuf::from("/Users/a/datasets/study1");
+        let root = absp("/Users/a/datasets/study1");
         store.authorize_runtime_path(root.clone()).unwrap();
         assert!(store.is_under_any_runtime_path(&root).unwrap());
         assert!(store
-            .is_under_any_runtime_path(Path::new("/Users/a/datasets/study1/sub-01/anat/T1w.nii.gz"))
+            .is_under_any_runtime_path(&absp("/Users/a/datasets/study1/sub-01/anat/T1w.nii.gz"))
             .unwrap());
         assert!(!store
-            .is_under_any_runtime_path(Path::new("/Users/a/datasets/study1-evil"))
+            .is_under_any_runtime_path(&absp("/Users/a/datasets/study1-evil"))
             .unwrap());
     }
 
     #[test]
     fn runtime_dataset_roots_are_separate_from_fs_only_paths() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let src = PathBuf::from("/Users/a/import-source");
-        let root = PathBuf::from("/Users/a/datasets/study1");
+        let src = absp("/Users/a/import-source");
+        let root = absp("/Users/a/datasets/study1");
 
         store.authorize_runtime_path(src.clone()).unwrap();
         assert!(store.is_under_any_runtime_path(&src).unwrap());
@@ -970,14 +971,14 @@ mod tests {
         assert!(store.is_under_any_runtime_path(&root).unwrap());
         assert!(store.is_runtime_dataset_root_member(&root).unwrap());
         assert!(!store
-            .is_runtime_dataset_root_member(Path::new("/Users/a/datasets/study1/sub-01"))
+            .is_runtime_dataset_root_member(&absp("/Users/a/datasets/study1/sub-01"))
             .unwrap());
 
         // Audit P1 2026-06-22: tokenless carve-out promotion MUST NOT
         // find a dataset-root ancestor for fs-only import sources.
         assert!(
             store
-                .runtime_dataset_root_ancestor(Path::new("/Users/a/import-source/sub-01"))
+                .runtime_dataset_root_ancestor(&absp("/Users/a/import-source/sub-01"))
                 .unwrap()
                 .is_none(),
             "fs-only source descendant must NOT pass the dataset-root carve-out gate"
@@ -987,7 +988,7 @@ mod tests {
         // cases still have a parent for the higher-level policy to validate.
         assert_eq!(
             store
-                .runtime_dataset_root_ancestor(Path::new("/Users/a/datasets/study1/sub-01"))
+                .runtime_dataset_root_ancestor(&absp("/Users/a/datasets/study1/sub-01"))
                 .unwrap()
                 .as_deref(),
             Some(root.as_path())
@@ -1004,7 +1005,7 @@ mod tests {
     #[test]
     fn clear_removes_runtime_authorization() {
         let store = TrustStore::empty_for_test(tmp_trust_file());
-        let root = PathBuf::from("/Users/a/datasets/study1");
+        let root = absp("/Users/a/datasets/study1");
         store.authorize_runtime_dataset_root(root.clone()).unwrap();
         assert!(store.is_under_any_runtime_path(&root).unwrap());
         assert!(store.is_runtime_dataset_root_member(&root).unwrap());
@@ -1020,10 +1021,10 @@ mod tests {
         // trust file on the second save.
         let trust_file = tmp_trust_file();
         let store = TrustStore::load(trust_file.clone()).unwrap();
-        let one = PathBuf::from("/Users/a/persisted-one");
+        let one = absp("/Users/a/persisted-one");
         let token_one = store.mint_token(one.clone()).unwrap();
         store.trust(one, &token_one).unwrap();
-        let two = PathBuf::from("/Users/a/persisted-two");
+        let two = absp("/Users/a/persisted-two");
         let token_two = store.mint_token(two.clone()).unwrap();
         store.trust(two.clone(), &token_two).unwrap();
         let parent = trust_file.parent().unwrap();

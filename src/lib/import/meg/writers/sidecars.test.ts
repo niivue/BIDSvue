@@ -123,7 +123,12 @@ async function readGolden(name: string): Promise<string> {
   // `ignoreBOM: true` preserves the UTF-8 BOM so byte-equal diffs
   // against `writeChannelsTsv`'s output (which emits a BOM) succeed.
   // The default behaviour silently strips a leading U+FEFF.
-  return new TextDecoder('utf-8', { ignoreBOM: true }).decode(buf)
+  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(buf)
+  // Normalize CRLF -> LF: the writers emit LF (and `.gitattributes` marks
+  // these fixtures `eol=lf`), but a Windows working tree can still carry
+  // CRLF-checked-out goldens. The line-ending is not what these tests
+  // assert; the field/row content is.
+  return text.replace(/\r\n/g, '\n')
 }
 
 /**

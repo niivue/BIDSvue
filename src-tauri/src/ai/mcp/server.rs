@@ -15,7 +15,8 @@
 //   }
 //
 // The bearer-token surface (Locked decision 13) goes alive when M-AI5
-// adds the control-socket IPC bridge for write tools.
+// adds the control-channel IPC bridge for write tools (a Unix-domain
+// socket on Unix, a named pipe on Windows).
 
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -48,8 +49,9 @@ pub struct ServerContext {
     pub dataset_root: PathBuf,
     pub ai_session_id: String,
     pub read_policy: ReadPolicy,
-    /// M-AI5 control bridge: the path of the main app's Unix socket and
-    /// the per-session bearer. Present only when a dataset is open;
+    /// M-AI5 control bridge: the path/name of the main app's control
+    /// channel (a Unix-domain socket on Unix, a `\\.\pipe\...` named pipe
+    /// on Windows) and the per-session bearer. Present only when a dataset is open;
     /// write tools refuse with a clear error when either is `None`.
     pub control_sock: Option<String>,
     pub bearer: Option<String>,
@@ -62,7 +64,7 @@ pub struct ServerContext {
     pub egress: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Telemetry counters (items ④+⑦): count of `read_file`/`list_files`
     /// calls + read-via-bridge calls served this session. Pushed to the app
-    /// over the control socket after each read (`send_telemetry`). `Arc` for
+    /// over the control channel after each read (`send_telemetry`). `Arc` for
     /// the cheap `Clone` + shared count, same as `egress`.
     pub files_read: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub bridge_reads: std::sync::Arc<std::sync::atomic::AtomicU64>,

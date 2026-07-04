@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
 import { nodeFsPostPassAdapter } from './__testFs'
 import { StemFileExistsError, moveStemFiles } from './moveStem'
 
@@ -233,8 +234,8 @@ describe('moveStemFiles', () => {
       throw new Error('expected StemFileExistsError')
     } catch (err) {
       expect(err).toBeInstanceOf(StemFileExistsError)
-      expect((err as StemFileExistsError).destPath).toBe(
-        join(root, 'dst', 'a.nii.gz'),
+      expect(toPosix((err as StemFileExistsError).destPath)).toBe(
+        toPosix(join(root, 'dst', 'a.nii.gz')),
       )
     } finally {
       await ctx.commit()

@@ -47,6 +47,24 @@ describe('autoOpenRootSatisfiesTarget', () => {
     ).toBe(true)
   })
 
+  test('MIXED separators match: POSIX opened root vs backslash/mixed target (round 10)', () => {
+    // Production shape: `openDataset` returns a POSIX `openedRoot`, but the
+    // import `target` can be a mixed/native Windows path. Without separator-
+    // agnostic matching this reports a false auto-open failure.
+    expect(
+      autoOpenRootSatisfiesTarget('C:/parent/name', 'C:\\parent/name'),
+    ).toBe(true)
+    expect(
+      autoOpenRootSatisfiesTarget('C:/parent/name', 'C:\\parent\\name'),
+    ).toBe(true)
+    // Descent still holds across mixed separators.
+    expect(autoOpenRootSatisfiesTarget('C:/x/crlab/AgingBrain', 'C:\\x')).toBe(
+      true,
+    )
+    // And a sibling still correctly does NOT match across separators.
+    expect(autoOpenRootSatisfiesTarget('C:/x/Yother', 'C:\\x\\Y')).toBe(false)
+  })
+
   test('sibling path does NOT accept', () => {
     expect(
       autoOpenRootSatisfiesTarget(

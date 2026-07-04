@@ -13,6 +13,7 @@ import { parseFilename } from '$lib/bids/entities'
 import type { Dataset, FileNode, FolderNode, TreeNode } from '$lib/bids/types'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
 import { applyPlan } from './applyPlan'
 import { computePlan } from './computePlan'
 
@@ -64,7 +65,12 @@ async function seedTree(
  * computePlan tests but anchored to a real tmp `root` so applyPlan
  * can route its writes to disk.
  */
-function buildDataset(root: string, files: Record<string, string>): Dataset {
+function buildDataset(rootArg: string, files: Record<string, string>): Dataset {
+  // The scanner keys `byPath` with POSIX-canonical paths, and computePlan
+  // splits/compares on `/`. Node's `join` emits native backslashes on
+  // Windows, so normalize the root + every built path to POSIX (mirroring
+  // production, where `openDataset` normalizes before scanning).
+  const root = toPosix(rootArg)
   const byPath = new Map<string, TreeNode>()
 
   function ensureFolder(path: string): void {
@@ -82,7 +88,7 @@ function buildDataset(root: string, files: Record<string, string>): Dataset {
 
   ensureFolder(root)
   for (const relPath of Object.keys(files)) {
-    const filePath = join(root, relPath)
+    const filePath = toPosix(join(root, relPath))
     let parent = filePath.split('/').slice(0, -1).join('/')
     while (parent.length >= root.length) {
       ensureFolder(parent)

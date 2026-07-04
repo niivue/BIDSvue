@@ -10,6 +10,7 @@ import type { OperationLogEntry } from '$lib/mutate/backup'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import { undoOperation } from '$lib/mutate/undo'
 import { datasetStatePathsForKey } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
 import { applyMergePlan } from './applyMergePlan'
 import { computeMergePlan } from './computeMergePlan'
 import {
@@ -73,8 +74,14 @@ describe('applyMergePlan — on-disk merge + undo', () => {
   test('copies a defaced donor subject (with pristine originals), merges metadata, then undo restores the recipient', async () => {
     const base = mkdtempSync(join(tmpdir(), 'merge-'))
     tmps.push(base)
-    const recipRoot = join(base, 'recipient')
-    const donorRoot = join(base, 'donor')
+    // POSIX-normalize the roots the way `scanMergeInputs` does in production
+    // (it normalizes recipient/donor roots at the prepare boundary before
+    // scanDataset). This on-disk end-to-end test writes + reads through real
+    // node fs, so the root shape isn't the axis under test here; the dedicated
+    // native/mixed-separator merge regressions live in computeMergePlan.test.ts
+    // and scanInputs.test.ts (they feed raw `C:\...` roots on any OS).
+    const recipRoot = toPosix(join(base, 'recipient'))
+    const donorRoot = toPosix(join(base, 'donor'))
     const appData = join(base, 'appdata')
 
     await writeFiles(recipRoot, {
@@ -118,11 +125,15 @@ describe('applyMergePlan — on-disk merge + undo', () => {
     })
     expect(plan.blocked).toBe(false)
     // sub-01 (donor) -> sub-02; pristine original carried under sourcedata.
-    expect(plan.copies.map((c) => c.dest).sort()).toEqual([
-      join(recipRoot, 'sourcedata/sub-02/anat/sub-02_T1w.nii.gz'),
-      join(recipRoot, 'sub-02/anat/sub-02_T1w.json'),
-      join(recipRoot, 'sub-02/anat/sub-02_T1w.nii.gz'),
-    ])
+    expect(plan.copies.map((c) => toPosix(c.dest)).sort()).toEqual(
+      [
+        join(recipRoot, 'sourcedata/sub-02/anat/sub-02_T1w.nii.gz'),
+        join(recipRoot, 'sub-02/anat/sub-02_T1w.json'),
+        join(recipRoot, 'sub-02/anat/sub-02_T1w.nii.gz'),
+      ]
+        .map(toPosix)
+        .sort(),
+    )
 
     const statePaths = datasetStatePathsForKey(appData, 'merge-key')
     const report = await applyMergePlan(plan, {
@@ -252,9 +263,11 @@ describe('applyMergePlan — on-disk merge + undo', () => {
   test('two-donor cumulative merge writes exactly ONE operation-log entry', async () => {
     const base = mkdtempSync(join(tmpdir(), 'merge-'))
     tmps.push(base)
-    const recipRoot = join(base, 'recipient')
-    const aRoot = join(base, 'donorA')
-    const bRoot = join(base, 'donorB')
+    // POSIX-normalize (see the first test): the copy-scope prefix match
+    // needs a canonical root on Windows.
+    const recipRoot = toPosix(join(base, 'recipient'))
+    const aRoot = toPosix(join(base, 'donorA'))
+    const bRoot = toPosix(join(base, 'donorB'))
     const appData = join(base, 'appdata')
     // Recipient sub-01; both donors bring a sub-01 -> distinct -> 02, 03.
     await writeFiles(recipRoot, {

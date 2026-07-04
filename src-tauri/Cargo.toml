@@ -13,6 +13,12 @@ license = "BSD-2-Clause"
 [lib]
 name = "bidsvue_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+# No doctests: this is a Tauri APP crate, not a published library, and it has
+# zero `///`-fenced examples. Running the (empty) doctest phase still forces
+# rustdoc to compile-link the crate against `tauri`, which is flaky on Windows
+# incremental builds (`extern location for tauri does not exist: libtauri-*.rlib`)
+# and made `bun run check` fail intermittently. Skipping it loses nothing.
+doctest = false
 
 # The native DataLad / git-annex engine lives in the standalone
 # `rordenlab/datalad-rs` crate, vendored as a git submodule at
@@ -122,6 +128,10 @@ uuid = { version = "1", features = ["v4"] }
 wiremock = "0.6"
 # Scoped temporary directories for git-annex object-layout fixtures.
 tempfile = "3"
+# `test-util` enables tokio's paused virtual clock (`start_paused`) so the AI
+# control-bridge request-line-timeout test can fast-forward the 30s deadline
+# without a real wall-clock wait. Test-only — kept out of the release build.
+tokio = { version = "1", features = ["test-util"] }
 # `libc` is used only on Unix (gated behind `cfg(unix)`) for the
 # process-group kill in `run_streaming_process`: `setsid()` at spawn
 # time puts the child in a fresh group, and `kill(-pid, SIGTERM)`
@@ -133,7 +143,15 @@ tempfile = "3"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
 
 # Release-profile size optimizations. Before this block the release
 # build inherited Cargo's defaults — no LTO, debug symbols retained,

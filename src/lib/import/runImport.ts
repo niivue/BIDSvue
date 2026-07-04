@@ -49,7 +49,7 @@ import {
   beginOperation,
 } from '$lib/mutate/backup'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { basename } from '$lib/util/paths'
+import { basename, normalizeSeparators } from '$lib/util/paths'
 import type { SidecarJson } from './pet/enrich'
 import { type PetPostPassResult, runPetPostPass } from './pet/runPetPostPass'
 import { discoverBidsRootsForProduced } from './postpass/bidsRoots'
@@ -601,7 +601,6 @@ export async function runImport(
   const {
     statePaths,
     srcDir,
-    destDir,
     subject,
     session,
     anonymize,
@@ -618,6 +617,21 @@ export async function runImport(
     fs,
     postPassFs,
   } = opts
+
+  // Windows: the native folder picker + Import.svelte compose a MIXED-separator
+  // destDir (backslash parent + '/'-joined name, e.g. `C:\parent/name`).
+  // Normalize to POSIX at entry so the executor's `listFiles` (which joins via
+  // `detectSeparator` -> `\` for a mixed path) and `walkSubjects` (hardcoded
+  // `/`) agree; otherwise `discoverBidsRootsForProduced`'s prefix match finds
+  // nothing and the ENTIRE reproin post-pass silently no-ops on Windows —
+  // shipping a raw, BIDS-incomplete tree with no error (audit 2026-07-03).
+  // NOTE (round 10): this is now DEFENSIVE REDUNDANCY — the import ACTION
+  // boundary (`importDicoms`/`importMeg`) already normalizes `destDir` before
+  // computing `statePaths`/lease/trust, and `datasetSafeKey`/`normaliseDatasetPath`
+  // is separator-invariant. Round 9 wrongly claimed keying "already normalized"
+  // when it did not; keep this entry-normalization anyway so `runImport` is
+  // correct for any direct caller (its own unit tests feed a raw dest).
+  const destDir = normalizeSeparators(opts.destDir)
 
   // Input validation. Errors thrown here surface to the caller before
   // any disk mutation; the looser capability scope on dcm2niix means

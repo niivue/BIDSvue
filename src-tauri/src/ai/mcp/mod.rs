@@ -33,7 +33,8 @@
 //
 // Write tools (M-AI5): save_text_file / save_sidecar / delete_file /
 // rename_entity. Surfaced in tools/list and routed through the control
-// bridge (Unix socket) to the main BIDSvue process, which holds the
+// bridge (Unix-domain socket on Unix / named pipe on Windows) to the
+// main BIDSvue process, which holds the
 // per-mutation approval gate + MutationLease and drives the TS engines.
 
 pub mod jsonrpc;

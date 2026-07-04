@@ -72,6 +72,37 @@ describe('collectPhiWarnings', () => {
     expect(warnings[0].detail).toContain('PatientName')
   })
 
+  test('warns under a native Windows donor root with mixed-separator keys (audit 2026-07-04)', async () => {
+    // A native picker root `C:\d` fed to scanDataset yields MIXED index keys
+    // (`C:\d/sub-01/...`). The donor prefix filter must normalize BOTH the root
+    // and the indexed key to POSIX, or the file is skipped and its PHI warning
+    // is SILENTLY SUPPRESSED — a data-leak footgun. `makeDataset` builds
+    // `${root}/${rel}`, so a backslash root reproduces the exact mixed-key
+    // shape identically on POSIX and Windows CI.
+    const donor: DonorInput = {
+      root: 'C:\\d',
+      dataset: makeDataset('C:\\d', ['sub-01/anat/sub-01_T1w.json']),
+    }
+    const contents: Record<string, unknown> = {
+      'C:\\d/sub-01/anat/sub-01_T1w.json': { PatientName: 'X', EchoTime: 0.01 },
+    }
+    const warnings = await collectPhiWarnings(
+      {
+        recipientRoot: 'C:\\r',
+        recipient: makeDataset('C:\\r', []),
+        donors: [donor],
+      },
+      async (p) => {
+        if (!(p in contents)) throw new Error('no content')
+        return contents[p]
+      },
+    )
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].kind).toBe('sensitive-metadata')
+    expect(warnings[0].relPath).toBe('sub-01/anat/sub-01_T1w.json')
+    expect(warnings[0].detail).toContain('PatientName')
+  })
+
   test('skips non-candidate JSON and unreadable files', async () => {
     const donor: DonorInput = {
       root: '/d',

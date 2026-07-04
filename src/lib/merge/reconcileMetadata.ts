@@ -6,7 +6,7 @@
 
 import { makeEntityTokenReplacer } from '$lib/rename/tokenReplace'
 import { TSV_MISSING, parseTsv } from '$lib/tsv/parse'
-import { detectSeparator, stripTrailingSeparators } from '$lib/util/paths'
+import { stripTrailingSeparators, toPosixSeparators } from '$lib/util/paths'
 import {
   mergeDatasetDescription,
   mergeParticipantsJson,
@@ -69,8 +69,9 @@ export function reconcileMetadata(
   opts: ReconcileMetadataOptions,
 ): MetadataReconcileResult {
   const { inputs, rows, policy, sources, generatedBy } = opts
-  const sep = detectSeparator(inputs.recipientRoot)
-  const root = stripTrailingSeparators(inputs.recipientRoot)
+  // POSIX write-target paths (audit 2026-07-04), consistent with the POSIX
+  // copy destinations from copyScope — both write into the recipient root.
+  const root = toPosixSeparators(stripTrailingSeparators(inputs.recipientRoot))
   const writes: MetadataWriteOp[] = []
   const conflicts: FieldConflict[] = []
   const discarded: DiscardedValue[] = []
@@ -91,7 +92,7 @@ export function reconcileMetadata(
   )
   if (partics.mergedText !== null) {
     writes.push({
-      path: `${root}${sep}participants.tsv`,
+      path: `${root}/participants.tsv`,
       content: partics.mergedText,
       why: 'merge participants.tsv',
     })
@@ -117,7 +118,7 @@ export function reconcileMetadata(
     if (result.mergedText !== null) {
       const subBase = `sub-${row.recipientSubject}`
       writes.push({
-        path: `${root}${sep}${subBase}${sep}${subBase}_sessions.tsv`,
+        path: `${root}/${subBase}/${subBase}_sessions.tsv`,
         content: result.mergedText,
         why: `merge ${subBase}_sessions.tsv`,
       })
@@ -137,7 +138,7 @@ export function reconcileMetadata(
       generatedBy,
     )
     writes.push({
-      path: `${root}${sep}dataset_description.json`,
+      path: `${root}/dataset_description.json`,
       content: `${JSON.stringify(dd.merged, null, 2)}\n`,
       why: 'merge dataset_description.json',
     })
@@ -156,7 +157,7 @@ export function reconcileMetadata(
     )
     if (Object.keys(pj.merged).length > 0) {
       writes.push({
-        path: `${root}${sep}participants.json`,
+        path: `${root}/participants.json`,
         content: `${JSON.stringify(pj.merged, null, 2)}\n`,
         why: 'merge participants.json',
       })
@@ -172,7 +173,7 @@ export function reconcileMetadata(
   )
   if (ignore !== null && ignore !== (sources.recipientBidsignore ?? '')) {
     writes.push({
-      path: `${root}${sep}.bidsignore`,
+      path: `${root}/.bidsignore`,
       content: ignore,
       why: 'merge .bidsignore',
     })

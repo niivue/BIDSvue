@@ -7,7 +7,7 @@
 //
 // **APPROXIMATE, NOT AUTHORITATIVE (audit 2026-06-22 P3).** The counts come
 // from BEST-EFFORT telemetry (the MCP server fire-and-forgets each snapshot
-// over the control socket; a dropped message just leaves the renderer with
+// over the control channel; a dropped message just leaves the renderer with
 // its prior snapshot). So a record may UNDERCOUNT what was actually read if a
 // late telemetry message was lost — the read bytes still reached the provider.
 // Support/forensics tooling MUST treat these numbers as a lower bound, not a

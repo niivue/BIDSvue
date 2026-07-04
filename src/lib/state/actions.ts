@@ -3797,6 +3797,16 @@ export async function importDicoms(opts: {
   // the auto-open at completion must NOT clobber their selection.
   // Round-14 security agent H2.
   const startGen = scanGeneration
+  // Normalize the destination ONCE at the action boundary (audit 2026-07-03
+  // round 10). The Windows folder picker + Import.svelte compose a MIXED
+  // separator dest (`C:\parent/name`); EVERY downstream consumer — lease
+  // scope, `widenScopeFor`, `datasetStatePaths` (app-data safe-key),
+  // `runImport`, operation details, trust persistence, and the auto-open
+  // target — must see the SAME POSIX form the eventual `openDataset` uses,
+  // else the import's operations.log lands under a different safe-key and
+  // History/Undo can't see it (reversible-mutation invariant). Rebinding
+  // `opts` keeps `destDirParentToken` intact for the scope/trust widening.
+  const destDir = normalizeSeparators(opts.destDir)
   // Dataset-scoped lease on the destination root (round-17 P1.3). Two
   // imports to the same destDir conflict; concurrent imports to
   // different roots are independent. Also blocks any single-file or
@@ -3804,7 +3814,7 @@ export async function importDicoms(opts: {
   // current dataset (rare but possible — re-import into an existing
   // tree).
   const lease = await acquireLease({
-    scope: { kind: 'dataset', root: opts.destDir },
+    scope: { kind: 'dataset', root: destDir },
     kind: 'import',
   })
   try {
@@ -3827,7 +3837,7 @@ export async function importDicoms(opts: {
     // 'dataset' because the auto-open will need asset access for the
     // produced NIfTIs.
     await widenScopeFor([
-      { path: opts.destDir, token: opts.destDirParentToken },
+      { path: destDir, token: opts.destDirParentToken },
       { path: opts.srcDir, token: opts.srcDirToken, kind: 'fs-only' },
       opts.petMetadataPath !== undefined && opts.petMetadataPath !== ''
         ? {
@@ -3838,7 +3848,7 @@ export async function importDicoms(opts: {
         : null,
     ])
     const appDir = await appDataDir()
-    const statePaths = await datasetStatePaths(appDir, opts.destDir)
+    const statePaths = await datasetStatePaths(appDir, destDir)
     // Resolve the BIDS spec version from the bundled schema once, here,
     // so the orchestrator stays self-contained (bun:test can pass a
     // literal). Cached after first call.
@@ -3846,7 +3856,7 @@ export async function importDicoms(opts: {
     const result = await runImport({
       statePaths,
       srcDir: opts.srcDir,
-      destDir: opts.destDir,
+      destDir,
       subject: opts.subject,
       session: opts.session,
       anonymize: opts.anonymize,
@@ -3908,7 +3918,7 @@ export async function importDicoms(opts: {
     const autoOpenTarget =
       discoveredRoots.length === 1
         ? discoveredRoots[0]
-        : (producedRoot ?? opts.destDir)
+        : (producedRoot ?? destDir)
     // Persist re-open trust only after the converter + post-pass have
     // succeeded. The import's destDir was already widened before the
     // converter ran, so the immediate auto-open can use that runtime
@@ -3917,7 +3927,7 @@ export async function importDicoms(opts: {
     // only if the auto-open target was successfully trusted.
     const trust = await persistTrustedRootsForImport(
       'importDicoms',
-      [autoOpenTarget, opts.destDir, ...discoveredRoots],
+      [autoOpenTarget, destDir, ...discoveredRoots],
       opts.destDirParentToken,
       autoOpenTarget,
     )
@@ -4067,9 +4077,13 @@ export async function importMeg(opts: {
 }): Promise<ImportMegResult> {
   // Same generation guard as importDicoms (round-14 H2).
   const startGen = scanGeneration
+  // Normalize the mixed-separator Windows dest ONCE at the boundary, same as
+  // importDicoms (audit 2026-07-03 round 10) — keeps app-data safe-key,
+  // trust, and the auto-open target aligned with `openDataset`'s POSIX root.
+  const destDir = normalizeSeparators(opts.destDir)
   // Same dataset-scoped lease story as importDicoms (round-17 P1.3).
   const lease = await acquireLease({
-    scope: { kind: 'dataset', root: opts.destDir },
+    scope: { kind: 'dataset', root: destDir },
     kind: 'import',
   })
   try {
@@ -4082,16 +4096,16 @@ export async function importMeg(opts: {
     // reads bytes but NiiVue never opens raw MEG. destDir keeps
     // 'dataset' scope for the post-import auto-open's asset access.
     await widenScopeFor([
-      { path: opts.destDir, token: opts.destDirParentToken },
+      { path: destDir, token: opts.destDirParentToken },
       { path: opts.srcPath, token: opts.srcPathToken, kind: 'fs-only' },
     ])
     const appDir = await appDataDir()
-    const statePaths = await datasetStatePaths(appDir, opts.destDir)
+    const statePaths = await datasetStatePaths(appDir, destDir)
     const bidsVersion = await getBidsVersion()
     const result = await runMegImport({
       statePaths,
       srcPath: opts.srcPath,
-      destDir: opts.destDir,
+      destDir,
       subject: opts.subject,
       session: opts.session,
       task: opts.task,
@@ -4104,14 +4118,14 @@ export async function importMeg(opts: {
     })
     const trust = await persistTrustedRootsForImport(
       'importMeg',
-      [opts.destDir],
+      [destDir],
       opts.destDirParentToken,
-      opts.destDir,
+      destDir,
     )
     return await finishImportWithAutoOpen(
       'importMeg',
       startGen,
-      opts.destDir,
+      destDir,
       result,
       {
         scopeAlreadyWidened: true,
@@ -4176,8 +4190,13 @@ export async function importMneBids(opts: {
   ImportMneBidsResult & { autoOpenOk: boolean; autoOpenError: string | null }
 > {
   const startGen = scanGeneration
+  // Normalize the mixed-separator Windows dest ONCE at the boundary, same as
+  // importDicoms (audit 2026-07-03 round 10). MNE has no lower-level runner
+  // normalization, so this boundary pass is its ONLY safeguard for the
+  // app-data safe-key / trust / auto-open alignment.
+  const destDir = normalizeSeparators(opts.destDir)
   const lease = await acquireLease({
-    scope: { kind: 'dataset', root: opts.destDir },
+    scope: { kind: 'dataset', root: destDir },
     kind: 'import',
   })
   try {
@@ -4185,7 +4204,7 @@ export async function importMneBids(opts: {
     // input files are fs-only (Rust + the runner read bytes; NiiVue never
     // opens raw MEG/EEG).
     const widen = [
-      { path: opts.destDir, token: opts.destDirParentToken },
+      { path: destDir, token: opts.destDirParentToken },
       {
         path: opts.rawFile,
         token: opts.rawFileToken,
@@ -4241,17 +4260,17 @@ export async function importMneBids(opts: {
     }
     const stagingRoot = runner.stagingRoot
     const appDir = await appDataDir()
-    const statePaths = await datasetStatePaths(appDir, opts.destDir)
+    const statePaths = await datasetStatePaths(appDir, destDir)
     const ctx = beginOperation(
-      opts.destDir,
+      destDir,
       statePaths,
       {
         opType: 'import',
-        summary: `Imported ${basename(opts.rawFile)} to ${basename(opts.destDir)} (mne-bids)`,
+        summary: `Imported ${basename(opts.rawFile)} to ${basename(destDir)} (mne-bids)`,
         details: {
           toolId: 'mne-bids',
           rawFile: opts.rawFile,
-          destDir: opts.destDir,
+          destDir,
           subject: opts.subject,
           task: opts.task,
         },
@@ -4264,21 +4283,21 @@ export async function importMneBids(opts: {
     // global lease/scope/invoke machinery (audit P1.6).
     const filesCreated = await applyMneBidsStaging(
       stagingRoot,
-      opts.destDir,
+      destDir,
       ctx,
       fs,
     )
     const durationMs = performance.now() - t0
     const trust = await persistTrustedRootsForImport(
       'importMneBids',
-      [opts.destDir],
+      [destDir],
       opts.destDirParentToken,
-      opts.destDir,
+      destDir,
     )
     return await finishImportWithAutoOpen(
       'importMneBids',
       startGen,
-      opts.destDir,
+      destDir,
       { durationMs, filesCreated },
       {
         scopeAlreadyWidened: true,
@@ -4308,12 +4327,17 @@ export async function importMneBids(opts: {
  * is found (the subsequent scan surfaces a clear error in that case).
  */
 async function resolveMergeRoot(picked: string): Promise<string> {
+  // Normalize the native picker root to POSIX at this boundary (audit
+  // 2026-07-04) so the recipient/donor root that flows into scanMergeInputs,
+  // the lease, and the app-data safe-key is separator-consistent on Windows
+  // (a native `C:\ds` picker root otherwise mixes with `/`-joined children).
+  // scanMergeInputs re-normalizes as defense in depth.
   const entries = await tauriReadDir(picked).catch(() => [])
   if (entries.some((e) => e.isFile && e.name === 'dataset_description.json')) {
-    return picked
+    return normalizeSeparators(picked)
   }
   const nested = await findBidsRoot(picked, { readDir: (p) => tauriReadDir(p) })
-  if (nested === null || nested === picked) return picked
+  if (nested === null || nested === picked) return normalizeSeparators(picked)
   try {
     await invoke('widen_dataset_carveouts', { path: nested })
   } catch (err) {
@@ -4322,7 +4346,7 @@ async function resolveMergeRoot(picked: string): Promise<string> {
       err,
     )
   }
-  return nested
+  return normalizeSeparators(nested)
 }
 
 /** Pick the merge recipient (writable): widens fs + asset scope. */
