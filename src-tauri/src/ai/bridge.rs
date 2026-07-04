@@ -4,22 +4,28 @@
 // separate Rust process. Its write tools must NOT touch the filesystem
 // directly — they route back to the main BIDSvue app so every mutation
 // goes through `MutationLease` + `OperationContext` + `operations.log`
-// in the WebView. This module is the relay: a Unix-domain socket the
-// MCP server connects to per write-tool call.
+// in the WebView. This module is the relay: a control channel the MCP
+// server connects to per write-tool call — a Unix-domain socket on Unix
+// (`serve_control_socket`), a named pipe on Windows (`serve_control_pipe`).
+// Both accept loops feed the SAME transport-generic `handle_conn`.
 //
 // Topology (Locked decision 13):
-//   MCP server  ──connect <session_dir>/control.sock──►  this relay
+//   MCP server  ──connect <session_dir>/control.sock (Unix)
+//                        or \\.\pipe\bidsvue-ai-<uuid> (Windows)──►  this relay
 //   relay  ──AIStreamLine::WriteRequest on the Channel──►  WebView
 //   WebView  ──ai_write_resolve(requestId, result)──►  fires the oneshot
-//   relay  ──reply JSON over the socket──►  MCP server  ──►  CLI
+//   relay  ──reply JSON over the channel──►  MCP server  ──►  CLI
 //
 // Auth on every accepted connection:
-//   (a) peer UID == our UID (tokio `peer_cred`, SO_PEERCRED / LOCAL_PEERCRED)
+//   (a) peer identity: on Unix, peer UID == our UID (tokio `peer_cred`,
+//       SO_PEERCRED / LOCAL_PEERCRED); on Windows, the pipe's per-user-SID
+//       DACL means only our user's processes can open it (see `ai::win`)
 //   (b) presents the per-session 256-bit bearer within 1 second
 //   (c) constant-time bearer compare
-// The socket lives inside the 0o700 mkdtemp session dir, so a stale or
+// On Unix the socket lives inside the 0o700 mkdtemp session dir, so a stale or
 // attacker-planted socket path is not reachable; that closes decision
-// 13(a)/(b) without an explicit O_NOFOLLOW open here.
+// 13(a)/(b) without an explicit O_NOFOLLOW open here. On Windows the DACL is
+// the equivalent gate on the pipe name.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,23 +33,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
-// `json!` is only used by the cfg(unix) control-socket reply path.
-#[cfg(unix)]
+// The generic `handle_conn` (shared by the Unix-socket and Windows named-pipe
+// relays) reads/writes the split stream halves and serialises the reply.
 use serde_json::json;
 use tauri::ipc::Channel;
-// These I/O traits are only used by the cfg(unix) control-socket code.
-#[cfg(unix)]
-use tokio::io::{AsyncWriteExt, BufReader};
-// The control socket is a Unix domain socket; the relay only exists on
-// unix targets. Windows ships without the AI write bridge (see
-// run_ai_prompt's platform gate); everything below `serve_control_socket`
-// is cfg(unix) so the crate still compiles for windows-msvc.
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+// The Unix-domain-socket listener backs the Unix relay only; the Windows relay
+// uses `tokio::net::windows::named_pipe` (see `serve_control_pipe`).
 #[cfg(unix)]
 use tokio::net::UnixListener;
+#[cfg(windows)]
+pub type ControlPipeServer = tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::{oneshot, Notify};
 use tokio::time::timeout;
 
-#[cfg(unix)]
 use super::spawn::read_bounded_line;
 use super::spawn::AIStreamLine;
 
@@ -56,15 +59,28 @@ use super::spawn::AIStreamLine;
 pub const BRIDGE_CANCEL_SENTINEL: &str = "request cancelled";
 
 /// Bearer must arrive within this window after accept (decision 13e).
-#[cfg(unix)]
 const BEARER_DEADLINE: Duration = Duration::from_secs(1);
-/// Audit P2 (flagged 3 rounds): cap the control-socket reads so a
-/// same-UID peer holding the bearer can't grow the main-process heap
+/// Bounded backoff for transient Windows pipe connect / re-create failures
+/// (audit 2026-07-03 round 7): the relay recreates a broken instance rather
+/// than spinning on it, and retries a transient re-create rather than tearing
+/// the session's bridge down on the first failure. Only a PERSISTENT failure
+/// (this many consecutive) gives up.
+#[cfg(windows)]
+const MAX_PIPE_FAILURES: u32 = 10;
+#[cfg(windows)]
+const PIPE_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+/// Request line must arrive within this window after the bearer is accepted
+/// (audit 2026-07-03 round 5 P2). `call_control_bridge` writes the request
+/// immediately after the bearer, so this only guards a bearer-holding peer that
+/// authenticates then stalls before sending a request — without it that peer
+/// pins a `handle_conn` task in the main process forever. Generous vs the
+/// back-to-back write so a large 4 MiB request over a slow pipe still arrives.
+const REQUEST_LINE_DEADLINE: Duration = Duration::from_secs(30);
+/// Audit P2 (flagged 3 rounds): cap the control-channel reads so a
+/// same-user peer holding the bearer can't grow the main-process heap
 /// before parse. Bearer is 64 hex chars; the request carries a write
 /// tool's full file content, so it gets a generous 4 MiB ceiling.
-#[cfg(unix)]
 const MAX_BEARER_LINE_BYTES: usize = 256;
-#[cfg(unix)]
 const MAX_CONTROL_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 /// User has this long to Approve/Reject before the request auto-fails
 /// (Locked decision 19b).
@@ -240,8 +256,7 @@ impl Default for AiWriteBridge {
 
 /// Constant-time byte compare. Length is not secret (bearer is a fixed
 /// 64-char hex string), so an early length-mismatch return is fine.
-/// Only the control-socket bearer auth uses it, so it's cfg(unix).
-#[cfg(unix)]
+/// Used by the control-channel bearer auth on both Unix and Windows.
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -270,7 +285,13 @@ pub async fn serve_control_socket(
 ) {
     // SAFETY: getuid is always safe; it reads the process's real UID.
     let our_uid = unsafe { libc::getuid() };
+    // Track spawned handlers (audit 2026-07-03 round 6 (e)) so relay teardown —
+    // `control_relay.abort()` drops this future — aborts any still-parked
+    // handler instead of detaching it. `try_join_next` reaps finished handlers
+    // each iteration so the set stays bounded to in-flight connections.
+    let mut handlers = tokio::task::JoinSet::new();
     loop {
+        while handlers.try_join_next().is_some() {}
         let stream = match listener.accept().await {
             Ok((stream, _addr)) => stream,
             Err(_) => continue,
@@ -290,13 +311,121 @@ pub async fn serve_control_socket(
         let bearer = bearer.clone();
         let on_progress = on_progress.clone();
         let bridge = bridge.clone();
-        tokio::spawn(async move {
+        handlers.spawn(async move {
             let _ = handle_conn(stream, &bearer, &on_progress, &bridge, accepted_gen).await;
         });
     }
 }
 
-#[cfg(unix)]
+/// Create one Windows control-pipe server instance with the caller-supplied
+/// per-user-SID security descriptor. The first instance claims the pipe name
+/// before the CLI is spawned; later instances keep the accept loop ready for
+/// concurrent bridge calls.
+#[cfg(windows)]
+pub fn create_control_pipe_server(
+    pipe_name: String,
+    sec: &crate::ai::win::SecurityAttributes,
+    first_instance: bool,
+) -> std::io::Result<ControlPipeServer> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    let mut options = ServerOptions::new();
+    if first_instance {
+        options.first_pipe_instance(true);
+    }
+    // Byte mode + newline framing mirrors the Unix socket protocol.
+    // SAFETY: `sec.as_ptr()` is a valid `SECURITY_ATTRIBUTES*` kept alive by
+    // the caller for the duration of this CreateNamedPipe call.
+    unsafe { options.create_with_security_attributes_raw(&pipe_name, sec.as_ptr()) }
+}
+
+/// Windows named-pipe analogue of `serve_control_socket`. The pipe is secured
+/// by the per-user-SID DACL on each server instance; the bearer check remains
+/// the second gate inside the shared `handle_conn`.
+#[cfg(windows)]
+pub async fn serve_control_pipe(
+    mut server: ControlPipeServer,
+    pipe_name: String,
+    sec: crate::ai::win::SecurityAttributes,
+    bearer: String,
+    on_progress: Channel<AIStreamLine>,
+    bridge: AiWriteBridge,
+) {
+    // Track handlers so relay teardown aborts still-parked ones (round 6 (e)),
+    // symmetric with `serve_control_socket`.
+    let mut handlers = tokio::task::JoinSet::new();
+    // Consecutive connect/re-create failures; reset after a clean accept cycle.
+    let mut failures: u32 = 0;
+    loop {
+        while handlers.try_join_next().is_some() {}
+
+        // A `connect()` error means THIS instance is unusable. Recreate a fresh
+        // one with bounded backoff rather than spinning on the broken handle
+        // (audit 2026-07-03 round 7 P3) — a tight retry on a persistently-bad
+        // instance would blackhole every bridge call.
+        if let Err(e) = server.connect().await {
+            failures += 1;
+            eprintln!("ai: control pipe connect failed ({failures}): {e}");
+            if failures >= MAX_PIPE_FAILURES {
+                eprintln!("ai: control pipe relay stopping after repeated connect failures");
+                return;
+            }
+            tokio::time::sleep(PIPE_RETRY_BACKOFF).await;
+            if let Ok(s) = create_control_pipe_server(pipe_name.clone(), &sec, false) {
+                server = s;
+            }
+            continue;
+        }
+        failures = 0;
+        let connected = server;
+        // Capture the generation AT ACCEPT (pre-auth), same as the Unix relay,
+        // so a connection straddling a `begin_session` boundary is refused.
+        let accepted_gen = bridge.generation.load(Ordering::Acquire);
+        // Create the next instance BEFORE handling this client so a fast
+        // follow-up connect never races into ERROR_PIPE_BUSY. Retry a TRANSIENT
+        // re-create failure with bounded backoff instead of tearing the
+        // session's bridge down on the first failure (round 7 P3).
+        server = loop {
+            match create_control_pipe_server(pipe_name.clone(), &sec, false) {
+                Ok(s) => break s,
+                Err(e) => {
+                    failures += 1;
+                    eprintln!("ai: control pipe re-create failed ({failures}): {e}");
+                    if failures >= MAX_PIPE_FAILURES {
+                        // Persistent failure: give up accepting NEW clients but
+                        // still serve THIS one (detached so the return doesn't
+                        // abort it). The user can restart the AI session.
+                        eprintln!(
+                            "ai: control pipe relay stopping after repeated re-create failures"
+                        );
+                        let bearer = bearer.clone();
+                        let on_progress = on_progress.clone();
+                        let bridge = bridge.clone();
+                        tokio::spawn(async move {
+                            let _ = handle_conn(
+                                connected,
+                                &bearer,
+                                &on_progress,
+                                &bridge,
+                                accepted_gen,
+                            )
+                            .await;
+                        });
+                        return;
+                    }
+                    tokio::time::sleep(PIPE_RETRY_BACKOFF).await;
+                }
+            }
+        };
+        let bearer = bearer.clone();
+        let on_progress = on_progress.clone();
+        let bridge = bridge.clone();
+        handlers.spawn(async move {
+            let _ = handle_conn(connected, &bearer, &on_progress, &bridge, accepted_gen).await;
+        });
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct WireRequest {
     tool: String,
@@ -304,15 +433,23 @@ struct WireRequest {
     args: Value,
 }
 
-#[cfg(unix)]
-async fn handle_conn(
-    stream: tokio::net::UnixStream,
+/// Handle one accepted control-channel connection. Generic over the transport
+/// stream so the Unix-domain socket (`UnixStream`) and the Windows named pipe
+/// (`NamedPipeServer`) share ALL of the auth + request/reply logic — only the
+/// accept loop and the peer-identity gate (SO_PEERCRED vs the pipe's per-user
+/// DACL) differ per platform. Both stream types implement `AsyncRead +
+/// AsyncWrite`, so `tokio::io::split` gives us the read/write halves.
+async fn handle_conn<S>(
+    stream: S,
     bearer: &str,
     on_progress: &Channel<AIStreamLine>,
     bridge: &AiWriteBridge,
     accepted_gen: u64,
-) -> std::io::Result<()> {
-    let (rd, mut wr) = stream.into_split();
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (rd, mut wr) = tokio::io::split(stream);
     let mut rd = BufReader::new(rd);
 
     // (b)+(c) bearer within 1s, constant-time compare. Bounded read so
@@ -344,15 +481,22 @@ async fn handle_conn(
     // (audit P2): the request carries a write tool's file content, so
     // the cap is generous, but an unbounded `read_line` let a bearer-
     // holding peer balloon the heap. Over-cap → error + close.
-    let req_line = match read_bounded_line(&mut rd, MAX_CONTROL_REQUEST_BYTES).await? {
-        Some(l) if !l.truncated => l.text,
-        Some(_) => {
+    let req_line = match timeout(
+        REQUEST_LINE_DEADLINE,
+        read_bounded_line(&mut rd, MAX_CONTROL_REQUEST_BYTES),
+    )
+    .await
+    {
+        Ok(Ok(Some(l))) if !l.truncated => l.text,
+        Ok(Ok(Some(_))) => {
             let _ = wr
                 .write_all(b"{\"error\":\"request exceeds size cap\"}\n")
                 .await;
             return Ok(());
         }
-        None => return Ok(()),
+        // EOF, read error, or a bearer-holding peer that stalled past the
+        // deadline: close the connection so the task can't leak.
+        _ => return Ok(()),
     };
     let raw: Value = match serde_json::from_str(req_line.trim()) {
         Ok(v) => v,
@@ -558,7 +702,9 @@ pub fn ai_write_resolve(
     }
 }
 
-// The control-socket tests are Unix-only (the relay itself is cfg(unix)).
+// These tests bind a REAL Unix-domain socket to exercise the `serve_control_socket`
+// accept loop, so they're Unix-only. Windows named-pipe integration lives in
+// `windows_tests`; `portable_tests` covers the shared handler on both.
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -1010,5 +1156,149 @@ mod tests {
         assert!(reply.contains("approval UI unavailable"), "reply: {reply}");
         assert!(bridge.pending.lock().unwrap().is_empty());
         serve.abort();
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::os::windows::io::AsRawHandle;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    #[tokio::test]
+    async fn named_pipe_relay_approve_round_trip() {
+        let pipe_name = format!(r"\\.\pipe\bidsvue-ai-test-{}", uuid::Uuid::new_v4());
+        let sec = crate::ai::win::SecurityAttributes::current_user_only().unwrap();
+        let first_server = create_control_pipe_server(pipe_name.clone(), &sec, true).unwrap();
+        let bridge = AiWriteBridge::new();
+        let on_progress: Channel<AIStreamLine> = Channel::new(|_| Ok(()));
+        let serve = tokio::spawn(serve_control_pipe(
+            first_server,
+            pipe_name.clone(),
+            sec,
+            "deadbeef".into(),
+            on_progress,
+            bridge.clone(),
+        ));
+
+        let mut client = ClientOptions::new().open(&pipe_name).unwrap();
+        crate::ai::win::verify_current_user_owner_handle(client.as_raw_handle()).unwrap();
+        client.write_all(b"deadbeef\n").await.unwrap();
+        client
+            .write_all(b"{\"tool\":\"save_text_file\",\"args\":{\"path\":\"a\"}}\n")
+            .await
+            .unwrap();
+
+        let request_id = loop {
+            if let Some(id) = bridge.pending.lock().unwrap().keys().next().cloned() {
+                break id;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+        assert!(bridge.resolve(&request_id, Ok("saved".into())));
+
+        let mut reply = String::new();
+        BufReader::new(&mut client)
+            .read_line(&mut reply)
+            .await
+            .unwrap();
+        assert!(reply.contains("\"ok\":\"saved\""), "reply: {reply}");
+        serve.abort();
+    }
+}
+
+// Portable relay tests: drive the transport-agnostic `handle_conn` over an
+// in-memory duplex stream, so the shared auth + parked-oneshot + reply logic is
+// covered on Windows (named pipe) as well as Unix (socket) without a real
+// listener. Only the per-platform accept loop + peer-identity gate
+// (SO_PEERCRED vs the pipe DACL) is not exercised here.
+#[cfg(all(test, any(unix, windows)))]
+mod portable_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    // Full round-trip over a duplex: present the bearer, send a write request,
+    // resolve it from the "WebView", read the reply. The Windows named-pipe
+    // relay reuses `handle_conn` verbatim, so this validates that path too.
+    #[tokio::test]
+    async fn handle_conn_approve_round_trip_over_duplex() {
+        let bridge = AiWriteBridge::new();
+        let on_progress: Channel<AIStreamLine> = Channel::new(|_| Ok(()));
+        let (server_io, mut client) = tokio::io::duplex(64 * 1024);
+        let accepted_gen = bridge.generation.load(Ordering::Acquire);
+        let b2 = bridge.clone();
+        let serve = tokio::spawn(async move {
+            let _ = handle_conn(server_io, "deadbeef", &on_progress, &b2, accepted_gen).await;
+        });
+
+        client.write_all(b"deadbeef\n").await.unwrap();
+        client
+            .write_all(b"{\"tool\":\"save_text_file\",\"args\":{\"path\":\"a\"}}\n")
+            .await
+            .unwrap();
+
+        let request_id = loop {
+            if let Some(id) = bridge.pending.lock().unwrap().keys().next().cloned() {
+                break id;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+        assert!(bridge.resolve(&request_id, Ok("saved".into())));
+
+        let mut reply = String::new();
+        BufReader::new(&mut client)
+            .read_line(&mut reply)
+            .await
+            .unwrap();
+        assert!(reply.contains("\"ok\":\"saved\""), "reply: {reply}");
+        serve.abort();
+    }
+
+    // A wrong bearer is rejected with `unauthorized` and parks nothing.
+    #[tokio::test]
+    async fn handle_conn_rejects_bad_bearer_over_duplex() {
+        let bridge = AiWriteBridge::new();
+        let on_progress: Channel<AIStreamLine> = Channel::new(|_| Ok(()));
+        let (server_io, mut client) = tokio::io::duplex(64 * 1024);
+        let accepted_gen = bridge.generation.load(Ordering::Acquire);
+        let b2 = bridge.clone();
+        let serve = tokio::spawn(async move {
+            let _ = handle_conn(server_io, "correct", &on_progress, &b2, accepted_gen).await;
+        });
+
+        client.write_all(b"WRONG\n").await.unwrap();
+        let mut reply = String::new();
+        BufReader::new(&mut client)
+            .read_line(&mut reply)
+            .await
+            .unwrap();
+        assert!(reply.contains("unauthorized"), "reply: {reply}");
+        assert!(bridge.pending.lock().unwrap().is_empty());
+        serve.abort();
+    }
+
+    // A peer that authenticates then STALLS (never sends a request line) must be
+    // dropped by REQUEST_LINE_DEADLINE, not pin the handler forever (audit round
+    // 6 (P2) test). `start_paused` auto-advances virtual time past the 30s
+    // deadline once every task is idle, so the handler returns and `handle`
+    // joins — a hang would make this test time out instead.
+    #[tokio::test(start_paused = true)]
+    async fn handle_conn_request_line_timeout_drops_stalled_peer() {
+        let bridge = AiWriteBridge::new();
+        let on_progress: Channel<AIStreamLine> = Channel::new(|_| Ok(()));
+        let (server_io, mut client) = tokio::io::duplex(64 * 1024);
+        let accepted_gen = bridge.generation.load(Ordering::Acquire);
+        let b2 = bridge.clone();
+        let handle = tokio::spawn(async move {
+            let _ = handle_conn(server_io, "deadbeef", &on_progress, &b2, accepted_gen).await;
+        });
+        // Valid bearer, then send NOTHING and keep the connection open.
+        client.write_all(b"deadbeef\n").await.unwrap();
+        // The handler must return on the request-line deadline; joining proves
+        // it didn't pin. `client` stays alive so this exercises the TIMEOUT, not
+        // an EOF. No write was ever parked.
+        handle.await.unwrap();
+        assert!(bridge.pending.lock().unwrap().is_empty());
     }
 }

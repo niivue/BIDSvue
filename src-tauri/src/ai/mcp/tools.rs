@@ -365,7 +365,8 @@ fn validate_ai_rel_path(requested: &str) -> Result<(), String> {
 }
 
 /// M-AI5 control bridge client (Locked decision 13). Connect the
-/// session's Unix socket, present the bearer, send `{tool, args}`,
+/// session's control channel (a Unix-domain socket on Unix, a named
+/// pipe on Windows), present the bearer, send `{tool, args}`,
 /// block on the reply. The main app runs the approval gate + engine
 /// and replies `{"ok": <text>}` or `{"error": <reason>}`. Any
 /// connection / timeout / protocol failure becomes a tool error the
@@ -377,7 +378,7 @@ fn validate_ai_rel_path(requested: &str) -> Result<(), String> {
 /// truncated body. Returns the line WITH its trailing newline (callers
 /// `.trim()` before parsing). The shared helper means a future read-via-
 /// bridge tool inherits the cap automatically.
-/// Only the cfg(unix) control-bridge reply path reads capped socket lines.
+/// Reads a capped reply line from the Unix control socket.
 #[cfg(unix)]
 fn read_capped_line<R: std::io::BufRead>(mut reader: R, cap: u64) -> Result<String, String> {
     use std::io::{BufRead, Read};
@@ -405,6 +406,42 @@ pub(crate) fn is_read_via_bridge_tool(tool: &str) -> bool {
     )
 }
 
+#[cfg(any(unix, windows))]
+fn control_bridge_read_timeout(tool: &str) -> std::time::Duration {
+    if is_read_via_bridge_tool(tool) {
+        std::time::Duration::from_secs(20)
+    } else {
+        std::time::Duration::from_secs(130)
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn control_bridge_read_error(tool: &str, err: String) -> String {
+    if is_read_via_bridge_tool(tool) {
+        format!(
+            "{tool}: no response from BIDSvue within 20s - the app window may need a reload ({err})"
+        )
+    } else {
+        err
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn parse_control_bridge_reply(reply: &str) -> Result<String, String> {
+    let parsed: Value =
+        serde_json::from_str(reply.trim()).map_err(|e| format!("parse reply: {e}"))?;
+    if let Some(ok) = parsed.get("ok").and_then(|v| v.as_str()) {
+        Ok(ok.to_string())
+    } else {
+        Err(parsed
+            .get("error")
+            .and_then(|v| v.as_str())
+            // Tool-neutral: the bridge carries reads + writes.
+            .unwrap_or("bridge request rejected")
+            .to_string())
+    }
+}
+
 pub(crate) fn is_write_bridge_tool(tool: &str) -> bool {
     matches!(
         tool,
@@ -428,7 +465,43 @@ pub(crate) fn validate_control_bridge_request(
     // gate never sees a request that could write `.git/hooks/*` (RCE),
     // `.git/config`, or under derivatives/sourcedata/code. The TS
     // `writeDispatch` checks stay as defense-in-depth.
-    if let Some(p) = args.get("path").and_then(|v| v.as_str()) {
+    // Rust-authoritative REQUIRED-argument enforcement (audit 2026-07-03 round
+    // 7): a write tool's required keys must be PRESENT and correctly typed
+    // BEFORE relay, so a missing/mistyped argument fails at the Rust boundary
+    // rather than slipping through to the renderer bridge. Mirrors each tool's
+    // `input_schema` `required` list. (`save_sidecar`'s `json` is handled just
+    // below — its schema permits a string OR an object.)
+    let required_strings: &[&str] = match tool {
+        "save_text_file" => &["path", "text"],
+        "save_sidecar" => &["path"],
+        "delete_file" => &["path"],
+        "rename_entity" => &["entity", "oldValue", "newValue"],
+        "remove_entity" => &["entity"],
+        _ => &[],
+    };
+    for key in required_strings {
+        match args.get(*key) {
+            Some(v) if v.is_string() => {}
+            Some(_) => return Err(format!("{tool}: '{key}' must be a string")),
+            None => return Err(format!("{tool}: missing required argument '{key}'")),
+        }
+    }
+    // `save_sidecar` requires `json`, which may be a JSON string OR an object.
+    if tool == "save_sidecar" {
+        match args.get("json") {
+            Some(v) if v.is_string() || v.is_object() => {}
+            Some(_) => return Err("save_sidecar: 'json' must be a JSON string or object".into()),
+            None => return Err("save_sidecar: missing required argument 'json'".into()),
+        }
+    }
+    // A `path` key that is present but NOT a string skips the lexical +
+    // canonical checks entirely and would relay unvalidated to the renderer
+    // (audit 2026-07-03 round 6). Reject it outright — a non-string can't name
+    // a real path, so this only fails malformed/hostile requests.
+    if let Some(path_val) = args.get("path") {
+        let p = path_val
+            .as_str()
+            .ok_or_else(|| format!("{tool}: 'path' must be a string"))?;
         validate_ai_rel_path(p)?;
         // P1 (symlink alias, audit 2026-06-22): a write target may not
         // exist yet (create), so canonicalize the nearest existing
@@ -436,12 +509,15 @@ pub(crate) fn validate_control_bridge_request(
         // sourcedata` parent dir would otherwise carry an approved write
         // into an out-of-scope tree (the OS follows the symlink at
         // write time even though the lexical path looked clean).
+        // Content-writes (`save_*`) may NOT resolve into the git-annex object
+        // store; a delete (removes only the working-tree symlink) may.
+        let allow_annex = !matches!(tool, "save_text_file" | "save_sidecar");
         let target = ctx.dataset_root.join(p);
         if let (Some(canon_anc), Ok(root_canon)) = (
             canonical_existing_ancestor(&target),
             ctx.dataset_root.canonicalize(),
         ) {
-            enforce_canonical_scope(&root_canon, &canon_anc)?;
+            enforce_canonical_scope(&root_canon, &canon_anc, allow_annex)?;
         }
         // Identity-bearing files route through rename_entity, never a
         // raw write/delete (audit 2026-06-22 P3 — mirror the TS guard at
@@ -476,10 +552,132 @@ pub(crate) fn validate_control_bridge_request(
     Ok(())
 }
 
-// The control bridge is a Unix domain socket (see ai::bridge). Windows ships
-// without the AI write/telemetry bridge; the MCP server isn't spawned there
-// (run_ai_prompt refuses on windows), so this is a compile-only stub.
-#[cfg(not(unix))]
+// Windows control bridge: a named-pipe client (the analogue of the Unix
+// `UnixStream` client above). The relay (`ai::bridge::serve_control_pipe`)
+// created the pipe with a per-user DACL, so only our user can open it; the
+// bearer + constant-time compare are the second gate, identical to Unix. The
+// pipe name arrives in `ctx.control_sock` (`\\.\pipe\bidsvue-ai-<uuid>`).
+#[cfg(windows)]
+fn call_control_bridge(ctx: &ServerContext, tool: &str, args: &Value) -> Result<String, String> {
+    validate_control_bridge_request(ctx, tool, args)?;
+
+    let pipe = ctx
+        .control_sock
+        .as_ref()
+        .ok_or("write tools unavailable: no control pipe (open a dataset first)")?;
+    let bearer = ctx
+        .bearer
+        .as_ref()
+        .ok_or("write tools unavailable: no session bearer")?;
+
+    // A fresh current-thread runtime PER call is deliberate (audit round 7 P4),
+    // not an oversight: the MCP server dispatches each request on its own
+    // `std::thread` (`server.rs` `handle_message`), so several bridge calls can
+    // run concurrently. A SHARED current-thread runtime cannot be driven by
+    // `block_on` from multiple threads at once, and a shared multi-thread
+    // runtime would spawn idle workers for a low-volume, approval-gated path.
+    // Current-thread runtime creation is ~microseconds, so per-call is correct
+    // and cheap. Revisit only if renderer-bridged reads become hot.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|e| format!("control pipe runtime: {e}"))?;
+    runtime.block_on(call_control_bridge_windows_async(pipe, bearer, tool, args))
+}
+
+// Shared pipe-open retry policy (audit 2026-07-03 round 6): a just-created
+// relay instance may momentarily report ERROR_PIPE_BUSY, and a
+// between-instances gap reports ERROR_FILE_NOT_FOUND; both are transient. The
+// async client (`open_control_pipe_client`) and the sync telemetry writer both
+// use these so the retry budget can't drift between them (~2s: 40 x 50ms).
+#[cfg(windows)]
+const PIPE_OPEN_ATTEMPTS: usize = 40;
+#[cfg(windows)]
+const PIPE_OPEN_RETRY: std::time::Duration = std::time::Duration::from_millis(50);
+#[cfg(windows)]
+fn pipe_open_retryable(e: &std::io::Error) -> bool {
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
+    matches!(
+        e.raw_os_error().map(|c| c as u32),
+        Some(ERROR_PIPE_BUSY) | Some(ERROR_FILE_NOT_FOUND)
+    )
+}
+
+#[cfg(windows)]
+async fn open_control_pipe_client(
+    pipe: &str,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient, String> {
+    use std::os::windows::io::AsRawHandle;
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    let mut last: Option<std::io::Error> = None;
+    for _ in 0..PIPE_OPEN_ATTEMPTS {
+        match ClientOptions::new().open(pipe) {
+            Ok(client) => {
+                crate::ai::win::verify_current_user_owner_handle(client.as_raw_handle())
+                    .map_err(|e| format!("verify control pipe owner: {e}"))?;
+                return Ok(client);
+            }
+            Err(e) if pipe_open_retryable(&e) => {
+                last = Some(e);
+                tokio::time::sleep(PIPE_OPEN_RETRY).await;
+            }
+            Err(e) => return Err(format!("connect control pipe: {e}")),
+        }
+    }
+    Err(format!(
+        "connect control pipe: {}",
+        last.map(|e| e.to_string())
+            .unwrap_or_else(|| "timed out".to_string())
+    ))
+}
+
+#[cfg(windows)]
+async fn call_control_bridge_windows_async(
+    pipe: &str,
+    bearer: &str,
+    tool: &str,
+    args: &Value,
+) -> Result<String, String> {
+    use tokio::io::{AsyncWriteExt, BufReader};
+
+    let mut stream = open_control_pipe_client(pipe).await?;
+    stream
+        .write_all(format!("{bearer}\n").as_bytes())
+        .await
+        .map_err(|e| format!("send bearer: {e}"))?;
+    let req = json!({"tool": tool, "args": args});
+    stream
+        .write_all(format!("{req}\n").as_bytes())
+        .await
+        .map_err(|e| format!("send request: {e}"))?;
+    stream.flush().await.ok();
+
+    let read_timeout = control_bridge_read_timeout(tool);
+    let mut reader = BufReader::new(stream);
+    let reply = match tokio::time::timeout(
+        read_timeout,
+        crate::ai::spawn::read_bounded_line(&mut reader, MAX_CONTROL_REPLY_BYTES as usize),
+    )
+    .await
+    {
+        Ok(Ok(Some(line))) if !line.truncated => line.text,
+        Ok(Ok(Some(_))) => return Err("bridge reply exceeds size cap".into()),
+        Ok(Ok(None)) => return Err("read reply: EOF".into()),
+        Ok(Err(e)) => return Err(control_bridge_read_error(tool, format!("read reply: {e}"))),
+        Err(_) => {
+            return Err(control_bridge_read_error(
+                tool,
+                format!("read reply timed out after {}s", read_timeout.as_secs()),
+            ));
+        }
+    };
+    parse_control_bridge_reply(&reply)
+}
+
+// Fallback for any target that is neither Unix nor Windows (none shipped).
+#[cfg(not(any(unix, windows)))]
 fn call_control_bridge(_ctx: &ServerContext, _tool: &str, _args: &Value) -> Result<String, String> {
     Err("control bridge unavailable on this platform".to_string())
 }
@@ -488,7 +686,6 @@ fn call_control_bridge(_ctx: &ServerContext, _tool: &str, _args: &Value) -> Resu
 fn call_control_bridge(ctx: &ServerContext, tool: &str, args: &Value) -> Result<String, String> {
     use std::io::{BufReader, Write};
     use std::os::unix::net::UnixStream;
-    use std::time::Duration;
 
     validate_control_bridge_request(ctx, tool, args)?;
 
@@ -509,11 +706,7 @@ fn call_control_bridge(ctx: &ServerContext, tool: &str, args: &Value) -> Result<
     // a much shorter timeout fails fast + actionably if the renderer never
     // answers (e.g. a stale WebView) instead of hanging the call — and, with
     // the MCP server's concurrent dispatch, without stalling other reads.
-    let read_timeout = if is_read_via_bridge_tool(tool) {
-        Duration::from_secs(20)
-    } else {
-        Duration::from_secs(130)
-    };
+    let read_timeout = control_bridge_read_timeout(tool);
     stream
         .set_read_timeout(Some(read_timeout))
         .map_err(|e| format!("set socket timeout: {e}"))?;
@@ -530,28 +723,8 @@ fn call_control_bridge(ctx: &ServerContext, tool: &str, args: &Value) -> Result<
     // renderer ALSO caps its own payload (`MAX_SUMMARY_BYTES` in
     // datasetSummary.ts) — this is the belt to that suspenders.
     let reply = read_capped_line(BufReader::new(&mut stream), MAX_CONTROL_REPLY_BYTES)
-        .map_err(|e| {
-            if is_read_via_bridge_tool(tool) {
-                format!(
-                    "{tool}: no response from BIDSvue within 20s — the app window may need a reload ({e})"
-                )
-            } else {
-                e
-            }
-        })?;
-    let parsed: Value =
-        serde_json::from_str(reply.trim()).map_err(|e| format!("parse reply: {e}"))?;
-    if let Some(ok) = parsed.get("ok").and_then(|v| v.as_str()) {
-        Ok(ok.to_string())
-    } else {
-        Err(parsed
-            .get("error")
-            .and_then(|v| v.as_str())
-            // Tool-neutral: the bridge now carries reads + writes
-            // (audit P3.2 — full rename deferred to the M-AI13 branch).
-            .unwrap_or("bridge request rejected")
-            .to_string())
-    }
+        .map_err(|e| control_bridge_read_error(tool, e))?;
+    parse_control_bridge_reply(&reply)
 }
 
 /// Dispatch tools/call to the named tool. Returns the MCP content
@@ -632,33 +805,97 @@ pub(crate) fn charge_read(ctx: &ServerContext, content: Vec<Value>) -> Result<Ve
 /// display, and the audit log is documented approximate either way.
 const TELEMETRY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// Send ONE telemetry snapshot synchronously over the control socket (no ack
+/// Send ONE telemetry snapshot synchronously over the control channel (no ack
 /// wait). Called ONLY by the single poller thread — never the read path — so
 /// blocking here can't slow a tool call. Best-effort: any connect/write error
 /// is swallowed (the renderer keeps its prior snapshot; the audit log is
 /// approximate). The bridge recognizes `type:"telemetry"`, emits an
 /// `AIStreamLine::Telemetry`, and acks WITHOUT an approval gate.
-// Unix-socket telemetry push; no-op on Windows (no control bridge there).
-#[cfg(not(unix))]
-fn send_telemetry_once(_sock: &str, _bearer: &str, _egress: u64, _files: u64, _bridge: u64) {}
+// No-op telemetry stub for targets that are neither Unix nor Windows (no
+// control channel there). Unix pushes over the socket and Windows over the
+// named pipe via the two impls below.
+// The poller consumes the `bool` (advances `last` only on success), so the
+// stub must match the signature — else a future non-unix/non-windows target
+// fails to compile (audit 2026-07-03 round 5 P4).
+#[cfg(not(any(unix, windows)))]
+fn send_telemetry_once(
+    _sock: &str,
+    _bearer: &str,
+    _egress: u64,
+    _files: u64,
+    _bridge: u64,
+) -> bool {
+    false
+}
 
-#[cfg(unix)]
-fn send_telemetry_once(sock: &str, bearer: &str, egress: u64, files: u64, bridge: u64) {
-    use std::io::Write;
-    use std::os::unix::net::UnixStream;
-    let msg = json!({
+/// Build the telemetry wire message (shared framing for both transports).
+#[cfg(any(unix, windows))]
+fn telemetry_msg(egress: u64, files: u64, bridge: u64) -> Value {
+    json!({
         "type": "telemetry",
         "egressBytes": egress,
         "filesRead": files,
         "bridgeReads": bridge,
-    });
-    let _ = (|| -> std::io::Result<()> {
+    })
+}
+
+#[cfg(unix)]
+fn send_telemetry_once(sock: &str, bearer: &str, egress: u64, files: u64, bridge: u64) -> bool {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let msg = telemetry_msg(egress, files, bridge);
+    (|| -> std::io::Result<()> {
         let mut stream = UnixStream::connect(sock)?;
         stream.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
         writeln!(stream, "{bearer}")?;
         writeln!(stream, "{msg}")?;
         Ok(())
-    })();
+    })()
+    .is_ok()
+}
+
+// Windows telemetry: same fire-and-forget frame over the named pipe. The relay
+// authenticates the bearer and acks without parking (handle_conn's telemetry
+// branch), so the renderer's egress/files-read/bridge-read panel updates on
+// Windows exactly as on Unix. Best-effort: a busy pipe just drops one snapshot
+// (the 250 ms poller re-sends on the next change).
+#[cfg(windows)]
+fn send_telemetry_once(pipe: &str, bearer: &str, egress: u64, files: u64, bridge: u64) -> bool {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::os::windows::io::AsRawHandle;
+
+    let msg = telemetry_msg(egress, files, bridge);
+    (|| -> std::io::Result<()> {
+        let mut stream = {
+            let mut last: Option<std::io::Error> = None;
+            let mut opened = None;
+            for _ in 0..PIPE_OPEN_ATTEMPTS {
+                match OpenOptions::new().read(true).write(true).open(pipe) {
+                    Ok(f) => {
+                        opened = Some(f);
+                        break;
+                    }
+                    Err(e) if pipe_open_retryable(&e) => {
+                        last = Some(e);
+                        std::thread::sleep(PIPE_OPEN_RETRY);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            opened.ok_or_else(|| {
+                last.unwrap_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::TimedOut, "control pipe timed out")
+                })
+            })?
+        };
+        crate::ai::win::verify_current_user_owner_handle(stream.as_raw_handle())?;
+        writeln!(stream, "{bearer}")?;
+        writeln!(stream, "{msg}")?;
+        stream.flush()?;
+        Ok(())
+    })()
+    .is_ok()
 }
 
 /// Spawn the SINGLE telemetry poller for this MCP server (items ④+⑦).
@@ -694,8 +931,9 @@ pub(crate) fn spawn_telemetry_poller(
                     ctx.bridge_reads.load(Ordering::Relaxed),
                 );
                 if last != Some(snap) && snap != (0, 0, 0) {
-                    send_telemetry_once(&sock, &bearer, snap.0, snap.1, snap.2);
-                    last = Some(snap);
+                    if send_telemetry_once(&sock, &bearer, snap.0, snap.1, snap.2) {
+                        last = Some(snap);
+                    }
                 }
                 if stopping {
                     break;
@@ -1094,7 +1332,11 @@ fn walk_recursive_inner(
 /// every other canonical `.git*` / `.datalad` / out-of-scope-root target
 /// is rejected. (A `.json`/`.tsv` sidecar is a real file, not a symlink,
 /// so this never fires on the common AI read path.)
-fn enforce_canonical_scope(root_canon: &Path, canon: &Path) -> Result<(), String> {
+fn enforce_canonical_scope(
+    root_canon: &Path,
+    canon: &Path,
+    allow_annex: bool,
+) -> Result<(), String> {
     let rel = canon
         .strip_prefix(root_canon)
         .map_err(|_| "resolved path escapes the dataset root".to_string())?;
@@ -1105,9 +1347,15 @@ fn enforce_canonical_scope(root_canon: &Path, canon: &Path) -> Result<(), String
             _ => None,
         })
         .collect();
-    // git-annex object store (fetched DataLad data file) — the only
-    // legitimate canonical target inside a VCS-internal directory.
-    if comps.len() >= 2 && comps[0] == ".git" && comps[1] == "annex" {
+    // git-annex object store (fetched DataLad data file) — the only legitimate
+    // canonical target inside a VCS-internal directory. Allowed for READS and
+    // for a delete (which only removes the working-tree symlink), but NOT for a
+    // CONTENT write (audit 2026-07-03 round 6): a `save_*` whose canonical
+    // target lands in `.git/annex` would, if the renderer ever followed the
+    // symlink instead of replacing it, rewrite a shared content-addressed blob.
+    // Fall through to the blocked-`.git` rejection below when `allow_annex` is
+    // false, so the Rust write-authority invariant holds without a special case.
+    if allow_annex && comps.len() >= 2 && comps[0] == ".git" && comps[1] == "annex" {
         return Ok(());
     }
     if let Some(first) = comps.first() {
@@ -1160,19 +1408,32 @@ fn resolve_in_dataset(root: &Path, requested: &str) -> Result<PathBuf, String> {
         return Err("resolved path escapes the dataset root".into());
     }
     // P1 (symlink alias): the canonical target must also satisfy the
-    // blocked-root / VCS policy, not just containment.
-    enforce_canonical_scope(&root_canon, &canon)?;
+    // blocked-root / VCS policy, not just containment. Reads may resolve into
+    // the git-annex object store (fetched DataLad data file).
+    enforce_canonical_scope(&root_canon, &canon, /* allow_annex */ true)?;
     Ok(canon)
 }
 
 /// Hardening loop item ⑤ — P2.4 TOCTOU close. `resolve_in_dataset`
 /// canonicalizes + scope-checks the path, but a concurrent directory swap
 /// between that check and `File::open` could redirect the open to an
-/// out-of-scope inode (the classic check-then-use race). This re-validates
-/// the OPEN fd's real path, so we read the SAME inode we authorized — not a
-/// since-swapped lexical path. macOS `F_GETPATH` reports the fd's actual path;
-/// macOS-only (the app ships macOS-arm64), a Linux port would readlink
-/// `/proc/self/fd/N`.
+/// out-of-scope inode (the classic check-then-use race). This re-validates the
+/// OPEN fd's real path, so we read the SAME inode we authorized — not a
+/// since-swapped lexical path. Implemented on EVERY shipped platform (audit
+/// 2026-07-03 round 7 — enabling Windows AI turned the prior macOS-only guard
+/// into a real gap): macOS `F_GETPATH`, Linux `readlink /proc/self/fd/<n>`,
+/// Windows `GetFinalPathNameByHandle`.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+fn check_real_path_in_scope(root: &Path, real: &Path) -> Result<(), String> {
+    let root_canon = root
+        .canonicalize()
+        .map_err(|e| format!("resolve root: {e}"))?;
+    if !real.starts_with(&root_canon) {
+        return Err("resolved path escapes the dataset root".into());
+    }
+    enforce_canonical_scope(&root_canon, real, /* allow_annex */ true)
+}
+
 #[cfg(target_os = "macos")]
 fn verify_open_fd_in_scope(root: &Path, f: &std::fs::File) -> Result<(), String> {
     use std::os::unix::ffi::OsStringExt;
@@ -1187,16 +1448,29 @@ fn verify_open_fd_in_scope(root: &Path, f: &std::fs::File) -> Result<(), String>
     // SAFETY: F_GETPATH NUL-terminates within PATH_MAX on success.
     let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char) };
     let real = PathBuf::from(std::ffi::OsString::from_vec(cstr.to_bytes().to_vec()));
-    let root_canon = root
-        .canonicalize()
-        .map_err(|e| format!("resolve root: {e}"))?;
-    if !real.starts_with(&root_canon) {
-        return Err("resolved path escapes the dataset root".into());
-    }
-    enforce_canonical_scope(&root_canon, &real)
+    check_real_path_in_scope(root, &real)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn verify_open_fd_in_scope(root: &Path, f: &std::fs::File) -> Result<(), String> {
+    use std::os::unix::io::AsRawFd;
+    // `/proc/self/fd/<n>` is a kernel symlink to the fd's real path; readlink
+    // reports the inode we actually opened, defeating a post-resolve dir swap.
+    let real = std::fs::read_link(format!("/proc/self/fd/{}", f.as_raw_fd()))
+        .map_err(|e| format!("could not verify the open file's path: {e}"))?;
+    check_real_path_in_scope(root, &real)
+}
+
+#[cfg(windows)]
+fn verify_open_fd_in_scope(root: &Path, f: &std::fs::File) -> Result<(), String> {
+    // GetFinalPathNameByHandle reports the canonical path backing the OPEN
+    // handle, so a since-swapped lexical path can't redirect the read.
+    let real = crate::ai::win::final_path_for_handle(f)
+        .map_err(|e| format!("could not verify the open file's path: {e}"))?;
+    check_real_path_in_scope(root, &real)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn verify_open_fd_in_scope(_root: &Path, _f: &std::fs::File) -> Result<(), String> {
     Ok(())
 }
@@ -1253,7 +1527,11 @@ mod tests {
             ),
         ] {
             let err = dispatch_tool_call(&ctx, name, &args).unwrap_err();
-            assert!(err.contains("control socket"), "{name} got: {err}");
+            // "control socket" on Unix, "control pipe" on Windows.
+            assert!(
+                err.contains("control socket") || err.contains("control pipe"),
+                "{name} got: {err}"
+            );
         }
     }
 
@@ -1387,7 +1665,8 @@ mod tests {
     }
 
     // Audit 2026-06-21 P2: the control-bridge reply read is bounded.
-    // Unix-only: `read_capped_line` is cfg(unix) (control-socket reply path).
+    // `read_capped_line` is `cfg(any(unix, windows))` (shared by the Unix-socket
+    // and Windows-pipe clients); this test just happens to run on Unix.
     #[cfg(unix)]
     #[test]
     fn read_capped_line_refuses_oversize_reply() {
@@ -1402,11 +1681,65 @@ mod tests {
         assert_eq!(ok, "hello\n");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_control_bridge_client_round_trip_over_named_pipe() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let pipe_name = format!(r"\\.\pipe\bidsvue-ai-client-test-{}", uuid::Uuid::new_v4());
+        let pipe_name_for_server = pipe_name.clone();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let sec = crate::ai::win::SecurityAttributes::current_user_only().unwrap();
+                let server =
+                    crate::ai::bridge::create_control_pipe_server(pipe_name_for_server, &sec, true)
+                        .unwrap();
+                ready_tx.send(()).unwrap();
+                server.connect().await.unwrap();
+                let mut reader = tokio::io::BufReader::new(server);
+                let mut bearer = String::new();
+                reader.read_line(&mut bearer).await.unwrap();
+                assert_eq!(bearer.trim(), "tok");
+                let mut req = String::new();
+                reader.read_line(&mut req).await.unwrap();
+                assert!(req.contains("save_text_file"), "req: {req}");
+                let mut server = reader.into_inner();
+                server
+                    .write_all(format!("{}\n", json!({"ok": "saved"})).as_bytes())
+                    .await
+                    .unwrap();
+            });
+        });
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let mut ctx = make_ctx(tmp.path());
+        ctx.control_sock = Some(pipe_name);
+        ctx.bearer = Some("tok".into());
+        let result = call_control_bridge(
+            &ctx,
+            "save_text_file",
+            &json!({"path": "a.txt", "text": "hello"}),
+        )
+        .unwrap();
+        assert_eq!(result, "saved");
+        server.join().unwrap();
+    }
+
     // Audit 2026-06-21 P2.3: positive end-to-end coverage that
     // `get_dataset_summary` dispatch REACHES the control bridge, the
     // renderer reply surfaces as tool content, AND it is charged against
-    // the session egress budget. A fake renderer stands up the socket.
-    // Unix-only: the control bridge is a Unix domain socket.
+    // the session egress budget. A fake renderer stands up a real
+    // Unix-domain socket, so this test is Unix-only; the Windows named-pipe
+    // client shares the same `call_control_bridge` dispatch path.
     #[cfg(unix)]
     #[test]
     fn get_dataset_summary_dispatches_through_bridge_and_charges_egress() {
@@ -1447,7 +1780,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = make_ctx(tmp.path()); // control_sock = None
         let err = dispatch_tool_call(&ctx, "get_dataset_summary", &json!({})).unwrap_err();
-        assert!(err.contains("no control socket"), "got: {err}");
+        assert!(
+            (err.contains("no control socket") || err.contains("no control pipe")),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -1460,7 +1796,10 @@ mod tests {
         let ctx = make_ctx(tmp.path()); // control_sock = None
         for name in &["run_validator", "get_validator_issues"] {
             let err = dispatch_tool_call(&ctx, name, &json!({})).unwrap_err();
-            assert!(err.contains("no control socket"), "tool {name}: {err}");
+            assert!(
+                (err.contains("no control socket") || err.contains("no control pipe")),
+                "tool {name}: {err}"
+            );
         }
     }
 
@@ -1657,7 +1996,10 @@ mod tests {
             &json!({"entity": "sub", "oldValue": "01", "newValue": "02"}),
         )
         .unwrap_err();
-        assert!(err.contains("control socket"), "got: {err}");
+        assert!(
+            err.contains("control socket") || err.contains("control pipe"),
+            "got: {err}"
+        );
     }
 
     #[cfg(unix)]
@@ -1726,12 +2068,13 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     #[test]
     fn verify_open_fd_in_scope_rejects_out_of_scope_inode() {
         // Item ⑤ (P2.4): the fd-revalidation guard refuses an fd whose real
         // path is outside the dataset (the state a post-resolve dir-swap
-        // would produce), and accepts an in-scope one.
+        // would produce), and accepts an in-scope one. Now exercised on macOS,
+        // Linux, AND Windows (round 7 — the guard is real on all three).
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         std::fs::create_dir(root.join("sub-01")).unwrap();
@@ -1743,6 +2086,61 @@ mod tests {
         let outside = tempfile::NamedTempFile::new().unwrap();
         let f = std::fs::File::open(outside.path()).unwrap();
         assert!(verify_open_fd_in_scope(root, &f).is_err());
+    }
+
+    #[test]
+    fn control_bridge_rejects_missing_or_mistyped_required_args() {
+        // Audit 2026-07-03 round 7: required write-tool arguments must be
+        // present + correctly typed at the Rust authority layer BEFORE relay,
+        // never left to the renderer.
+        let tmp = TempDir::new().unwrap();
+        let ctx = make_ctx(tmp.path());
+        // Missing a required argument.
+        for (tool, args) in [
+            ("save_text_file", json!({"path": "a.txt"})), // missing text
+            ("save_text_file", json!({"text": "x"})),     // missing path
+            ("save_sidecar", json!({"path": "a.json"})),  // missing json
+            ("delete_file", json!({})),                   // missing path
+            ("rename_entity", json!({"entity": "sub", "oldValue": "01"})), // missing newValue
+            ("remove_entity", json!({})),                 // missing entity
+        ] {
+            let err = validate_control_bridge_request(&ctx, tool, &args).unwrap_err();
+            assert!(
+                err.contains("missing required argument") || err.contains("must be"),
+                "{tool} {args}: {err}"
+            );
+        }
+        // A required argument of the wrong type.
+        for (tool, args) in [
+            ("save_text_file", json!({"path": 5, "text": "x"})),
+            (
+                "rename_entity",
+                json!({"entity": "sub", "oldValue": 1, "newValue": "02"}),
+            ),
+            ("remove_entity", json!({"entity": ["ses"]})),
+        ] {
+            let err = validate_control_bridge_request(&ctx, tool, &args).unwrap_err();
+            assert!(err.contains("must be a string"), "{tool} {args}: {err}");
+        }
+        // save_sidecar `json` accepts a STRING or an OBJECT, but not a scalar.
+        assert!(validate_control_bridge_request(
+            &ctx,
+            "save_sidecar",
+            &json!({"path": "a.json", "json": "{}"})
+        )
+        .is_ok());
+        assert!(validate_control_bridge_request(
+            &ctx,
+            "save_sidecar",
+            &json!({"path": "a.json", "json": {"k": 1}})
+        )
+        .is_ok());
+        assert!(validate_control_bridge_request(
+            &ctx,
+            "save_sidecar",
+            &json!({"path": "a.json", "json": 5})
+        )
+        .is_err());
     }
 
     #[test]
@@ -1765,11 +2163,15 @@ mod tests {
     #[test]
     fn enforce_canonical_scope_policy() {
         let root = Path::new("/data/ds");
-        // git-annex object store allowed (DataLad).
+        let annex = Path::new("/data/ds/.git/annex/objects/aa/k");
+        // git-annex object store allowed for READS / delete (DataLad file)...
+        assert!(enforce_canonical_scope(root, annex, true).is_ok());
+        // ...but a CONTENT write (allow_annex = false) must NOT resolve into it.
         assert!(
-            enforce_canonical_scope(root, Path::new("/data/ds/.git/annex/objects/aa/k")).is_ok()
+            enforce_canonical_scope(root, annex, false).is_err(),
+            "annex must be rejected on the content-write path"
         );
-        // out-of-scope roots + other VCS internals rejected.
+        // out-of-scope roots + other VCS internals rejected regardless.
         for bad in [
             "/data/ds/sourcedata/x",
             "/data/ds/derivatives/y",
@@ -1778,13 +2180,36 @@ mod tests {
             "/data/ds/.datalad/config",
         ] {
             assert!(
-                enforce_canonical_scope(root, Path::new(bad)).is_err(),
+                enforce_canonical_scope(root, Path::new(bad), true).is_err(),
                 "{bad} must be rejected"
             );
         }
         // in-scope path allowed.
-        assert!(enforce_canonical_scope(root, Path::new("/data/ds/sub-01/anat/x.json")).is_ok());
+        assert!(
+            enforce_canonical_scope(root, Path::new("/data/ds/sub-01/anat/x.json"), true).is_ok()
+        );
         // escapes root rejected.
-        assert!(enforce_canonical_scope(root, Path::new("/etc/passwd")).is_err());
+        assert!(enforce_canonical_scope(root, Path::new("/etc/passwd"), true).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pipe_open_retryable_matches_only_transient_codes() {
+        // The client + telemetry retry loops share this predicate (audit round
+        // 6 d); pin exactly which Win32 codes retry vs fail fast.
+        use std::io::Error;
+        use windows_sys::Win32::Foundation::{
+            ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY,
+        };
+        assert!(pipe_open_retryable(&Error::from_raw_os_error(
+            ERROR_PIPE_BUSY as i32
+        )));
+        assert!(pipe_open_retryable(&Error::from_raw_os_error(
+            ERROR_FILE_NOT_FOUND as i32
+        )));
+        // A real failure (e.g. wrong DACL) must NOT spin the retry budget.
+        assert!(!pipe_open_retryable(&Error::from_raw_os_error(
+            ERROR_ACCESS_DENIED as i32
+        )));
     }
 }

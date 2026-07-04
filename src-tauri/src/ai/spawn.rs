@@ -37,7 +37,8 @@
 //     CLI that waits for stdin EOF would otherwise hang. The MCP
 //     transport is stdio between the CLI and the `bidsvue --mcp-server`
 //     child it spawns (not BIDSvue's own stdin); the M-AI5 write path
-//     uses a separate Unix control socket, so stdin stays null.
+//     uses a separate control channel (a Unix-domain socket on Unix, a
+//     named pipe on Windows), so stdin stays null.
 //   - `stdout/stderr: Stdio::piped()` with SEPARATE drain tasks so a
 //     stderr-heavy child can't backpressure stdout.
 //
@@ -440,8 +441,34 @@ fn kill_ai_process_group(child_pid: Option<u32>) {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    // Windows uses a Job Object for owned child-tree lifetime; `taskkill /T`
+    // stays as a best-effort fallback for teardown paths. CREATE_NO_WINDOW
+    // keeps a console from flashing.
+    #[cfg(windows)]
+    if let Some(pid) = child_pid {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new(crate::ai::win::system32_exe("taskkill.exe"))
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = child_pid;
+}
+
+/// Resolve a Windows CLI shim to an absolute launchable path, FAILING CLOSED
+/// (audit 2026-07-03 round 5 P2): there is deliberately no bare-`argv[0]`
+/// fallback — that would reintroduce ambient CreateProcess cwd/PATH search and
+/// defeat the PATHEXT filter + `.cmd`/`.bat` handling in `cli_launch`. Extracted
+/// as a seam so the fail-closed behaviour is unit-testable (round 6).
+#[cfg(windows)]
+fn resolve_windows_cli_bin(argv0: &str, path_env: &str) -> Result<std::path::PathBuf, String> {
+    crate::ai::probe::which_with_path(argv0, path_env)
+        .ok_or_else(|| format!("CLI '{argv0}' not found on PATH"))
 }
 
 /// Tauri command. Streams the spawned CLI's output via `on_progress`
@@ -452,10 +479,6 @@ fn kill_ai_process_group(child_pid: Option<u32>) {
 /// `cancel_handle` is registered in `CancellationRegistry` on entry
 /// and deregistered on exit (RAII-style via `Drop`).
 #[tauri::command]
-// On non-unix (Windows) the function refuses immediately (no AI control
-// socket — see the cfg(unix) gate on the bridge); the rest of the body is
-// then unreachable, which is intentional.
-#[cfg_attr(not(unix), allow(unreachable_code, unused_variables))]
 pub async fn run_ai_prompt(
     cli: String,
     prompt: String,
@@ -483,14 +506,6 @@ pub async fn run_ai_prompt(
     // renderer from driving the AI surface (bare-chat exfiltration) by IPC.
     if crate::ai::ai_disabled_at_build() {
         return Err("AI is disabled in this build".to_string());
-    }
-    // Windows ships without AI for v1: the MCP write bridge is a Unix domain
-    // socket (cfg(unix)-gated in ai::bridge), so refuse here rather than spawn
-    // a CLI with no control channel. The renderer also hides the AI UI on
-    // Windows; this is the defense-in-depth backstop against a driven IPC call.
-    #[cfg(not(unix))]
-    {
-        return Err("AI integration is not yet available on Windows.".to_string());
     }
     // **Audit P1.4 partial closure 2026-06-21**: register cancellation
     // BEFORE any validation, IO, or spawn. The renderer races: TS
@@ -669,16 +684,26 @@ pub async fn run_ai_prompt(
     // closure: written 0o600 via write_session_record's helper
     // pattern (config + record are equally credential-bearing).
     let session_config_path = session_dir.join("session-config.json");
-    // M-AI5 control bridge: the MCP server connects here per write-tool
-    // call, presenting the same bearer. Path lives inside the 0o700
-    // session dir so it's unreachable by other users / stale sockets.
+    // M-AI5 control bridge: the MCP server connects here per write-tool call,
+    // presenting the same bearer. On Unix it's a Unix-domain socket inside the
+    // 0o700 session dir (unreachable by other users / stale sockets); on
+    // Windows it's a named pipe secured with a per-user-SID DACL (see
+    // ai::bridge::serve_control_pipe / ai::win). Both are carried to the MCP
+    // server in `controlSock`.
+    #[cfg(unix)]
     let control_sock_path = session_dir.join("control.sock");
+    #[cfg(windows)]
+    let control_pipe_name = format!(r"\\.\pipe\bidsvue-ai-{}", uuid::Uuid::new_v4());
+    #[cfg(unix)]
+    let control_channel_id = control_sock_path.to_string_lossy().into_owned();
+    #[cfg(windows)]
+    let control_channel_id = control_pipe_name.clone();
     let session_config = serde_json::json!({
         "datasetRoot": dataset_root_str,
         "aiSessionId": ai_session_id,
         "allowAppDataReads": allow_appdata_reads,
         "allowDatasetStateReads": allow_dataset_state_reads,
-        "controlSock": control_sock_path.to_string_lossy(),
+        "controlSock": control_channel_id,
         "bearer": bearer,
     });
     let cfg_bytes = serde_json::to_vec_pretty(&session_config)
@@ -747,6 +772,12 @@ pub async fn run_ai_prompt(
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&workdir, std::fs::Permissions::from_mode(0o700));
     }
+    #[cfg(windows)]
+    {
+        // 0o700 analogue: restrict the workdir DACL to the current user's SID.
+        crate::ai::win::restrict_path_to_current_user(&workdir)
+            .map_err(|e| format!("restrict workdir ACL: {e}"))?;
+    }
 
     // **M-AI4.5b — Gemini dataset isolation (shipped 2026-06-21).** Write the
     // workspace MCP-server registration + the Policy Engine default-deny into
@@ -770,9 +801,10 @@ pub async fn run_ai_prompt(
     // connect on its first write-tool call. **Audit P2 (2026-06-21): spawned
     // AFTER all fallible pre-spawn setup** (workdir + Gemini files above) so an
     // early `?`-return can't leak this task — `DeregisterGuard` does NOT own
-    // the relay handle (a `JoinHandle` drop detaches, not aborts). From here
-    // to `guard.armed = false` there must be NO `?`; the relay is aborted on
-    // every teardown path below.
+    // the relay handle (a `JoinHandle` drop detaches, not aborts). Windows
+    // creates the first secured pipe instance before the relay is spawned so
+    // setup fails fast. After `guard.control_relay` is set, avoid fallible
+    // returns until the relay handle is moved into the select-loop owner.
     if !dataset_root.is_empty() {
         // Audit 2026-06-22 P1: the bridge is app-global, so reset its
         // per-session state (write_in_flight + pending) for THIS session
@@ -780,8 +812,8 @@ pub async fn run_ai_prompt(
         // not block this one, and the generation bump stops a leftover
         // handler from clearing our slot.
         bridge.begin_session();
-        // The control socket is a Unix domain socket; Windows ships without
-        // the AI write bridge (run_ai_prompt refuses on windows before here).
+        // The control channel is a Unix-domain socket on Unix and a named pipe
+        // on Windows; both start the same generic relay (`handle_conn`).
         #[cfg(unix)]
         match tokio::net::UnixListener::bind(&control_sock_path) {
             Ok(listener) => {
@@ -799,8 +831,51 @@ pub async fn run_ai_prompt(
                 eprintln!("ai: control socket bind failed: {e}");
             }
         }
+        #[cfg(windows)]
+        {
+            let sec = crate::ai::win::SecurityAttributes::current_user_only()
+                .map_err(|e| format!("control pipe security setup: {e}"))?;
+            let first_server = crate::ai::bridge::create_control_pipe_server(
+                control_pipe_name.clone(),
+                &sec,
+                true,
+            )
+            .map_err(|e| format!("create control pipe: {e}"))?;
+            guard.control_relay = Some(tokio::spawn(crate::ai::bridge::serve_control_pipe(
+                first_server,
+                control_pipe_name.clone(),
+                sec,
+                bearer.clone(),
+                on_progress.clone(),
+                (*bridge).clone(),
+            )));
+        }
     }
 
+    // On Windows the CLI is usually an npm shim (`claude.cmd` etc.) that
+    // CreateProcess can't launch by bare name; resolve it on PATH and build the
+    // command via the shared `cli_launch`. A `.cmd`/`.bat` shim is passed
+    // DIRECTLY as the program so Rust std applies batch-safe argument escaping
+    // (BatBadBut / CVE-2024-24576 — see `cli_launch`); `.ps1` runs via
+    // PowerShell `-File`. The Windows child is assigned to a Job Object after
+    // spawn; `taskkill /T` stays as a fallback. Unix launches the bare name.
+    // Fail CLOSED if the CLI can't be resolved (audit 2026-07-03 round 5 P2):
+    // falling back to `Command::new(&argv[0])` would reintroduce ambient
+    // CreateProcess cwd/PATH search — the exact behaviour the PATHEXT filter +
+    // `.cmd`/`.bat` handling in `cli_launch` exists to avoid. A missing binary
+    // (disappeared between UI probe and spawn, stale CLI id) must error, not
+    // launch a bare name. The `?` unwinds through the DeregisterGuard (removes
+    // the session dir + deregisters cancellation).
+    #[cfg(windows)]
+    let mut command = {
+        let bin = resolve_windows_cli_bin(&argv[0], &path_env)
+            .map_err(|e| format!("spawn {cli}: {e}"))?;
+        let (prog, prefix) = crate::ai::probe::cli_launch(&bin);
+        let mut c = Command::new(prog);
+        c.args(&prefix);
+        c
+    };
+    #[cfg(not(windows))]
     let mut command = Command::new(&argv[0]);
     command
         .args(&argv[1..])
@@ -827,9 +902,9 @@ pub async fn run_ai_prompt(
     // helpers AND the `bidsvue --mcp-server` child the CLI spawns.
     // `child.start_kill()` alone only signals the direct child, leaving
     // descendants running (a real leak + a surviving MCP server holding
-    // the control socket). `process_group(0)` makes the child a new
-    // group leader, so its pid == the pgid we kill. Unix-only; the app
-    // ships macOS-arm64 today and `killpg` has no Windows analogue here.
+    // the control channel). `process_group(0)` makes the child a new
+    // group leader, so its pid == the pgid we kill. Unix-only; Windows
+    // assigns the child to a kill-on-close Job Object below.
     #[cfg(unix)]
     command.process_group(0);
 
@@ -846,6 +921,41 @@ pub async fn run_ai_prompt(
     // `kill_ai_process_group` on every kill path below.
     let child_pid = child.id();
 
+    #[cfg(windows)]
+    let job_guard = {
+        // Every failure between spawn and a live `job_guard` MUST kill+reap the
+        // already-running child (audit 2026-07-04 P2). A tokio `Child` is NOT
+        // kill-on-drop, so the earlier `?`/`map_err(...)?` on `raw_handle()` and
+        // `KillOnCloseJob::new()` leaked the spawned CLI on the (unlikely) error
+        // path — only the assign-failure arm below cleaned up. All three arms
+        // now match the stdout/stderr-None cleanup idiom.
+        let process = match child.raw_handle() {
+            Some(h) => h,
+            None => {
+                kill_ai_process_group(child_pid);
+                let _ = child.start_kill();
+                let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+                return Err(format!("spawn {cli}: missing process handle"));
+            }
+        };
+        let job = match crate::ai::win::KillOnCloseJob::new() {
+            Ok(j) => j,
+            Err(e) => {
+                kill_ai_process_group(child_pid);
+                let _ = child.start_kill();
+                let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+                return Err(format!("create job object: {e}"));
+            }
+        };
+        if let Err(e) = job.assign_process(process) {
+            kill_ai_process_group(child_pid);
+            let _ = child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+            return Err(format!("assign AI process to job object: {e}"));
+        }
+        job
+    };
+
     // **Audit P1.4 + P1.2 closure 2026-06-21**: take stdout/stderr
     // handles BEFORE disarming the guard so a failure here
     // (`.take()` returning None — extremely unlikely with our piped
@@ -855,6 +965,8 @@ pub async fn run_ai_prompt(
         Some(s) => s,
         None => {
             // Guard Drop aborts the relay + removes the session dir.
+            #[cfg(windows)]
+            job_guard.terminate();
             kill_ai_process_group(child_pid);
             let _ = child.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
@@ -865,6 +977,8 @@ pub async fn run_ai_prompt(
         Some(s) => s,
         None => {
             // Guard Drop aborts the relay + removes the session dir.
+            #[cfg(windows)]
+            job_guard.terminate();
             kill_ai_process_group(child_pid);
             let _ = child.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
@@ -1016,11 +1130,22 @@ pub async fn run_ai_prompt(
         _ = notify.notified() => {
             // P2.5: kill the whole group (CLI + descendants + mcp-server
             // child) BEFORE start_kill, so a cancel doesn't orphan them.
+            #[cfg(windows)]
+            job_guard.terminate();
             kill_ai_process_group(child_pid);
             let _ = child.start_kill();
             let _ = on_progress.send(AIStreamLine::Cancelled);
         }
         wait_result = child.wait() => {
+            // Symmetric descendant reaping on NORMAL exit (audit 2026-07-03
+            // round 5 P1). Windows reaps via the Job Object when `job_guard`
+            // drops at the return below; Unix has no such owner, so a helper or
+            // the `bidsvue --mcp-server` grandchild that outlived the CLI would
+            // leak past session teardown. The CLI is the process-group leader
+            // (`process_group(0)`), so `killpg` reaps any straggler; the child
+            // itself already exited, so this only touches survivors.
+            #[cfg(unix)]
+            kill_ai_process_group(child_pid);
             // Drain tasks may still be running — flush their
             // buffered lines before emitting Exit.
             //
@@ -1387,6 +1512,17 @@ fn prepare_gemini_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_cli_resolution_fails_closed_when_missing() {
+        // A missing CLI must produce an error, NEVER a bare-`argv[0]` fallback
+        // that reintroduces ambient CreateProcess search (audit round 5 P2 /
+        // round 6 test).
+        let err = resolve_windows_cli_bin("definitely-not-a-real-cli-xyz", r"C:\Windows\System32")
+            .unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+    }
 
     #[test]
     fn build_argv_claude_bare_chat_disables_built_in_tools() {
@@ -1969,9 +2105,13 @@ mod tests {
         // External audit P1.1 closure regression: a path that exists
         // but isn't in the runtime dataset trust set is refused.
         use crate::trust::TrustStore;
-        let trust =
-            TrustStore::empty_for_test(std::path::PathBuf::from("/tmp/bidsvue-test-trust2.json"));
-        let err = validate_ai_dataset_root(&trust, "/tmp").unwrap_err();
+        // Use an existing absolute dir that is NOT in the trust set. `/tmp` is
+        // not a valid absolute path on Windows (fails a different check first),
+        // so derive it from the platform temp dir to keep the assertion
+        // meaningful cross-platform.
+        let tmp = std::env::temp_dir();
+        let trust = TrustStore::empty_for_test(tmp.join("bidsvue-test-trust2.json"));
+        let err = validate_ai_dataset_root(&trust, &tmp.to_string_lossy()).unwrap_err();
         assert!(err.contains("not a runtime-authorized root"));
     }
 

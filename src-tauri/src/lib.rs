@@ -18,6 +18,8 @@ mod import_mne_bids;
 mod process;
 mod runtime;
 mod share;
+#[cfg(test)]
+mod testpath;
 mod trust;
 
 use std::{
@@ -2542,10 +2544,17 @@ fn into_pathbuf(file_path: FilePath) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        accept_dropped_dataset_impl, append_log_line_impl, git_safety_env_scrub_for_startup,
-        git_safety_env_set_for_startup, is_blocked_direct_child_dataset_name, path_is_read_only,
-        recent_path_present, set_file_mode_clipped, validate_clone_leaf_name,
+        append_log_line_impl, git_safety_env_scrub_for_startup, git_safety_env_set_for_startup,
+        is_blocked_direct_child_dataset_name, validate_clone_leaf_name,
         validate_dataset_carveout_promotion_candidate, validate_external_url, DropAttestation,
+    };
+    // These four back `#[cfg(unix)]`-only tests (Unix mode bits / symlink
+    // semantics), so the import must be unix-gated too — otherwise Windows
+    // `cargo test --workspace` emits unused-import warnings, which fail under
+    // `-D warnings` (audit 2026-07-03 round 7 P4).
+    #[cfg(unix)]
+    use super::{
+        accept_dropped_dataset_impl, path_is_read_only, recent_path_present, set_file_mode_clipped,
     };
 
     use crate::trust::TrustStore;

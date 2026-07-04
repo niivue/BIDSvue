@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
 import { nodeFsPostPassAdapter } from './__testFs'
 import { PROVENANCE_TSV_NAME } from './provenance'
 import {
@@ -114,7 +115,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'backfill test' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBe('1')
@@ -157,7 +162,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'filename fallback' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBe('2')
@@ -195,7 +204,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'derivatives fallback' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBe('3')
@@ -217,7 +230,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'no session' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBeNull()
@@ -240,7 +257,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'ambiguous' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBeNull()
@@ -281,7 +302,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'multi-subject' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBeNull()
@@ -323,7 +348,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'collision' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     expect(result.session).toBe('1')
@@ -363,7 +392,7 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'audit' },
       nodeMutateFs,
     )
-    await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    await runSessionBackfill(toPosix(sub), ctx, nodeFsPostPassAdapter)
     expect(ctx.children.filter((c) => c.kind === 'rename').length).toBe(2)
     await ctx.commit()
   })
@@ -392,7 +421,7 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'first' },
       nodeMutateFs,
     )
-    await runSessionBackfill(sub, ctx1, nodeFsPostPassAdapter)
+    await runSessionBackfill(toPosix(sub), ctx1, nodeFsPostPassAdapter)
     await ctx1.commit()
 
     // Second run: there are no non-ses-* datatype dirs anymore.
@@ -403,7 +432,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'second' },
       nodeMutateFs,
     )
-    const result2 = await runSessionBackfill(sub, ctx2, nodeFsPostPassAdapter)
+    const result2 = await runSessionBackfill(
+      toPosix(sub),
+      ctx2,
+      nodeFsPostPassAdapter,
+    )
     await ctx2.commit()
 
     // Second pass detects the same session (file under ses-1/) but
@@ -441,7 +474,11 @@ describe('runSessionBackfill', () => {
       { opType: 'import', summary: 'discovery stimuli ignore' },
       nodeMutateFs,
     )
-    const result = await runSessionBackfill(sub, ctx, nodeFsPostPassAdapter)
+    const result = await runSessionBackfill(
+      toPosix(sub),
+      ctx,
+      nodeFsPostPassAdapter,
+    )
     await ctx.commit()
 
     // No session found → no backfill.

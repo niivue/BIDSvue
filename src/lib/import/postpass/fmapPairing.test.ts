@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
+import { toPosix } from '$lib/test-utils/posix'
 import { nodeFsPostPassAdapter } from './__testFs'
 import {
   b0Identifier,
@@ -131,15 +132,15 @@ describe('planB0FieldEdits', () => {
       const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
       // 2 fmap members + 1 target = 3 edits.
       expect(edits.length).toBe(3)
-      const editedPaths = edits.map((e) => e.path).sort()
+      const editedPaths = edits.map((e) => toPosix(e.path)).sort()
       expect(editedPaths).toContain(
-        `${fmap}/sub-01_ses-baseline_dir-AP_epi.json`,
+        toPosix(`${fmap}/sub-01_ses-baseline_dir-AP_epi.json`),
       )
       expect(editedPaths).toContain(
-        `${fmap}/sub-01_ses-baseline_dir-PA_epi.json`,
+        toPosix(`${fmap}/sub-01_ses-baseline_dir-PA_epi.json`),
       )
       expect(editedPaths).toContain(
-        `${func}/sub-01_ses-baseline_task-rest_bold.json`,
+        toPosix(`${func}/sub-01_ses-baseline_task-rest_bold.json`),
       )
       // The group prefix is `sub-01_ses-baseline_epi` after stripping the
       // _dir-AP/_dir-PA suffix, so the stable identifier (after stripping

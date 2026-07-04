@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toPosix } from '$lib/test-utils/posix'
 import { findBidsRoot } from './findBidsRoot'
 import type { DirEntry, FileSystemAdapter } from './scanner'
 
@@ -50,14 +51,18 @@ describe('findBidsRoot', () => {
     const child = join(root, 'StudyA')
     await mkdir(child)
     await writeFile(join(child, 'dataset_description.json'), '{}')
-    expect(await findBidsRoot(root, nodeAdapter)).toBe(child)
+    expect(toPosix((await findBidsRoot(root, nodeAdapter)) ?? '')).toBe(
+      toPosix(child),
+    )
   })
 
   test('descends two levels (StudyDescription/SubStudy shape)', async () => {
     const nested = join(root, 'SophieAP', 'TMS')
     await mkdir(nested, { recursive: true })
     await writeFile(join(nested, 'dataset_description.json'), '{}')
-    expect(await findBidsRoot(root, nodeAdapter)).toBe(nested)
+    expect(toPosix((await findBidsRoot(root, nodeAdapter)) ?? '')).toBe(
+      toPosix(nested),
+    )
   })
 
   test('returns the lexicographically first match when multiple roots exist at the same depth', async () => {
@@ -67,7 +72,9 @@ describe('findBidsRoot', () => {
     await mkdir(b)
     await writeFile(join(a, 'dataset_description.json'), '{}')
     await writeFile(join(b, 'dataset_description.json'), '{}')
-    expect(await findBidsRoot(root, nodeAdapter)).toBe(a)
+    expect(toPosix((await findBidsRoot(root, nodeAdapter)) ?? '')).toBe(
+      toPosix(a),
+    )
   })
 
   test('returns null when no root is found within maxDepth', async () => {
@@ -95,7 +102,9 @@ describe('findBidsRoot', () => {
     const study = join(root, 'study')
     await mkdir(study)
     await writeFile(join(study, 'dataset_description.json'), '{}')
-    expect(await findBidsRoot(root, nodeAdapter)).toBe(study)
+    expect(toPosix((await findBidsRoot(root, nodeAdapter)) ?? '')).toBe(
+      toPosix(study),
+    )
   })
 
   test('skips dotfile directories generally', async () => {
@@ -116,6 +125,8 @@ describe('findBidsRoot', () => {
     await mkdir(shallow)
     await writeFile(join(shallow, 'dataset_description.json'), '{}')
     await writeFile(join(deep, 'dataset_description.json'), '{}')
-    expect(await findBidsRoot(root, nodeAdapter)).toBe(shallow)
+    expect(toPosix((await findBidsRoot(root, nodeAdapter)) ?? '')).toBe(
+      toPosix(shallow),
+    )
   })
 })

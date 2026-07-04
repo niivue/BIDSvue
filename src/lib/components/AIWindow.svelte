@@ -10,10 +10,11 @@
    *   - Starter prompts + editable textarea (M-AI6) — 6 starters
    *   - Send / Cancel + transcript pane (M-AI3) — streams via Channel
    *   - AppData read consent checkbox (M-AI7)
-   *
-   * Pending (handled by M-AI5 follow-up):
-   *   - Write tools (rename / save / delete) routed through the
-   *     approval-gate IPC bridge to the main BIDSvue process.
+   *   - Write tools (M-AI5) — save / delete / rename / remove requests
+   *     surface an Approve/Reject chip (with a cascade/diff preview)
+   *     routed through the approval-gate IPC bridge to the main
+   *     BIDSvue process; a stat-based freshness recheck refuses a
+   *     write whose target changed since preview.
    *
    * Design history lives in git log; active follow-ups live in ROADMAP
    * "AI integration follow-ups".

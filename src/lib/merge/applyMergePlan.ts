@@ -11,9 +11,9 @@ import { type MutateFs, beginOperation } from '$lib/mutate/backup'
 import { makeEntityTokenReplacer } from '$lib/rename/tokenReplace'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import {
-  detectSeparator,
   dirname,
   stripTrailingSeparators,
+  toPosixSeparators,
 } from '$lib/util/paths'
 import {
   PROVENANCE_REL_PATH,
@@ -77,8 +77,10 @@ export async function applyMergePlan(
     throw new Error('applyMergePlan: refusing to apply a blocked plan')
   }
   const { fs, statePaths, readText, now, bidsvueVersion, signal } = deps
-  const root = stripTrailingSeparators(plan.recipientRoot)
-  const sep = detectSeparator(root)
+  // POSIX root (audit 2026-07-04): the op-log root, provenance, and CHANGES
+  // write paths all match the POSIX copy/metadata destinations and the
+  // separator-invariant app-data safe-key.
+  const root = toPosixSeparators(stripTrailingSeparators(plan.recipientRoot))
   // v1 runs no separate validator subprocess inside the merge — opening
   // the merged recipient runs the normal in-WebView validator. So the
   // summary is `not-run` (or `not-run`/skip per policy). See validation.ts.
@@ -148,7 +150,7 @@ export async function applyMergePlan(
       originalsCarried: plan.policy.defaceOriginals === 'carry',
       validation,
     })
-    const provPath = `${root}${sep}${PROVENANCE_REL_PATH.split('/').join(sep)}`
+    const provPath = `${root}/${PROVENANCE_REL_PATH}`
     const provDir = dirname(provPath)
     if (provDir !== null) await fs.mkdir(provDir, { recursive: true })
     await ctx.writeText(provPath, serializeProvenance(provenance), {
@@ -159,7 +161,7 @@ export async function applyMergePlan(
     // 4. CHANGES — prepend the new entry (newest first), matching how
     // most BIDS datasets order their changelog.
     checkCancel()
-    const changesPath = `${root}${sep}CHANGES`
+    const changesPath = `${root}/CHANGES`
     const entry = buildChangesEntry(provenance, ctx.operationId)
     let existing = ''
     try {

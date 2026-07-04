@@ -5,7 +5,7 @@
 import { scanDataset } from '$lib/bids/scanner'
 import type { Dataset, OpenDatasetError } from '$lib/bids/types'
 import { tauriMutateFs } from '$lib/mutate/backup'
-import { detectSeparator, stripTrailingSeparators } from '$lib/util/paths'
+import { stripTrailingSeparators, toPosixSeparators } from '$lib/util/paths'
 import { readTextFileWithRustFallback } from '$lib/util/readTextFile'
 import { findPhiKeys } from './phi'
 import { preflightInputs } from './preflight'
@@ -55,11 +55,26 @@ export async function scanMergeInputs(
   donorRoots: string[],
 ): Promise<ScanInputsResult> {
   const failures: Array<{ root: string; error: OpenDatasetError }> = []
+  // Normalize picker roots to POSIX at this PREPARE boundary (audit
+  // 2026-07-04). A native Windows picker root (`C:\donor`) fed to
+  // scanDataset yields MIXED index keys (`C:\donor/sub-01`) because the
+  // scanner appends descendants with `/`; every downstream prefix filter
+  // (copyScope, collectPhiWarnings) and the recipient app-data safe-key
+  // then key on a separator-inconsistent root. Normalizing the roots
+  // BEFORE scanDataset makes the index keys uniformly POSIX, so the whole
+  // merge is separator-invariant. (The internals are ALSO POSIX-robust as
+  // defense in depth for direct callers / tests.)
+  const normRecipientRoot = toPosixSeparators(
+    stripTrailingSeparators(recipientRoot),
+  )
+  const normDonorRoots = donorRoots.map((r) =>
+    toPosixSeparators(stripTrailingSeparators(r)),
+  )
   // includeHidden so the copy scope can see subject-scoped sourcedata/
   // (deface originals) + derivatives/. copyScope filters by policy;
   // dotfiles / non-subject trees classify as 'other' and are excluded.
   const results = await Promise.all(
-    [recipientRoot, ...donorRoots].map(async (root) => ({
+    [normRecipientRoot, ...normDonorRoots].map(async (root) => ({
       root,
       result: await scanDataset(root, { includeHidden: true }),
     })),
@@ -75,13 +90,13 @@ export async function scanMergeInputs(
     return r.result.dataset as Dataset
   })
   const recipient = datasets[0]
-  const donors: DonorInput[] = donorRoots.map((root, i) => ({
+  const donors: DonorInput[] = normDonorRoots.map((root, i) => ({
     root,
     dataset: datasets[i + 1],
   }))
   return {
     ok: true,
-    inputs: { recipientRoot, recipient, donors },
+    inputs: { recipientRoot: normRecipientRoot, recipient, donors },
   }
 }
 
@@ -108,14 +123,17 @@ export async function collectPhiWarnings(
 ): Promise<MergeWarning[]> {
   const out: MergeWarning[] = []
   for (const donor of inputs.donors) {
-    const sep = detectSeparator(donor.root)
-    const root = stripTrailingSeparators(donor.root)
+    // POSIX-robust prefix filter (audit 2026-07-04) — see buildCopies. A
+    // separator mismatch here would SUPPRESS PHI warnings, so compare both
+    // the root and every indexed key in canonical `/` form.
+    const root = toPosixSeparators(stripTrailingSeparators(donor.root))
+    const prefix = `${root}/`
     const manifestId = donor.dataset.description?.Name ?? 'donor'
     for (const [path, node] of donor.dataset.index.byPath) {
       if (node.kind !== 'file') continue
-      const prefix = `${root}${sep}`
-      if (!path.startsWith(prefix)) continue
-      const rel = path.slice(prefix.length).split(sep).join('/')
+      const posixPath = toPosixSeparators(path)
+      if (!posixPath.startsWith(prefix)) continue
+      const rel = posixPath.slice(prefix.length)
       if (!isPhiCandidate(rel)) continue
       let keys: string[]
       try {
@@ -191,7 +209,6 @@ export async function gatherMergeMetadataSources(
 ): Promise<GatheredMetadata> {
   const warnings: MergeWarning[] = []
   const recipientErrors: string[] = []
-  const sep = (root: string) => detectSeparator(root)
 
   /** Read text; null on any failure. Caller decides absent-vs-error. */
   const readOrNull = async (path: string): Promise<string | null> => {
@@ -267,14 +284,16 @@ export async function gatherMergeMetadataSources(
     return obj
   }
 
+  // Read paths are built in POSIX form (audit 2026-07-04) — plugin-fs
+  // accepts forward slashes on Windows, and the merge roots are already
+  // normalized at the scanMergeInputs boundary, so `/` keeps these read
+  // targets separator-consistent with the indexed keys.
   const sessionsPath = (root: string, sub: string): string => {
-    const s = sep(root)
-    const r = stripTrailingSeparators(root)
-    return `${r}${s}sub-${sub}${s}sub-${sub}_sessions.tsv`
+    const r = toPosixSeparators(stripTrailingSeparators(root))
+    return `${r}/sub-${sub}/sub-${sub}_sessions.tsv`
   }
 
-  const rRoot = stripTrailingSeparators(inputs.recipientRoot)
-  const rSep = sep(rRoot)
+  const rRoot = toPosixSeparators(stripTrailingSeparators(inputs.recipientRoot))
   // Recipient sessions.tsv is a rewrite-target for folded subjects, so an
   // exists-but-unreadable one must BLOCK (the reconciler would write a
   // donor-derived replacement and drop the recipient rows — audit P1.1).
@@ -295,25 +314,22 @@ export async function gatherMergeMetadataSources(
   const donorBidsignore: Array<string | null> = []
   for (let i = 0; i < inputs.donors.length; i++) {
     const donor = inputs.donors[i]
-    const dRoot = stripTrailingSeparators(donor.root)
-    const dSep = sep(dRoot)
-    donorParticipantsTsv.push(
-      await readOrNull(`${dRoot}${dSep}participants.tsv`),
-    )
+    const dRoot = toPosixSeparators(stripTrailingSeparators(donor.root))
+    donorParticipantsTsv.push(await readOrNull(`${dRoot}/participants.tsv`))
     donorParticipantsJson.push(
       await readDonorJson(
-        `${dRoot}${dSep}participants.json`,
+        `${dRoot}/participants.json`,
         `donor ${i + 1} participants.json`,
       ),
     )
     // Fresh from disk (P1.1) — was the cached scan object.
     donorDatasetDescription.push(
       await readDonorJson(
-        `${dRoot}${dSep}dataset_description.json`,
+        `${dRoot}/dataset_description.json`,
         `donor ${i + 1} dataset_description.json`,
       ),
     )
-    donorBidsignore.push(await readOrNull(`${dRoot}${dSep}.bidsignore`))
+    donorBidsignore.push(await readOrNull(`${dRoot}/.bidsignore`))
     for (const sub of donor.dataset.index.bySubject.keys()) {
       donorSessionsTsv[`${i}:${sub}`] = await readOrNull(
         sessionsPath(dRoot, sub),
@@ -323,20 +339,20 @@ export async function gatherMergeMetadataSources(
 
   const sources: MergeMetadataSources = {
     recipientParticipantsTsv: await readRecipientString(
-      `${rRoot}${rSep}participants.tsv`,
+      `${rRoot}/participants.tsv`,
       'recipient participants.tsv',
     ),
     recipientParticipantsJson: await readRecipientJson(
-      `${rRoot}${rSep}participants.json`,
+      `${rRoot}/participants.json`,
       'recipient participants.json',
     ),
     // Fresh from disk (P1.1) — was inputs.recipient.description (cached).
     recipientDatasetDescription: await readRecipientJson(
-      `${rRoot}${rSep}dataset_description.json`,
+      `${rRoot}/dataset_description.json`,
       'recipient dataset_description.json',
     ),
     recipientBidsignore: await readRecipientString(
-      `${rRoot}${rSep}.bidsignore`,
+      `${rRoot}/.bidsignore`,
       'recipient .bidsignore',
     ),
     donorParticipantsTsv,

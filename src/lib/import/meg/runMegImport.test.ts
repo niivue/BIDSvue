@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { readOperationsLog } from '$lib/mutate/operationsLog'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
 import { buildEntityStem, runMegImport } from './runMegImport'
 
 const tempDirs: string[] = []
@@ -145,7 +146,10 @@ measured right ear coil position relative to head (cm):
  */
 async function writeSyntheticCtfDs(dsPath: string): Promise<string[]> {
   await mkdir(dsPath, { recursive: true })
-  const stem = dsPath.split('/').pop()?.replace(/\.ds$/, '') ?? ''
+  // Split on BOTH separators: on Windows `dsPath` is a native-backslash
+  // path, so splitting on `/` alone would return the whole path and make
+  // `stem` (and thus every `${stem}.ext` filename) an absolute path.
+  const stem = dsPath.split(/[\\/]/).pop()?.replace(/\.ds$/, '') ?? ''
   const res4 = buildRes4({
     sfreq: 480,
     nsamp: 1000,
@@ -235,20 +239,24 @@ describe('runMegImport', () => {
     })
 
     // Output paths.
-    expect(result.importedDataPath).toBe(
-      join(destDir, 'sub-01', 'meg', 'sub-01_task-faces_run-01_meg.ds'),
-    )
-    expect(result.sidecarsWritten).toEqual([
-      join(destDir, 'sub-01', 'meg', 'sub-01_task-faces_run-01_meg.json'),
-      join(
-        destDir,
-        'sub-01',
-        'meg',
-        'sub-01_task-faces_run-01_meg_channels.tsv',
+    expect(toPosix(result.importedDataPath)).toBe(
+      toPosix(
+        join(destDir, 'sub-01', 'meg', 'sub-01_task-faces_run-01_meg.ds'),
       ),
-      join(destDir, 'sub-01', 'meg', 'sub-01_coordsystem.json'),
-      join(destDir, 'dataset_description.json'),
-    ])
+    )
+    expect(result.sidecarsWritten.map(toPosix)).toEqual(
+      [
+        join(destDir, 'sub-01', 'meg', 'sub-01_task-faces_run-01_meg.json'),
+        join(
+          destDir,
+          'sub-01',
+          'meg',
+          'sub-01_task-faces_run-01_meg_channels.tsv',
+        ),
+        join(destDir, 'sub-01', 'meg', 'sub-01_coordsystem.json'),
+        join(destDir, 'dataset_description.json'),
+      ].map(toPosix),
+    )
 
     // Imported .ds contents: stem-bearing files renamed; non-stem
     // files kept as-is.
@@ -309,8 +317,9 @@ describe('runMegImport', () => {
       await readFile(result.sidecarsWritten[3], 'utf8'),
     ) as Record<string, unknown>
     // Name always equals the destDir basename (the projectName field
-    // was retired M10-F).
-    expect(desc.Name).toBe(destDir.split('/').pop())
+    // was retired M10-F). Split on BOTH separators so this reads the
+    // basename on Windows (native-backslash) too.
+    expect(desc.Name).toBe(destDir.split(/[\\/]/).pop())
     expect(desc.BIDSVersion).toBe('1.9.0')
     expect(desc.DatasetType).toBe('raw')
 
@@ -350,23 +359,27 @@ describe('runMegImport', () => {
       bidsVersion: '1.9.0',
       fs: nodeMutateFs,
     })
-    expect(result.importedDataPath).toBe(
-      join(
-        destDir,
-        'sub-01',
-        'ses-02',
-        'meg',
-        'sub-01_ses-02_task-rest_meg.ds',
+    expect(toPosix(result.importedDataPath)).toBe(
+      toPosix(
+        join(
+          destDir,
+          'sub-01',
+          'ses-02',
+          'meg',
+          'sub-01_ses-02_task-rest_meg.ds',
+        ),
       ),
     )
     // _coordsystem.json gets the session in its basename.
-    expect(result.sidecarsWritten[2]).toBe(
-      join(
-        destDir,
-        'sub-01',
-        'ses-02',
-        'meg',
-        'sub-01_ses-02_coordsystem.json',
+    expect(toPosix(result.sidecarsWritten[2] ?? '')).toBe(
+      toPosix(
+        join(
+          destDir,
+          'sub-01',
+          'ses-02',
+          'meg',
+          'sub-01_ses-02_coordsystem.json',
+        ),
       ),
     )
   })
@@ -618,13 +631,15 @@ describe('runMegImport (FIF path)', () => {
     })
 
     expect(result.vendor).toBe('Elekta')
-    expect(result.importedDataPath).toBe(
-      join(
-        destDir,
-        'sub-01',
-        'ses-02',
-        'meg',
-        'sub-01_ses-02_task-rest_run-01_meg.fif',
+    expect(toPosix(result.importedDataPath)).toBe(
+      toPosix(
+        join(
+          destDir,
+          'sub-01',
+          'ses-02',
+          'meg',
+          'sub-01_ses-02_task-rest_run-01_meg.fif',
+        ),
       ),
     )
     // FIF single-file copy is byte-identical.
@@ -831,8 +846,10 @@ describe('runMegImport (KIT path)', () => {
     })
 
     expect(result.vendor).toBe('KIT')
-    expect(result.importedDataPath).toBe(
-      join(destDir, 'sub-01', 'meg', 'sub-01_task-rest_run-01_meg.con'),
+    expect(toPosix(result.importedDataPath)).toBe(
+      toPosix(
+        join(destDir, 'sub-01', 'meg', 'sub-01_task-rest_run-01_meg.con'),
+      ),
     )
     // Byte-identical passthrough.
     const srcBytes = await readFile(srcPath)
@@ -1065,8 +1082,8 @@ describe('runMegImport (BTi path)', () => {
     })
 
     expect(result.vendor).toBe('BTi')
-    expect(result.importedDataPath).toBe(
-      join(destDir, 'sub-01', 'meg', 'sub-01_task-rest_meg'),
+    expect(toPosix(result.importedDataPath)).toBe(
+      toPosix(join(destDir, 'sub-01', 'meg', 'sub-01_task-rest_meg')),
     )
 
     // All three source files copied verbatim (no renaming) inside

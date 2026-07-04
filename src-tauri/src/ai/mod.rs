@@ -49,6 +49,10 @@ pub mod probe;
 pub mod runtime_policy;
 pub mod session;
 pub mod spawn;
+// Windows-only FFI helpers backing the AI control channel (named-pipe DACL,
+// session-file ACLs, process liveness). Never compiled on Unix.
+#[cfg(windows)]
+pub(crate) mod win;
 
 pub use bridge::{ai_write_resolve, AiWriteBridge};
 pub use mcp::run_server;

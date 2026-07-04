@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toPosix } from '$lib/test-utils/posix'
 import { type FileSystemAdapter, scanDataset } from './scanner'
 
 const nodeFs: FileSystemAdapter = {
@@ -33,10 +34,14 @@ function findReadmePathInIndex(
   root: string,
   index: ReadonlyMap<string, { kind: string }>,
 ): string | null {
+  // The scanner keys `byPath` with POSIX-canonical paths (see
+  // src/lib/util/paths.ts); Node's `join` emits native backslashes on
+  // Windows, so look up (and return) via the separator-normalized form.
   for (const name of README_BASENAMES) {
-    const candidate = join(root, name)
-    const node = index.get(candidate)
-    if (node !== undefined && node.kind === 'file') return candidate
+    const candidate = toPosix(join(root, name))
+    for (const [key, node] of index) {
+      if (toPosix(key) === candidate && node.kind === 'file') return candidate
+    }
   }
   return null
 }
@@ -66,7 +71,7 @@ describe('README auto-select on open', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(findReadmePathInIndex(root, result.dataset.index.byPath)).toBe(
-      join(root, 'README'),
+      toPosix(join(root, 'README')),
     )
   })
 
@@ -82,7 +87,7 @@ describe('README auto-select on open', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(findReadmePathInIndex(root, result.dataset.index.byPath)).toBe(
-      join(root, 'README.md'),
+      toPosix(join(root, 'README.md')),
     )
   })
 
@@ -99,7 +104,7 @@ describe('README auto-select on open', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(findReadmePathInIndex(root, result.dataset.index.byPath)).toBe(
-      join(root, 'README'),
+      toPosix(join(root, 'README')),
     )
   })
 

@@ -1,0 +1,24 @@
+# Enforce LF line endings for all text files on every platform (Windows-safe).
+# Without this, git `core.autocrlf` checks files out as CRLF on Windows, and the
+# biome formatter (LF-only) flags every file, so `bun run check` reports hundreds
+# of spurious line-ending errors. Added 2026-07-03 alongside Windows dev support.
+* text=auto eol=lf
+
+# Known-binary assets git must never line-ending-convert (content auto-detection
+# also covers the extension-less bundled sidecars under resources/).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.gz   binary
+*.zip  binary
+*.wasm binary
+*.nii  binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.dcm  binary
+*.exe  binary

@@ -50,6 +50,21 @@ describe('datasetSafeKey', () => {
     expect(upper).toBe(lower)
   })
 
+  test('backslash and forward-slash forms key IDENTICALLY (round 10)', async () => {
+    // The safe-key MUST be separator-invariant: the Windows picker + import
+    // compose a MIXED-separator dest (`C:\parent/name`), while `openDataset`
+    // normalizes to `C:/parent/name`. If these hashed differently the import's
+    // operations.log / backups would land under a different app-data dir than
+    // the opened dataset uses, so History/Undo would miss the import — a
+    // reversible-mutation invariant violation (the round-9 bug the round-10
+    // audit caught).
+    const back = await datasetSafeKey('C:\\x\\ds')
+    const fwd = await datasetSafeKey('C:/x/ds')
+    const mixed = await datasetSafeKey('C:\\x/ds')
+    expect(back).toBe(fwd)
+    expect(mixed).toBe(fwd)
+  })
+
   test('NFC vs NFD Unicode normalisation does not change the key', async () => {
     // macOS APFS / picker may return either form for accented names.
     // 'é' as a single precomposed char (NFC, U+00E9) vs. two combining

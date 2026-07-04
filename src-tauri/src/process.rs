@@ -1629,14 +1629,32 @@ fn peek(argv: &[String], index: usize, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testpath::{abs, absp};
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| v.to_string()).collect()
     }
 
+    /// Like `strings`, but maps any POSIX absolute-path literal (`/tmp/...`)
+    /// to a platform-absolute path so the argv validators (which require
+    /// `Path::is_absolute`) behave identically on Windows. Flags and non-path
+    /// values (none of which start with `/`) pass through untouched.
+    fn strings_abs(values: &[&str]) -> Vec<String> {
+        values
+            .iter()
+            .map(|v| {
+                if v.starts_with('/') {
+                    abs(v)
+                } else {
+                    v.to_string()
+                }
+            })
+            .collect()
+    }
+
     // niimath <input> -robustfov <op> <template> <mask> <output>
     fn deface_argv(input: &str, op: &str, output: &str) -> Vec<String> {
-        strings(&[
+        strings_abs(&[
             input,
             "-robustfov",
             op,
@@ -1653,8 +1671,8 @@ mod tests {
             &deface_argv("/ds/sub-01/anat/t1.nii.gz", "-deface", "/cache/out.nii.gz"),
         )
         .expect("allineate argv valid");
-        assert_eq!(a.input, PathBuf::from("/ds/sub-01/anat/t1.nii.gz"));
-        assert_eq!(a.output, PathBuf::from("/cache/out.nii.gz"));
+        assert_eq!(a.input, absp("/ds/sub-01/anat/t1.nii.gz"));
+        assert_eq!(a.output, absp("/cache/out.nii.gz"));
         // The GPL `spm_coreg` / `-spm_deface` tool was removed; it is now
         // an unknown tool id.
         assert!(validate_deface_argv(
@@ -1702,10 +1720,10 @@ mod tests {
 
     fn deface_parts(input: &str, output: &str) -> DefaceArgvParts {
         DefaceArgvParts {
-            input: PathBuf::from(input),
-            template: PathBuf::from("/res/avg152T1.nii.gz"),
-            mask: PathBuf::from("/res/avg152T1mask.nii.gz"),
-            output: PathBuf::from(output),
+            input: absp(input),
+            template: absp("/res/avg152T1.nii.gz"),
+            mask: absp("/res/avg152T1mask.nii.gz"),
+            output: absp(output),
         }
     }
 
@@ -1713,24 +1731,24 @@ mod tests {
     fn validate_deface_paths_happy_path_returns_output_parent_as_cwd() {
         let run = validate_deface_paths(
             deface_parts("/ds/sub-01/anat/t1.nii.gz", "/cache/deface/out.nii.gz"),
-            Path::new("/ds"),
-            Path::new("/res/avg152T1.nii.gz"),
-            Path::new("/res/avg152T1mask.nii.gz"),
-            Path::new("/cache"),
+            &absp("/ds"),
+            &absp("/res/avg152T1.nii.gz"),
+            &absp("/res/avg152T1mask.nii.gz"),
+            &absp("/cache"),
             true,
         )
         .expect("valid deface paths");
-        assert_eq!(run.cwd, PathBuf::from("/cache/deface"));
+        assert_eq!(run.cwd, absp("/cache/deface"));
     }
 
     #[test]
     fn validate_deface_paths_rejects_unauthorized_root() {
         let err = validate_deface_paths(
             deface_parts("/ds/t1.nii.gz", "/cache/out.nii.gz"),
-            Path::new("/ds"),
-            Path::new("/res/avg152T1.nii.gz"),
-            Path::new("/res/avg152T1mask.nii.gz"),
-            Path::new("/cache"),
+            &absp("/ds"),
+            &absp("/res/avg152T1.nii.gz"),
+            &absp("/res/avg152T1mask.nii.gz"),
+            &absp("/cache"),
             false, // not authorized
         )
         .unwrap_err();
@@ -1742,10 +1760,10 @@ mod tests {
         // Input escapes the dataset root.
         assert!(validate_deface_paths(
             deface_parts("/other/t1.nii.gz", "/cache/out.nii.gz"),
-            Path::new("/ds"),
-            Path::new("/res/avg152T1.nii.gz"),
-            Path::new("/res/avg152T1mask.nii.gz"),
-            Path::new("/cache"),
+            &absp("/ds"),
+            &absp("/res/avg152T1.nii.gz"),
+            &absp("/res/avg152T1mask.nii.gz"),
+            &absp("/cache"),
             true,
         )
         .unwrap_err()
@@ -1753,10 +1771,10 @@ mod tests {
         // Output escapes the app cache.
         assert!(validate_deface_paths(
             deface_parts("/ds/t1.nii.gz", "/tmp/out.nii.gz"),
-            Path::new("/ds"),
-            Path::new("/res/avg152T1.nii.gz"),
-            Path::new("/res/avg152T1mask.nii.gz"),
-            Path::new("/cache"),
+            &absp("/ds"),
+            &absp("/res/avg152T1.nii.gz"),
+            &absp("/res/avg152T1mask.nii.gz"),
+            &absp("/cache"),
             true,
         )
         .unwrap_err()
@@ -1766,13 +1784,13 @@ mod tests {
     #[test]
     fn validate_deface_paths_rejects_wrong_template_or_mask() {
         let mut parts = deface_parts("/ds/t1.nii.gz", "/cache/out.nii.gz");
-        parts.template = PathBuf::from("/res/attacker.nii.gz");
+        parts.template = absp("/res/attacker.nii.gz");
         assert!(validate_deface_paths(
             parts,
-            Path::new("/ds"),
-            Path::new("/res/avg152T1.nii.gz"),
-            Path::new("/res/avg152T1mask.nii.gz"),
-            Path::new("/cache"),
+            &absp("/ds"),
+            &absp("/res/avg152T1.nii.gz"),
+            &absp("/res/avg152T1mask.nii.gz"),
+            &absp("/cache"),
             true,
         )
         .is_err());
@@ -1796,7 +1814,7 @@ mod tests {
     }
 
     fn dilate_argv(input: &str, thr: &str, output: &str) -> Vec<String> {
-        strings(&[input, "-binv", "-edt", "-thr", thr, "-binv", output])
+        strings_abs(&[input, "-binv", "-edt", "-thr", thr, "-binv", output])
     }
 
     #[test]
@@ -1807,8 +1825,8 @@ mod tests {
             "/cache/m/d.nii.gz",
         ))
         .expect("dilate argv valid");
-        assert_eq!(input, PathBuf::from("/cache/m/mask.nii.gz"));
-        assert_eq!(output, PathBuf::from("/cache/m/d.nii.gz"));
+        assert_eq!(input, absp("/cache/m/mask.nii.gz"));
+        assert_eq!(output, absp("/cache/m/d.nii.gz"));
         assert_eq!(thr, 8.0);
     }
 
@@ -2095,14 +2113,11 @@ mod tests {
 
     #[test]
     fn validates_reproin_shape() {
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-f", "%H", "-z", "y", "-ba", "n", "-o", "/tmp/out", "-bi", "01", "-bv", "A2",
             "/tmp/src",
         ]);
-        assert_eq!(
-            validate_reproin_argv(&argv).unwrap().cwd,
-            PathBuf::from("/tmp/out")
-        );
+        assert_eq!(validate_reproin_argv(&argv).unwrap().cwd, absp("/tmp/out"));
     }
 
     #[test]
@@ -2117,7 +2132,7 @@ mod tests {
     fn accepts_reproin_ba_o() {
         // v1.0.20260520 default for anonymize=off: -ba o (omit PII,
         // keep AcquisitionDateTime).
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-f", "%H", "-z", "y", "-ba", "o", "-o", "/tmp/out", "/tmp/src",
         ]);
         assert!(validate_reproin_argv(&argv).is_ok());
@@ -2133,7 +2148,7 @@ mod tests {
 
     #[test]
     fn validates_pet2bids_shape() {
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-f",
             "sub-01_ses-A_pet",
             "-z",
@@ -2153,7 +2168,7 @@ mod tests {
     fn accepts_pet2bids_ba_o() {
         // The wizard's anonymize=off path now emits -ba o (was -ba n,
         // which leaked PatientName). The validator must accept it.
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-f",
             "sub-01_pet",
             "-z",
@@ -2197,7 +2212,7 @@ mod tests {
 
     #[test]
     fn validates_heudiconv_shape() {
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-c",
             "dcm2niix",
             "--bids",
@@ -2211,7 +2226,7 @@ mod tests {
             "/tmp/src",
         ]);
         let run = validate_heudiconv_argv(&argv).unwrap();
-        assert_eq!(run.heuristic_path, Some(PathBuf::from("/tmp/heuristic.py")));
+        assert_eq!(run.heuristic_path, Some(absp("/tmp/heuristic.py")));
     }
 
     #[test]
@@ -2224,7 +2239,7 @@ mod tests {
 
     #[test]
     fn validates_dcm2bids_shape() {
-        let argv = strings(&[
+        let argv = strings_abs(&[
             "-d",
             "/tmp/src",
             "-p",
@@ -2257,9 +2272,9 @@ mod tests {
     #[test]
     fn authorize_import_rejects_missing_config_token() {
         let store = crate::trust::TrustStore::empty_for_test(tmp_trust_file());
-        let src_token = store.mint_token(PathBuf::from("/tmp/src")).unwrap();
-        let dest_token = store.mint_token(PathBuf::from("/tmp")).unwrap();
-        let argv = strings(&[
+        let src_token = store.mint_token(absp("/tmp/src")).unwrap();
+        let dest_token = store.mint_token(absp("/tmp")).unwrap();
+        let argv = strings_abs(&[
             "-d",
             "/tmp/src",
             "-p",
@@ -2285,12 +2300,10 @@ mod tests {
     #[test]
     fn authorize_import_accepts_picked_custom_heuristic() {
         let store = crate::trust::TrustStore::empty_for_test(tmp_trust_file());
-        let src_token = store.mint_token(PathBuf::from("/tmp/src")).unwrap();
-        let dest_token = store.mint_token(PathBuf::from("/tmp")).unwrap();
-        let heuristic_token = store
-            .mint_token(PathBuf::from("/tmp/heuristic.py"))
-            .unwrap();
-        let argv = strings(&[
+        let src_token = store.mint_token(absp("/tmp/src")).unwrap();
+        let dest_token = store.mint_token(absp("/tmp")).unwrap();
+        let heuristic_token = store.mint_token(absp("/tmp/heuristic.py")).unwrap();
+        let argv = strings_abs(&[
             "-c",
             "dcm2niix",
             "--bids",

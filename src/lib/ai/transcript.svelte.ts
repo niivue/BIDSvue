@@ -74,7 +74,7 @@ export type AIStreamLine =
   // an Approve/Reject chip and replies via `ai_write_resolve`.
   | { kind: 'write-request'; requestId: string; tool: string; args: unknown }
   // Telemetry channel (items 4+7): the MCP server's running exposed-data
-  // counters, pushed over the control socket after each read.
+  // counters, pushed over the control channel after each read.
   | {
       kind: 'telemetry'
       egressBytes: number

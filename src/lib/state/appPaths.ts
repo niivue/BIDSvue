@@ -52,13 +52,23 @@ async function sha256Base64Url(input: string): Promise<string> {
  * different safe-key when they reopen the same dataset via a slightly
  * different code path (Recent menu vs. picker vs. command-line).
  *
- * Three cheap normalisations applied:
+ * Four cheap normalisations applied:
  *
- *   - `stripTrailingSeparators` — picker returns no trailing slash,
- *     `Recent` reconstructions sometimes add one.
  *   - `String.prototype.normalize('NFC')` — macOS HFS+ stores filenames
  *     in NFD; APFS, the picker dialog, and Recent strings can supply
  *     either form. NFC is the BIDS / web canonical.
+ *   - Backslash -> forward slash — BIDSvue is POSIX-path-internal; the
+ *     Windows folder picker + import compose MIXED-separator paths
+ *     (`C:\parent/name`) while `openDataset` normalizes to `C:/parent/name`.
+ *     Without collapsing separators here, the SAME dataset would hash to
+ *     DIFFERENT safe-keys at import vs. open, splitting its app-data state
+ *     dir so the import's `operations.log` / backups become invisible to
+ *     History/Undo — a reversible-mutation invariant violation (audit
+ *     2026-07-03 round 10). Safe: dataset roots are directories, a literal
+ *     backslash in a POSIX dir name is not a supported case, and Windows is
+ *     pre-release so no shipped safe-key changes.
+ *   - `stripTrailingSeparators` — picker returns no trailing slash,
+ *     `Recent` reconstructions sometimes add one.
  *   - Windows drive-letter case — `C:\` and `c:\` are the same dir on
  *     NTFS; lowercase for canonical form.
  *
@@ -68,7 +78,10 @@ async function sha256Base64Url(input: string): Promise<string> {
  */
 function normaliseDatasetPath(datasetRoot: string): string {
   let p = datasetRoot.normalize('NFC')
-  p = p.replace(/[/\\]+$/, '')
+  // Canonicalize separators to `/` so a mixed/native path and its POSIX form
+  // key identically (see the invariant note above).
+  p = p.replace(/\\/g, '/')
+  p = p.replace(/\/+$/, '')
   // Windows drive letter lowercase. POSIX paths fail the regex match
   // and pass through unchanged.
   p = p.replace(/^([A-Z]):/, (_m, l: string) => `${l.toLowerCase()}:`)

@@ -10,6 +10,8 @@ import { join } from 'node:path'
 import { readOperationsLog } from '$lib/mutate/operationsLog'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { toPosix } from '$lib/test-utils/posix'
+import { detectSeparator } from '$lib/util/paths'
 import { nodeFsPostPassAdapter } from './postpass/__testFs'
 import {
   type ImportExecutor,
@@ -109,6 +111,18 @@ function makeStubExecutor(opts: {
     },
     async listFiles(dir) {
       const out: string[] = []
+      // Mirror the REAL `tauriExecutor.joinPath` (detectSeparator-based) so this
+      // stub reproduces production's separator behavior: for a Windows destDir
+      // containing a backslash, `detectSeparator` returns `\` and the produced
+      // paths get native backslash internals — exactly the shape that used to
+      // defeat `discoverBidsRootsForProduced` (whose subjects come from
+      // `walkSubjects`' hardcoded `/`). This is the regression guard for the
+      // audit 2026-07-03 mixed-separator bug: it fails if `runImport` stops
+      // normalizing `destDir` at entry. Do NOT re-add a `toPosix` here.
+      const joinChild = (d: string, name: string): string => {
+        const sep = detectSeparator(d)
+        return d.endsWith(sep) ? `${d}${name}` : `${d}${sep}${name}`
+      }
       const walk = async (d: string): Promise<void> => {
         let names: string[] = []
         try {
@@ -117,7 +131,7 @@ function makeStubExecutor(opts: {
           return
         }
         for (const name of names) {
-          const child = join(d, name)
+          const child = joinChild(d, name)
           const s = await stat(child)
           if (s.isDirectory()) await walk(child)
           else if (s.isFile()) out.push(child)
@@ -497,7 +511,11 @@ describe('runImport', () => {
       ),
     ).toBe(true)
     expect((entries[0]?.details as { srcDir: string }).srcDir).toBe(src)
-    expect((entries[0]?.details as { destDir: string }).destDir).toBe(dest)
+    // destDir is normalized to POSIX at runImport entry, so the op-log records
+    // the forward-slash form (audit 2026-07-03).
+    expect((entries[0]?.details as { destDir: string }).destDir).toBe(
+      toPosix(dest),
+    )
     expect((entries[0]?.details as { niftiCount: number }).niftiCount).toBe(1)
 
     // Result shape.
@@ -673,6 +691,10 @@ describe('runImport', () => {
     const result = await runImport({
       statePaths: sp,
       srcDir: src,
+      // Feed the RAW native/mixed destDir (Windows: backslashes) — the import
+      // path does NOT route through `openDataset`, so `runImport` itself must
+      // normalize it. With the stub emitting native-separator produced paths,
+      // this fails if that normalization is dropped (audit 2026-07-03 regression).
       destDir: dest,
       anonymize: false,
       heuristic: 'reproin',
@@ -707,7 +729,9 @@ describe('runImport', () => {
     expect(
       await nodeMutateFs.exists(join(dest, 'dataset_description.json')),
     ).toBe(false)
-    expect(result.postPass.bidsRoots).toEqual([nestedRoot])
+    expect(result.postPass.bidsRoots.map(toPosix)).toEqual([
+      toPosix(nestedRoot),
+    ])
     // Op-log records only the NEW top-level child (our locator), not
     // a wholesale destDir wipe — so undo wouldn't touch OtherDataset.
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
@@ -822,7 +846,7 @@ describe('runImport', () => {
         const out: string[] = []
         const walk = async (d: string) => {
           for (const e of await readdir(d, { withFileTypes: true })) {
-            const p = join(d, e.name)
+            const p = toPosix(join(d, e.name))
             if (e.isDirectory()) await walk(p)
             else if (e.isFile()) out.push(p)
           }
@@ -891,14 +915,16 @@ describe('runImport', () => {
       },
       async listFiles(dir) {
         // Throw on the baseline walk (pre-conversion: dir === destDir/MyStudy);
-        // succeed on the post-conversion walk (dir === destDir).
-        if (dir === join(dest, 'MyStudy')) {
+        // succeed on the post-conversion walk (dir === destDir). Compared
+        // separator-agnostically: runImport normalizes destDir to POSIX at
+        // entry, so `dir` arrives with `/` while `join` here is native.
+        if (toPosix(dir) === toPosix(join(dest, 'MyStudy'))) {
           throw new Error('simulated permission denied')
         }
         const out: string[] = []
         const walk = async (d: string) => {
           for (const e of await readdir(d, { withFileTypes: true })) {
-            const p = join(d, e.name)
+            const p = toPosix(join(d, e.name))
             if (e.isDirectory()) await walk(p)
             else if (e.isFile()) out.push(p)
           }
@@ -1316,6 +1342,8 @@ describe('runImport', () => {
     const result = await runImport({
       statePaths: sp,
       srcDir: src,
+      // RAW native/mixed destDir — runImport must normalize it (see the
+      // shared-SaveIn regression above).
       destDir: dest,
       anonymize: false,
       bidsVersion: '1.10.0',
@@ -1349,7 +1377,9 @@ describe('runImport', () => {
     expect(await nodeMutateFs.exists(join(dest, 'README'))).toBe(false)
     // Discovered root flows through to the orchestrator's auto-open
     // target via postPass.bidsRoots.
-    expect(result.postPass.bidsRoots).toEqual([nestedRoot])
+    expect(result.postPass.bidsRoots.map(toPosix)).toEqual([
+      toPosix(nestedRoot),
+    ])
     // Dataset name in the description tracks the BIDS root basename,
     // not destDir's basename (here 'X').
     const dd = JSON.parse(
@@ -1402,7 +1432,7 @@ describe('runImport', () => {
         const out: string[] = []
         const walk = async (d: string) => {
           for (const e of await readdir(d, { withFileTypes: true })) {
-            const p = join(d, e.name)
+            const p = toPosix(join(d, e.name))
             if (e.isDirectory()) await walk(p)
             else if (e.isFile()) out.push(p)
           }
@@ -1470,7 +1500,7 @@ describe('runImport', () => {
         const out: string[] = []
         const walk = async (d: string) => {
           for (const e of await readdir(d, { withFileTypes: true })) {
-            const p = join(d, e.name)
+            const p = toPosix(join(d, e.name))
             if (e.isDirectory()) await walk(p)
             else if (e.isFile()) out.push(p)
           }
