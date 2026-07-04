@@ -1,6 +1,6 @@
 [package]
 name = "bidsvue"
-version = "0.1.20260630"
+version = "0.1.20260704"
 description = "Cross-platform desktop UI for creating, inspecting, and modifying BIDS datasets."
 authors = ["BIDSvue contributors"]
 edition = "2021"
