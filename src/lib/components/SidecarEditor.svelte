@@ -22,6 +22,11 @@
   } from '$lib/sidecar/parse'
   import { diagnosticsStore } from '$lib/state/diagnostics.svelte'
   import { type BatchSaveTarget, saveSidecar, saveSidecarBatch } from '$lib/state/actions'
+  import {
+    clearDraft,
+    setDraft,
+    takeDraftIfFresh,
+  } from '$lib/state/editorDrafts.svelte'
   import { basename } from '$lib/util/paths'
   import type { Issue } from '$lib/validation/runValidator'
   import { readTextFile } from '@tauri-apps/plugin-fs'
@@ -135,6 +140,10 @@
   let originalValue = $state<unknown>(undefined)
   /** Phase H dialog visibility. */
   let applyDialogOpen = $state(false)
+  /** Disk text the current buffer was seeded from — the baseline stamped
+   * on the draft so a re-mount can tell a still-valid draft from one the
+   * disk has moved past. Plain (non-reactive) like the reset snapshot. */
+  let draftBaseline = ''
 
   // Reset on path / contents change. Parsing failures are caught so the
   // editor can surface them inline instead of crashing the Preview.
@@ -169,6 +178,32 @@
       parseError = err instanceof Error ? err.message : String(err)
       return
     }
+    // Restore a still-fresh unsaved draft (edits made before the user
+    // navigated to a paired member and back). `originalValue` stays the DISK
+    // snapshot so the Save… diff is always draft-vs-disk. A draft whose
+    // baseline no longer matches disk is dropped by `takeDraftIfFresh` (the
+    // shared no-clobber invariant), so an old edit can never mask — then on
+    // Save overwrite — newer bytes. The registry is a plain Map, so this read
+    // carries no reactive dependency on the persist effect's writes.
+    draftBaseline = contents
+    const draft = takeDraftIfFresh(path, contents)
+    if (draft !== null) {
+      if (draft.raw) {
+        // A raw ("view") mode buffer — authoritative byte-for-byte and
+        // possibly invalid-in-progress. Replay it through the raw-input path
+        // so rawText / rawError / dirty / parsed.value are reconstructed
+        // exactly (structured re-parsing would canonicalize away the user's
+        // in-progress text and silently drop invalid JSON they meant to fix).
+        onRawInput(draft.text)
+      } else {
+        try {
+          parsed = parseSidecar(draft.text)
+          dirty = true
+        } catch {
+          // Corrupt draft: ignore it and keep the disk-seeded parse.
+        }
+      }
+    }
     void (async () => {
       try {
         const schema = await loadSchema()
@@ -185,6 +220,25 @@
         schemaLoaded = true
       }
     })()
+  })
+
+  // Persist the buffer to the draft registry on every edit so it survives
+  // this component being torn down when the Preview switches to the paired
+  // data file / TSV. In raw ("view") mode we persist the EXACT raw text
+  // (`raw: true`), including invalid-in-progress JSON, so a mid-edit
+  // navigation doesn't drop it. In structured modes we persist the canonical
+  // serialization of the value tree. Cleared on save / dataset close.
+  $effect(() => {
+    if (!dirty || parsed === null) return
+    try {
+      if (rawDirty) {
+        setDraft(path, rawText, draftBaseline, true)
+      } else if (rawError === null) {
+        setDraft(path, serializeSidecar(parsed.value, parsed.format), draftBaseline)
+      }
+    } catch {
+      // Keep the last good draft rather than replacing it with nothing.
+    }
   })
 
   $effect(() => {
@@ -376,8 +430,10 @@
       // Refresh the diff baseline so a subsequent Save… reports a
       // clean ChangeSet relative to what's on disk now.
       originalValue = parseSidecar(text).value
+      draftBaseline = text
       dirty = false
       rawDirty = false
+      clearDraft(path)
     } catch (err) {
       saveError = err instanceof Error ? err.message : String(err)
     } finally {
@@ -467,10 +523,20 @@
     // hit disk; gate on it.
     const sourceWroteOk = result.okPaths.includes(path)
     if (sourceWroteOk && parsed !== null) {
-      const text = serializeSidecar(parsed.value, parsed.format)
-      parsed = parseSidecar(text)
-      originalValue = parseSidecar(text).value
+      // Refresh source-side state from the EXACT bytes written to disk —
+      // `rawText` in view mode, canonical serialization otherwise — the same
+      // choice as line ~491. Audit 2026-07-12: using canonical serialization
+      // here left `draftBaseline` != the on-disk (non-canonical) `rawText`, so
+      // a later raw edit's draft was dropped as stale on navigation. Reset
+      // `rawDirty` too, matching the single-file `save()` path.
+      const written =
+        mode === 'view' ? rawText : serializeSidecar(parsed.value, parsed.format)
+      parsed = parseSidecar(written)
+      originalValue = parseSidecar(written).value
+      draftBaseline = written
       dirty = false
+      rawDirty = false
+      clearDraft(path)
     }
 
     const failures = [...prepFailures, ...result.failures]

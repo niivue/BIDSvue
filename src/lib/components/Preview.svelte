@@ -116,6 +116,8 @@
    * file content over a newer selection.
    */
   let loadToken = 0
+  /** Hold paired-tab navigation while deface owns both image and JSON. */
+  let defaceRunning = $state(false)
 
   /**
    * The last (path, node) tuple we committed to. The $effect depends on
@@ -1066,6 +1068,7 @@
               role="tab"
               aria-selected={m.path === selectedNode.path}
               title={m.name}
+              disabled={defaceRunning && m.path !== selectedNode.path}
               onclick={() => selectMember(m.path)}
             >
               {groupMemberLabel(m)}
@@ -1119,8 +1122,12 @@
       <div class="persistent-volume" class:hidden={!persistentVolumeVisible}>
         <NiivueViewer
           path={groupVolumeMember.path}
+          reloadNonce={datasetStore.viewerReloadNonce}
           specialContext={persistentVolumeSpecialContext}
           visible={persistentVolumeVisible}
+          onDefaceRunningChange={(running) => {
+            defaceRunning = running
+          }}
         />
       </div>
     {/if}

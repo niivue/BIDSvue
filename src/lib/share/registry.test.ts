@@ -6,16 +6,22 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { findShareBackend, shareBackends } from './registry'
+import {
+  findShareBackend,
+  pickableShareBackends,
+  shareBackends,
+} from './registry'
 
 describe('shareBackends', () => {
-  test('exposes brainlife, OpenNeuro, and EBRAINS as the production tiles', () => {
+  test('registers brainlife, OpenNeuro, and EBRAINS (resolution list) in production', () => {
     const prevNode = process.env.NODE_ENV
     process.env.NODE_ENV = 'production'
     try {
       const ids = shareBackends().map((b) => b.id)
       expect(ids).toContain('brainlife')
       expect(ids).toContain('openneuro')
+      // EBRAINS stays REGISTERED (resolvable for an existing link) even
+      // though its picker tile is hidden — see pickableShareBackends below.
       expect(ids).toContain('ebrains')
       // Stub stays hidden in production.
       expect(ids).not.toContain('stub')
@@ -36,6 +42,22 @@ describe('shareBackends', () => {
 
   test('brainlife stays visible under bun test (dev/test mode)', () => {
     expect(shareBackends().some((b) => b.id === 'brainlife')).toBe(true)
+  })
+})
+
+describe('pickableShareBackends', () => {
+  test('hides the EBRAINS tile (GDPR) but keeps brainlife + OpenNeuro', () => {
+    const ids = pickableShareBackends().map((b) => b.id)
+    expect(ids).toContain('brainlife')
+    expect(ids).toContain('openneuro')
+    // EBRAINS is hidden from the picker...
+    expect(ids).not.toContain('ebrains')
+  })
+
+  test('EBRAINS stays resolvable even though it is not pickable (wiring kept)', () => {
+    // The hidden tile must not break resolution of an existing EBRAINS link.
+    expect(pickableShareBackends().some((b) => b.id === 'ebrains')).toBe(false)
+    expect(findShareBackend('ebrains')?.id).toBe('ebrains')
   })
 })
 

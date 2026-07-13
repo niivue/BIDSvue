@@ -61,6 +61,19 @@ export function shouldRevalidate(paths: readonly string[]): boolean {
   return false
 }
 
+/**
+ * True when a watcher path is one of a mutation's declared output paths, or
+ * the sibling temp file used by OperationContext's atomic write.
+ */
+export function matchesExpectedSelfWrite(
+  eventPath: string,
+  targetPath: string,
+): boolean {
+  const event = eventPath.replaceAll('\\', '/')
+  const target = targetPath.replaceAll('\\', '/')
+  return event === target || event.startsWith(`${target}.bidsvue-tmp-`)
+}
+
 function pathIsIgnored(path: string): boolean {
   for (const component of path.split(/[\\/]/)) {
     if (component.length > 0 && IGNORED_NAMES.has(component)) return true

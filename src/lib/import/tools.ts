@@ -209,12 +209,12 @@ export const TOOL_MNE_BIDS: ImportTool = {
   id: 'mne-bids',
   label: 'MNE-BIDS',
   description:
-    'Convert one raw MEG/EEG/NIRS recording (.fif/.edf/.bdf/.snirf) to BIDS',
+    'Convert one raw MEG/EEG/NIRS recording (.fif/.edf/.bdf/.snirf) to BIDS.',
   binaryBasename: 'mne_bids',
   kind: 'external',
   versionArgs: [],
   installHint:
-    'Install Python plus mne-bids: pip install mne-bids (also installs mne). BIDSvue probes python3 / python (py on Windows) and shows the detected interpreter + versions in the form.',
+    'Runs your local Python mne / mne_bids over the selected file — third-party code executes on your data (nothing is uploaded). Install with: pip install mne-bids (also installs mne). BIDSvue probes python3 / python (py on Windows); the detected interpreter + versions appear in the About dialog.',
   bidsvuePostPass: 'none',
 }
 

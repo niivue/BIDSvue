@@ -513,7 +513,7 @@ describe('MutationLease — freshness check', () => {
     lease.release()
   })
 
-  test('acquire on a non-existing target snapshots null and never drifts', async () => {
+  test('acquire on a non-existing target detects later creation', async () => {
     const missing = join(dir, 'never-existed.bin')
     const lease = await acquireLease({
       scope: { kind: 'file', path: missing },
@@ -521,9 +521,12 @@ describe('MutationLease — freshness check', () => {
       snapshotFreshness: true,
       fs: nodeFreshnessFs,
     })
-    // Even after creating the file, the snapshot was null → no drift fired.
+    // A new-file mutation must still detect an external creator appearing
+    // after lease acquisition; otherwise a no-clobber write can race it.
     await writeFile(missing, new Uint8Array([1, 2, 3]))
-    await expect(lease.assertTargetUnchanged()).resolves.toBeUndefined()
+    await expect(lease.assertTargetUnchanged()).rejects.toBeInstanceOf(
+      TargetMutatedError,
+    )
     lease.release()
   })
 

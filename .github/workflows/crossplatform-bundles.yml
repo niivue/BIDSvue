@@ -128,10 +128,8 @@ jobs:
         # Soft-fail on Windows ONLY: ~41 trust.rs/process.rs tests assume POSIX
         # absolute paths (/foo, argv shapes, prefix-attack strings) and fail on
         # C:\ paths. The suite is the authoritative gate on macOS (local) +
-        # Linux (this matrix) where it must pass. Windows path-correctness is a
-        # tracked follow-up (ROADMAP) before a real Windows release; for now the
-        # goal is proving the installer builds, so don't block the bundle on it.
-        continue-on-error: ${{ runner.os == 'Windows' }}
+        # The suite is path-portable on Linux and Windows; both release
+        # artifacts are blocked on a failing Rust workspace test.
         working-directory: src-tauri
         run: cargo test --workspace --quiet
 

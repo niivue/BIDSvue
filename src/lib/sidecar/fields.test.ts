@@ -99,6 +99,33 @@ describe('inputStringToValue — number / integer', () => {
     expect(r).toEqual({ ok: true, value: 3 })
   })
 
+  // Regression (2026-07-06): a `<input type="number" bind:value>` hands a
+  // NUMBER (not a string) at runtime. The old `raw.trim()` threw on it, so
+  // the field's onblur commit was lost and Save never appeared for numeric
+  // sidecar fields (e.g. a PET InfusedRadioactivity). Accept the number.
+  test('accepts a numeric (non-string) raw from a number input', () => {
+    expect(inputStringToValue(75, spec({ type: 'number' }))).toEqual({
+      ok: true,
+      value: 75,
+    })
+    expect(inputStringToValue(3, spec({ type: 'integer' }))).toEqual({
+      ok: true,
+      value: 3,
+    })
+  })
+
+  test('treats null raw (empty number input) as unset', () => {
+    expect(inputStringToValue(null, spec({ type: 'number' }))).toEqual({
+      ok: true,
+      value: null,
+    })
+  })
+
+  test('applies range checks to a numeric raw', () => {
+    const r = inputStringToValue(-1, spec({ type: 'number', minimum: 0 }))
+    expect(r.ok).toBe(false)
+  })
+
   test('respects minimum bound', () => {
     const r = inputStringToValue('-1', spec({ type: 'number', minimum: 0 }))
     expect(r.ok).toBe(false)

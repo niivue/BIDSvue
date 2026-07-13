@@ -82,11 +82,23 @@ export type ParseResult =
  *     Empty → `null`.
  *   - `array` / `object` / `unknown`: `JSON.parse`. Empty → `null`.
  */
-export function inputStringToValue(raw: string, spec: FieldSpec): ParseResult {
-  const trimmed = raw.trim()
+export function inputStringToValue(
+  raw: string | number | null,
+  spec: FieldSpec,
+): ParseResult {
+  // A `<input type="number"|"range" bind:value>` hands us a NUMBER at
+  // runtime (or `null` for an empty field) — Svelte coerces numberlike
+  // inputs. Text inputs, the enum dropdown, and the compound-value textarea
+  // hand a string. Normalise to a string ONCE up front: without this the
+  // number path below hit `raw.trim()` on a number and THREW inside the
+  // field's onblur handler, so `onCommit` never ran and the edit — plus the
+  // Save-enabling dirty flag — was silently lost on numeric fields only
+  // (reported 2026-07-06 for a PET sidecar's InfusedRadioactivity).
+  const text = raw === null ? '' : String(raw)
+  const trimmed = text.trim()
   if (spec.type === 'string') {
     if (trimmed === '') return { ok: true, value: null }
-    return { ok: true, value: raw }
+    return { ok: true, value: text }
   }
   if (spec.type === 'number' || spec.type === 'integer') {
     if (trimmed === '') return { ok: true, value: null }
@@ -110,7 +122,7 @@ export function inputStringToValue(raw: string, spec: FieldSpec): ParseResult {
   // array / object / unknown — JSON-parse the textarea.
   if (trimmed === '') return { ok: true, value: null }
   try {
-    const parsed = JSON.parse(raw)
+    const parsed = JSON.parse(text)
     return { ok: true, value: parsed }
   } catch (err) {
     return {

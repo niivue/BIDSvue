@@ -61,6 +61,25 @@ export async function detectMneBids(): Promise<MneBidsDetection> {
   }
 }
 
+/**
+ * Session-cached `detectMneBids`. The interpreter probe spawns Python and can
+ * block up to its Rust-side timeout, so — like `cachedDetectImporter` for the
+ * PATH-resolved tools — memoize it for the session. Shared by the import
+ * wizard AND the About dialog / diagnostic report so opening About doesn't
+ * re-spawn a probe the wizard already paid for (and vice versa). Reset via
+ * `clearMneBidsDetectionCache` (tests; a future "re-detect" affordance).
+ */
+let mneBidsDetectionCache: Promise<MneBidsDetection> | null = null
+
+export function cachedDetectMneBids(): Promise<MneBidsDetection> {
+  if (mneBidsDetectionCache === null) mneBidsDetectionCache = detectMneBids()
+  return mneBidsDetectionCache
+}
+
+export function clearMneBidsDetectionCache(): void {
+  mneBidsDetectionCache = null
+}
+
 /** Detected ranked events sibling + its unique integer codes (M1 + M2). */
 export interface MneEventsDetection {
   eventsFile: string | null

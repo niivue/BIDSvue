@@ -19,6 +19,11 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
   import { saveSidecar } from '$lib/state/actions'
+  import {
+    clearDraft,
+    setDraft,
+    takeDraftIfFresh,
+  } from '$lib/state/editorDrafts.svelte'
   import { basename } from '$lib/util/paths'
 
   interface Props {
@@ -63,10 +68,22 @@
       return
     }
     pendingExternalReseed = null
-    text = contents
     original = contents
     saveError = null
     lastSeeded = { path, contents }
+    // Restore an unsaved draft (edits made before navigating away and back)
+    // iff it still matches the current disk bytes; a stale draft (disk moved
+    // on) is dropped in favour of the disk seed. The registry is a plain Map,
+    // so this read carries no reactive dependency on the persist effect's
+    // writes — the reseed reacts only to path / contents.
+    text = takeDraftIfFresh(path, contents)?.text ?? contents
+  })
+
+  // Persist the buffer to the draft registry on every edit so it survives
+  // this component being torn down when the Preview targets another file.
+  // Cleared on save / discard / dataset close.
+  $effect(() => {
+    if (dirty) setDraft(path, text, lastSeeded.contents)
   })
 
   function discardEditsAndReload(): void {
@@ -77,6 +94,7 @@
     original = next
     saveError = null
     lastSeeded = { path, contents: next }
+    clearDraft(path)
   }
 
   async function save(): Promise<void> {
@@ -92,6 +110,7 @@
       // doesn't trigger the pending-reseed banner.
       pendingExternalReseed = null
       lastSeeded = { path, contents: text }
+      clearDraft(path)
     } catch (err) {
       saveError = err instanceof Error ? err.message : String(err)
     } finally {

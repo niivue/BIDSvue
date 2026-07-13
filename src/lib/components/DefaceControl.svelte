@@ -30,7 +30,7 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
 
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
 
   import {
     getSidecarSupported,
@@ -58,9 +58,11 @@
      * explaining why it's inert.
      */
     disabled?: boolean
+    /** Prevent paired-sidecar navigation while this control mutates both files. */
+    onRunningChange?: (running: boolean) => void
   }
 
-  let { path, disabled = false }: Props = $props()
+  let { path, disabled = false, onRunningChange }: Props = $props()
 
   type ControlState = DefaceState | 'unknown'
 
@@ -87,6 +89,8 @@
     sidecarSupported = await getSidecarSupported()
     webgpuSupported = await getWebGpuSupported()
   })
+
+  onDestroy(() => onRunningChange?.(false))
 
   /**
    * Whether `original` (revert) is selectable right now. Revert just
@@ -152,6 +156,7 @@
     actionError = null
     datasetStore.lastActionError = null
     running = true
+    onRunningChange?.(true)
     // Capture path + token at call entry. If the user switches files
     // mid-action, the now-stale path still completes its disk mutation
     // (the orchestrator has already started), but the post-action
@@ -171,13 +176,13 @@
       const next = await detectTargetState(targetPath, tauriMutateFs)
       if (myToken === detectToken) currentState = next
     } catch (err) {
-      // Two surfaces, because the post-action rescan in
-      // withOpenDatasetAndRescan re-runs openDataset and resets
-      // selection to the README, which unmounts this component and
-      // would otherwise destroy `actionError` before the user could
-      // see it. (1) console.error for the dev-tools transcript so
-      // we can debug failed runs. (2) datasetStore.lastActionError
-      // for the StatusBar — that surface survives the unmount.
+      // Two surfaces: (1) console.error for the dev-tools transcript so
+      // we can debug failed runs. (2) datasetStore.lastActionError for
+      // the StatusBar. Single-file deface/revert now do a TARGETED
+      // refresh (viewer-only reload, no rescan — see actions.ts), so this
+      // component stays mounted and `actionError` below survives; the
+      // StatusBar surface is belt-and-suspenders (and the right home if a
+      // future caller does unmount us).
       //
       // Routed through `lastActionError` rather than the original
       // `persistenceWarning` because the latter renders as the
@@ -190,15 +195,10 @@
       if (myToken === detectToken) actionError = message
     } finally {
       running = false
-      // Selection-restore lives in `actions.ts::defaceFile` /
-      // `revertDefaceFile` now (after the rescan settles, before the
-      // README auto-select async-fires). The token-guarded revealPath
-      // that used to live here always lost the race: openDataset's
-      // selectionStore.reset() bumped DefaceControl's $effect token
-      // before this finally ran, so the guard rejected its own
-      // revealPath. The action-layer revealPath is unconditional and
-      // wins both timing branches (it pre-empts the auto-select OR
-      // overrides it after).
+      onRunningChange?.(false)
+      // No selection-restore needed: single-file deface/revert no longer
+      // rescan (targeted viewer reload in actions.ts), so primaryPath is
+      // never reset and the user keeps the file they defaced selected.
     }
   }
 

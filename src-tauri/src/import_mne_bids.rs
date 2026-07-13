@@ -26,9 +26,17 @@ const MNE_BIDS_MAX_EXCLUSIVE: (u32, u32) = (0, 21);
 
 /// Wall-clock caps so a hung/misconfigured Python can't freeze the wizard
 /// indefinitely (no user-cancel path in v1 — a timeout is the backstop).
+///
+/// `PROBE_TIMEOUT` / `READ_CODES_TIMEOUT` bound quick wizard-interaction
+/// helpers (version probe, event-code read) and stay short so a hung probe
+/// doesn't freeze the form. `CONVERT_TIMEOUT` bounds the actual conversion:
+/// keep it at least 30 min so a user following a tutorial on a large
+/// recording (or a slow first-run Python import) is never cut off
+/// mid-import (the DICOM importers in `process.rs` run unbounded, so this
+/// is the one conversion cap that has to clear the 30-min floor).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_CODES_TIMEOUT: Duration = Duration::from_secs(60);
-const CONVERT_TIMEOUT: Duration = Duration::from_secs(900);
+const CONVERT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// Verify one-liner: imports + prints versions AND the resolved
 /// `sys.executable` (decision 5) so the trust line shows the real
@@ -43,6 +51,8 @@ const READ_CODES_CODE: &str =
 
 /// Cap on the runner's single stdout JSON line (decision 6 output budget).
 const MAX_RUNNER_STDOUT_BYTES: usize = 64 * 1024;
+const MAX_AUX_STDOUT_BYTES: usize = 1024 * 1024;
+const MAX_STDERR_BYTES: usize = 64 * 1024;
 
 /// Resolved interpreter + its versions.
 #[derive(Debug, Clone, Serialize)]
@@ -151,36 +161,154 @@ fn augmented_python_path() -> String {
     parts.join(sep)
 }
 
+#[derive(Debug, Default)]
+struct DrainedPipe {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+#[derive(Clone, Copy)]
+enum CaptureMode {
+    Head,
+    Tail,
+}
+
+/// Drain a child pipe to EOF while retaining at most `limit` bytes. stdout
+/// keeps its head so JSON parsing is deterministic; stderr keeps its tail so
+/// the actionable diagnostic survives a verbose preamble. Excess bytes are
+/// discarded while the pipe continues draining, preventing both pipe-fill
+/// deadlocks and unbounded memory growth.
+fn drain_pipe<R: std::io::Read + Send + 'static>(
+    pipe: Option<R>,
+    limit: usize,
+    mode: CaptureMode,
+) -> std::thread::JoinHandle<DrainedPipe> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::with_capacity(limit.min(8192));
+        let mut truncated = false;
+        if let Some(mut s) = pipe {
+            let mut chunk = [0_u8; 8192];
+            loop {
+                let read = match s.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                match mode {
+                    CaptureMode::Head => {
+                        let remaining = limit.saturating_sub(bytes.len());
+                        bytes.extend_from_slice(&chunk[..read.min(remaining)]);
+                        truncated |= read > remaining;
+                    }
+                    CaptureMode::Tail => {
+                        if read >= limit {
+                            bytes.clear();
+                            bytes.extend_from_slice(&chunk[read - limit..read]);
+                            truncated = true;
+                        } else {
+                            let overflow = bytes.len().saturating_add(read).saturating_sub(limit);
+                            if overflow > 0 {
+                                bytes.drain(..overflow);
+                                truncated = true;
+                            }
+                            bytes.extend_from_slice(&chunk[..read]);
+                        }
+                    }
+                }
+            }
+        }
+        DrainedPipe { bytes, truncated }
+    })
+}
+
+/// Kill the child AND every descendant, then reap the child's zombie. On Unix
+/// the child leads its OWN process group (`process_group(0)` below), so
+/// `kill(-pid)` signals the whole group — this is what guarantees the drain
+/// threads' pipes close so their `join()` can't hang (audit 2026-07-12 Finding
+/// 3: a grandchild that inherited stdout/stderr and outlived the SIGKILL'd
+/// parent would otherwise keep the pipe open, so `read_to_end` never sees EOF
+/// and the timeout's return never runs). Called on every exit path, so a clean
+/// conversion also can't leave an orphaned worker holding the pipes.
+fn reap_child_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // The child created a dedicated group whose id is its pid. The group
+        // remains addressable while any descendant survives, even when
+        // `try_wait` has already reaped the direct child.
+        let pid = child.id() as i32;
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Spawn `cmd` with stdin closed + stdout/stderr piped, and wait at most
-/// `timeout`; kill + reap on overrun. Returns the buffered `Output`. (The
-/// byte caps are still applied post-buffer by the callers — streaming caps
-/// are a v1.1 hardening; the timeout bounds the wall-clock, hence the
-/// bytes, against a hung interpreter.)
-fn run_capped(mut cmd: Command, timeout: Duration) -> Result<Output, String> {
+/// `timeout`. stdout + stderr are drained on their OWN threads WHILE we poll,
+/// so a verbose child that fills either OS pipe buffer (~64 KB; MNE is chatty)
+/// can't block on write and hang until the timeout. Every exit path (normal,
+/// wait-error, timeout) reaps the child's process group on Unix or Job Object
+/// on Windows so no descendant keeps a pipe open, then joins the drain
+/// threads. Returns bounded output.
+fn run_capped(mut cmd: Command, timeout: Duration, stdout_limit: usize) -> Result<Output, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Child leads a new process group == its pid, so `reap_child_group`
+        // can kill the whole tree (Python/MNE may fork workers).
+        cmd.process_group(0);
+    }
+    #[cfg(windows)]
+    let job_guard = crate::ai::win::KillOnCloseJob::new()
+        .map_err(|e| format!("create process job object: {e}"))?;
+
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("failed to spawn: {e}"))?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        if let Err(e) = job_guard.assign_process(child.as_raw_handle() as _) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("assign process to job object: {e}"));
+        }
+    }
+
+    let out_handle = drain_pipe(child.stdout.take(), stdout_limit, CaptureMode::Head);
+    let err_handle = drain_pipe(child.stderr.take(), MAX_STDERR_BYTES, CaptureMode::Tail);
     let deadline = Instant::now() + timeout;
-    loop {
+    let result: Result<std::process::ExitStatus, String> = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(status)) => break Ok(status),
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!("process timed out after {}s", timeout.as_secs()));
+                    break Err(format!("process timed out after {}s", timeout.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(25));
             }
-            Err(e) => return Err(format!("wait failed: {e}")),
+            Err(e) => break Err(format!("wait failed: {e}")),
         }
+    };
+    // Reap the whole process tree so the drain pipes close, THEN join.
+    #[cfg(windows)]
+    job_guard.terminate();
+    reap_child_group(&mut child);
+    let stdout = out_handle.join().unwrap_or_default();
+    let stderr = err_handle.join().unwrap_or_default();
+    match result {
+        Ok(_) if stdout.truncated => Err(format!("process stdout exceeded {stdout_limit} bytes")),
+        Ok(status) => Ok(Output {
+            status,
+            stdout: stdout.bytes,
+            stderr: stderr.bytes,
+        }),
+        Err(msg) => Err(msg),
     }
-    child
-        .wait_with_output()
-        .map_err(|e| format!("collecting output failed: {e}"))
 }
 
 /// Create `path` as a fresh private directory (0o700 on Unix, exclusive
@@ -206,7 +334,7 @@ fn probe_one(candidate: &str) -> Option<Result<(String, String, String), ()>> {
     let mut cmd = Command::new(candidate);
     cmd.args(["-c", VERIFY_CODE])
         .env("PATH", augmented_python_path());
-    let out = run_capped(cmd, PROBE_TIMEOUT).ok()?;
+    let out = run_capped(cmd, PROBE_TIMEOUT, MAX_RUNNER_STDOUT_BYTES).ok()?;
     if !out.status.success() {
         return Some(Err(()));
     }
@@ -296,14 +424,8 @@ pub fn run_runner(
     cmd.arg(runner)
         .arg(json_path)
         .env("PATH", augmented_python_path());
-    let out = run_capped(cmd, CONVERT_TIMEOUT)?;
+    let out = run_capped(cmd, CONVERT_TIMEOUT, MAX_RUNNER_STDOUT_BYTES)?;
     let stdout = out.stdout;
-    if stdout.len() > MAX_RUNNER_STDOUT_BYTES {
-        return Err(format!(
-            "runner stdout exceeded {MAX_RUNNER_STDOUT_BYTES} bytes ({})",
-            stdout.len()
-        ));
-    }
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stderr_tail = stderr
         .lines()
@@ -340,7 +462,7 @@ fn read_event_codes(interpreter: &str, eve: &Path) -> Result<Vec<i64>, String> {
     cmd.args(["-c", READ_CODES_CODE])
         .arg(eve)
         .env("PATH", augmented_python_path());
-    let out = run_capped(cmd, READ_CODES_TIMEOUT)?;
+    let out = run_capped(cmd, READ_CODES_TIMEOUT, MAX_AUX_STDOUT_BYTES)?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let tail = stderr.lines().last().unwrap_or("").trim();
@@ -930,8 +1052,11 @@ pub async fn run_mne_bids_import(
             }
         }
 
-        // 5. Resolve the interpreter; refuse anything but 'ok'.
-        let interp = resolve_interpreter();
+        // 5. Resolve the interpreter off the async command executor. Each
+        // candidate probe is a blocking process wait with a 20-second cap.
+        let interp = tauri::async_runtime::spawn_blocking(resolve_interpreter)
+            .await
+            .map_err(|e| format!("run_mne_bids_import: interpreter join error: {e}"))?;
         if interp.state != "ok" {
             return Err(format!(
                 "no usable mne-bids interpreter (state: {})",
@@ -1018,6 +1143,50 @@ mod tests {
             dataset_name: None,
             staging_root: staging.into(),
         }
+    }
+
+    #[test]
+    fn drain_pipe_bounds_head_and_tail_while_fully_draining() {
+        let data: Vec<u8> = (0_u8..100).collect();
+        let head = drain_pipe(
+            Some(std::io::Cursor::new(data.clone())),
+            16,
+            CaptureMode::Head,
+        )
+        .join()
+        .unwrap();
+        assert_eq!(head.bytes, data[..16]);
+        assert!(head.truncated);
+
+        let tail = drain_pipe(
+            Some(std::io::Cursor::new(data.clone())),
+            16,
+            CaptureMode::Tail,
+        )
+        .join()
+        .unwrap();
+        assert_eq!(tail.bytes, data[data.len() - 16..]);
+        assert!(tail.truncated);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capped_reaps_descendant_holding_pipes() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30 & exit 0"]);
+        let started = Instant::now();
+        let out = run_capped(cmd, Duration::from_secs(2), 1024).unwrap();
+        assert!(out.status.success());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capped_rejects_stdout_over_limit_without_pipe_deadlock() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "head -c 8192 /dev/zero"]);
+        let err = run_capped(cmd, Duration::from_secs(2), 128).unwrap_err();
+        assert!(err.contains("stdout exceeded 128 bytes"), "{err}");
     }
 
     #[test]

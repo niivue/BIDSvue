@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { isContentRelevantKind, shouldRevalidate } from './datasetWatcher'
+import {
+  isContentRelevantKind,
+  matchesExpectedSelfWrite,
+  shouldRevalidate,
+} from './datasetWatcher'
 
 describe('shouldRevalidate', () => {
   test('returns false when every path is inside an ignored segment', () => {
@@ -73,6 +77,27 @@ describe('shouldRevalidate', () => {
     expect(
       shouldRevalidate(['/datasets/AgingBrain/derivatives/myderiv/.git/HEAD']),
     ).toBe(false)
+  })
+})
+
+describe('matchesExpectedSelfWrite', () => {
+  test('matches the committed target and its atomic-write sibling temp', () => {
+    const target = '/data/sub-01/anat/sub-01_T1w.json'
+    expect(matchesExpectedSelfWrite(target, target)).toBe(true)
+    expect(
+      matchesExpectedSelfWrite(`${target}.bidsvue-tmp-operation-id`, target),
+    ).toBe(true)
+  })
+
+  test('normalizes Windows separators and rejects siblings or parents', () => {
+    const target = String.raw`C:\data\sub-01\anat\sub-01_T1w.json`
+    expect(
+      matchesExpectedSelfWrite('C:/data/sub-01/anat/sub-01_T1w.json', target),
+    ).toBe(true)
+    expect(
+      matchesExpectedSelfWrite('C:/data/sub-01/anat/sub-01_T2w.json', target),
+    ).toBe(false)
+    expect(matchesExpectedSelfWrite('C:/data/sub-01/anat', target)).toBe(false)
   })
 })
 

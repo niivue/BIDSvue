@@ -1295,10 +1295,6 @@
     "humanReviewed": false,
     "sourceHash": "eaa7668156174daea79fac798a6c67c1b53a5e5908fa3f6d56dba9e2299ac59e"
   },
-  "es.importWizard.destinationPreview": {
-    "humanReviewed": false,
-    "sourceHash": "ae19d08bf296c621f45d0d47b8c429280497206057edc6ee3918b55e8fa9a6ae"
-  },
   "es.importWizard.durationSuffix": {
     "humanReviewed": false,
     "sourceHash": "6b757a41f63977f2e137371eb583ec5a0d55535cf3b42b2b10141e4ecf7176e6"
@@ -1450,14 +1446,6 @@
   "es.importWizard.mneEventNamePlaceholder": {
     "humanReviewed": false,
     "sourceHash": "425d5ad1e0d4f4f1b6fee785734bdd85b9a6595e309db2829f82b5b3b67ee2fa"
-  },
-  "es.importWizard.mnePrivacy": {
-    "humanReviewed": false,
-    "sourceHash": "60a6e2df0a7efc6621ce021b1ff1c62dce19c9003f8bad889b55b0d2a2d82d19"
-  },
-  "es.importWizard.mneInterpreter": {
-    "humanReviewed": false,
-    "sourceHash": "6ce7cac865738f92a1d1cea1e4a781966a81b2cffc4df4fcf8f13a08b9086d25"
   },
   "es.importWizard.mneEmptyRoomLabel": {
     "humanReviewed": false,
@@ -2773,7 +2761,7 @@
   },
   "es.tree.pointerUnfetchedTitle": {
     "humanReviewed": false,
-    "sourceHash": "eb2a0131a8e0dd508f43874a3d26c99afa9187d7f7f57f6394899b86ac729695"
+    "sourceHash": "52bf271acfdfb4e20f19a35118d0885e84c1e532406834fd787ec430aee1e99b"
   },
   "es.tree.readOnlyChip": {
     "humanReviewed": false,
@@ -4203,10 +4191,6 @@
     "humanReviewed": false,
     "sourceHash": "eaa7668156174daea79fac798a6c67c1b53a5e5908fa3f6d56dba9e2299ac59e"
   },
-  "pt.importWizard.destinationPreview": {
-    "humanReviewed": false,
-    "sourceHash": "ae19d08bf296c621f45d0d47b8c429280497206057edc6ee3918b55e8fa9a6ae"
-  },
   "pt.importWizard.durationSuffix": {
     "humanReviewed": false,
     "sourceHash": "6b757a41f63977f2e137371eb583ec5a0d55535cf3b42b2b10141e4ecf7176e6"
@@ -4358,14 +4342,6 @@
   "pt.importWizard.mneEventNamePlaceholder": {
     "humanReviewed": false,
     "sourceHash": "425d5ad1e0d4f4f1b6fee785734bdd85b9a6595e309db2829f82b5b3b67ee2fa"
-  },
-  "pt.importWizard.mnePrivacy": {
-    "humanReviewed": false,
-    "sourceHash": "60a6e2df0a7efc6621ce021b1ff1c62dce19c9003f8bad889b55b0d2a2d82d19"
-  },
-  "pt.importWizard.mneInterpreter": {
-    "humanReviewed": false,
-    "sourceHash": "6ce7cac865738f92a1d1cea1e4a781966a81b2cffc4df4fcf8f13a08b9086d25"
   },
   "pt.importWizard.mneEmptyRoomLabel": {
     "humanReviewed": false,
@@ -5681,7 +5657,7 @@
   },
   "pt.tree.pointerUnfetchedTitle": {
     "humanReviewed": false,
-    "sourceHash": "eb2a0131a8e0dd508f43874a3d26c99afa9187d7f7f57f6394899b86ac729695"
+    "sourceHash": "52bf271acfdfb4e20f19a35118d0885e84c1e532406834fd787ec430aee1e99b"
   },
   "pt.tree.readOnlyChip": {
     "humanReviewed": false,

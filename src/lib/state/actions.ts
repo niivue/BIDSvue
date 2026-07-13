@@ -27,6 +27,7 @@ import {
   revertDeface,
   runDeface,
 } from '$lib/deface/runDeface'
+import { jsonSidecarPath } from '$lib/deface/sourcedataPath'
 import { tauriDefaceExecutor } from '$lib/deface/tauriExecutor'
 import { type DefaceToolId, findTool } from '$lib/deface/tools'
 import {
@@ -85,6 +86,7 @@ import {
 import {
   type FreshnessSnapshot,
   LeaseConflictError,
+  type MutationLease,
   TargetMutatedError,
   acquireLease,
   describeScope,
@@ -145,15 +147,18 @@ import {
   datasetStatePaths,
 } from './appPaths'
 import { autoOpenRootSatisfiesTarget } from './autoOpenMatch'
+import { dataladStore } from './datalad.svelte'
 import { dataladSaveStore, refreshDataladStatus } from './dataladSave.svelte'
 import { datasetStore } from './dataset.svelte'
 import {
+  aggregateCapabilityForDataset,
   clear as clearDatasetCapability,
   loadCapability as loadDatasetCapability,
 } from './datasetCapability.svelte'
-import { startDatasetWatcher } from './datasetWatcher'
+import { matchesExpectedSelfWrite, startDatasetWatcher } from './datasetWatcher'
 import { diagnosticsStore } from './diagnostics.svelte'
 import { nextErrorPath } from './diagnosticsHelpers'
+import { clearAllDrafts } from './editorDrafts.svelte'
 import {
   absolutizeFromRoot,
   cancelPendingSaves,
@@ -427,6 +432,12 @@ function teardownActiveSession(): void {
   datasetStore.fetchCount = null
   datasetStore.dataladCancel = null
   datasetStore.lastActionError = null
+  // NB: editor drafts are NOT cleared here. `teardownActiveSession` runs on
+  // EVERY `openDataset`, including same-root `rescanCurrentDataset` (watcher
+  // fires, mutation-action rescans, pointer-fetch completion). Clearing drafts
+  // here wiped unsaved edits on any rescan — the exact data loss the registry
+  // exists to prevent. Drafts are dropped only on a real close / root switch:
+  // `closeDataset` and `openDataset`'s `replacingActiveDataset` branch.
 }
 
 /**
@@ -732,6 +743,12 @@ export async function openDataset(
   // the widening-failure path get a clean slate.
   const replacingActiveDataset =
     datasetStore.dataset !== null && datasetStore.dataset.root !== path
+
+  // Switching to a DIFFERENT dataset root drops all unsaved editor drafts
+  // (they're keyed by absolute path and belong to the outgoing dataset). A
+  // same-root rescan (preserveSelection) must NOT clear them — that's the P1
+  // data-loss the audit caught. First-open (dataset === null) has no drafts.
+  if (replacingActiveDataset) clearAllDrafts()
 
   scanController?.abort()
   const controller = new AbortController()
@@ -1126,14 +1143,67 @@ export async function openDataset(
  * helper returns null and the open completes without a watcher -- the
  * user can still re-validate by reopening the dataset.
  */
+/** Expected output paths for targeted mutations, each with a short expiry. */
+const watcherSelfWrites = new Map<string, number>()
+
+/** Suppress only declared self-write paths for the watcher debounce + margin. */
+function suppressWatcherSelfWriteRescan(paths: readonly string[]): void {
+  const deadline = Date.now() + 1500
+  for (const path of paths) watcherSelfWrites.set(path, deadline)
+}
+
+function watcherEventContainsOnlySelfWrites(paths: readonly string[]): boolean {
+  const now = Date.now()
+  for (const [target, deadline] of watcherSelfWrites) {
+    if (deadline <= now) watcherSelfWrites.delete(target)
+  }
+  if (paths.length === 0 || watcherSelfWrites.size === 0) return false
+  return paths.every((path) => {
+    for (const target of watcherSelfWrites.keys()) {
+      if (matchesExpectedSelfWrite(path, target)) return true
+    }
+    return false
+  })
+}
+
+/**
+ * Signal an IN-PLACE content mutation — an EXISTING file's bytes changed but
+ * its path/identity did not (single-file deface/revert that only edits an
+ * already-indexed sidecar). Reload the viewer volume (`viewerReloadNonce`) AND
+ * bump `datasetStore.revision` so Preview re-reads fresh bytes — the latter
+ * reseeds a paired `.json` SidecarEditor that was mounted DURING the run
+ * (audit 2026-07-12 1a: without it a stale editor could Save and strip the
+ * `DeidentificationMethodCodeSequence` deface just wrote). Neither touches the
+ * tree proxy, so no whole-UI flash. Suppress the watcher's debounced fire on
+ * our OWN commit writes. Guarded on the still-open root AND unchanged scan
+ * generation so a dataset switch — or close+reopen of the SAME root — mid-op
+ * (a long mindgrab run) is a no-op. STRUCTURAL changes (a NEWLY-created
+ * sidecar) do NOT come here — the caller rescans for those.
+ */
+function refreshViewerInPlace(
+  startRoot: string,
+  startGen: number,
+  affectedPaths: readonly string[],
+): void {
+  if (datasetStore.dataset?.root !== startRoot || scanGeneration !== startGen) {
+    return
+  }
+  suppressWatcherSelfWriteRescan(affectedPaths)
+  datasetStore.viewerReloadNonce++
+  datasetStore.revision++
+}
+
 async function armWatcher(root: string, myGen: number): Promise<void> {
   // Capture the intent token alongside the open generation. The open
   // gate catches dataset-switch supersedes; the intent gate catches
   // disarm-then-rearm cycles while the same dataset stays open (e.g.
   // a rapid View > Auto-revalidate toggle).
   const myIntent = ++watcherIntentToken
-  const fn = await startDatasetWatcher(root, () => {
+  const fn = await startDatasetWatcher(root, (event) => {
     if (myGen !== scanGeneration) return
+    // Skip only an event wholly explained by a targeted mutation. If an
+    // unrelated edit is coalesced into the same event, rescan it.
+    if (watcherEventContainsOnlySelfWrites(event.paths)) return
     void rescanCurrentDataset()
   })
   const superseded = myGen !== scanGeneration || myIntent !== watcherIntentToken
@@ -1283,6 +1353,10 @@ export function closeDataset(): void {
   scanGeneration++
   cancelActiveDataladSpawn('closeDataset')
   teardownActiveSession()
+  // Real close: drop all unsaved editor drafts (teardownActiveSession no
+  // longer does this — see the P1 note there). openDataset handles the
+  // root-switch case separately.
+  clearAllDrafts()
   // Cancel the debounced fetch revalidate — otherwise a
   // `datalad get` burst that just settled would fire
   // `revalidateCurrentDataset()` half a second after close.
@@ -2742,6 +2816,25 @@ export async function defaceFile(
   // show ("Content not fetched — run `datalad get`") instead of an
   // opaque mid-pipeline failure.
   assertNotUnfetchedPointer(targetPath, 'defaceFile')
+  // Capture dataset + statePaths and null-check BEFORE acquiring the lease
+  // (audit 2026-07-12 P2): a `throw` AFTER `await acquireLease` but outside
+  // the try/finally would leak the file lease forever if the dataset closed
+  // during the (async) lease-stat. Mirrors `saveSidecar`.
+  const dataset = datasetStore.dataset
+  const statePaths = datasetStore.statePaths
+  if (dataset === null || statePaths === null) {
+    throw new Error('defaceFile: no dataset is open')
+  }
+  const session = captureSession(dataset.root)
+  // Will deface CREATE a new `.json` sidecar? (audit 2026-07-12 Finding 2:
+  // `readAndApplySidecar` synthesizes a sibling when tagging a NIfTI that has
+  // none — a STRUCTURAL change. A new tree node must enter `index.byPath` +
+  // validation, which the targeted viewer refresh can't do, so those get a
+  // real rescan.) A sidecar already in the index is edited in place → the
+  // flash-free targeted refresh.
+  const sidecar = jsonSidecarPath(targetPath)
+  const willCreateSidecar =
+    sidecar !== null && !dataset.index.byPath.has(sidecar)
   // File-scoped lease BEFORE any heavy lifting. A second deface
   // against the same file throws LeaseConflictError; the same scope
   // also conflicts with any dataset-scoped op (rename / batch save /
@@ -2755,31 +2848,49 @@ export async function defaceFile(
     snapshotFreshness: true,
     fs: tauriFreshnessFs,
   })
+  let sidecarLease: MutationLease | null = null
   try {
-    return await withOpenDatasetAndRescan('defaceFile', (dataset, statePaths) =>
-      runDefaceToolOnce({
-        datasetRoot: dataset.root,
-        statePaths,
+    // Deface mutates the NIfTI and its JSON sibling as one logical action.
+    // Holding both file leases prevents a mounted editor from saving stale
+    // JSON while the image tool is running. The sidecar freshness snapshot
+    // also detects an external edit or creator before commit.
+    if (sidecar !== null) {
+      sidecarLease = await acquireLease({
+        scope: { kind: 'file', path: sidecar },
+        kind: 'deface',
+        snapshotFreshness: true,
+        fs: tauriFreshnessFs,
+      })
+    }
+    if (!session.sessionLive()) {
+      throw new Error('defaceFile: dataset session changed before mutation')
+    }
+    const result = await runDefaceToolOnce({
+      datasetRoot: dataset.root,
+      statePaths,
+      targetPath,
+      tool,
+      assertFresh: async () => {
+        await lease.assertTargetUnchanged()
+        await sidecarLease?.assertTargetUnchanged()
+      },
+    })
+    if (willCreateSidecar) {
+      // Structural: the new sidecar must join the index/tree/validation.
+      // Guard on the still-live session (same root + scan generation).
+      if (session.sessionLive()) {
+        await rescanCurrentDataset()
+      }
+    } else {
+      refreshViewerInPlace(session.startRoot, session.startGen, [
         targetPath,
-        tool,
-        assertFresh: () => lease.assertTargetUnchanged(),
-      }),
-    )
+        ...(sidecar === null ? [] : [sidecar]),
+      ])
+    }
+    return result
   } finally {
+    sidecarLease?.release()
     lease.release()
-    // After the rescan, restore selection to the file the user just
-    // defaced. The rescan resets primaryPath to null and then async-
-    // fires a README auto-select (`openDataset` line ~391, which only
-    // fires when `primaryPath === null`). By calling revealPath here
-    // we set primaryPath to the target so the README auto-select bails
-    // if it runs after us, and we win if it ran before us.
-    //
-    // Lives at the action layer (rather than in DefaceControl.svelte's
-    // `finally`) because the UI's token-guarded `revealPath` racing
-    // with the rescan-driven path reset always lost. Same fix applies
-    // to revertDefaceFile and any future mutation action where the
-    // user expects to keep their target selected across the rescan.
-    if (datasetStore.dataset !== null) revealPath(targetPath)
   }
 }
 
@@ -2792,33 +2903,60 @@ export async function revertDefaceFile(
   targetPath: string,
 ): Promise<RevertDefaceResult> {
   assertNotUnfetchedPointer(targetPath, 'revertDefaceFile')
+  // Null-check BEFORE acquiring the lease (audit 2026-07-12 P2 — same
+  // lease-leak fix as `defaceFile`).
+  const dataset = datasetStore.dataset
+  const statePaths = datasetStore.statePaths
+  if (dataset === null || statePaths === null) {
+    throw new Error('revertDefaceFile: no dataset is open')
+  }
+  const session = captureSession(dataset.root)
+  const sidecar = jsonSidecarPath(targetPath)
   // Same file-scoped lease story as `defaceFile` — guards against
   // double-revert and detects external edits to the target during
   // the revert window. Revert is quick (sourcedata→target copy) but
   // still goes through the OperationContext + freshness pattern for
-  // symmetry.
+  // symmetry. Revert never CREATES a sidecar (it edits an existing one or
+  // no-ops), so it's always the flash-free content-only refresh.
   const lease = await acquireLease({
     scope: { kind: 'file', path: targetPath },
     kind: 'deface',
     snapshotFreshness: true,
     fs: tauriFreshnessFs,
   })
+  let sidecarLease: MutationLease | null = null
   try {
-    return await withOpenDatasetAndRescan(
-      'revertDefaceFile',
-      (dataset, statePaths) =>
-        revertDeface({
-          datasetRoot: dataset.root,
-          statePaths,
-          targetPath,
-          fs: tauriMutateFs,
-          assertFresh: () => lease.assertTargetUnchanged(),
-        }),
-    )
+    if (sidecar !== null) {
+      sidecarLease = await acquireLease({
+        scope: { kind: 'file', path: sidecar },
+        kind: 'deface',
+        snapshotFreshness: true,
+        fs: tauriFreshnessFs,
+      })
+    }
+    if (!session.sessionLive()) {
+      throw new Error(
+        'revertDefaceFile: dataset session changed before mutation',
+      )
+    }
+    const result = await revertDeface({
+      datasetRoot: dataset.root,
+      statePaths,
+      targetPath,
+      fs: tauriMutateFs,
+      assertFresh: async () => {
+        await lease.assertTargetUnchanged()
+        await sidecarLease?.assertTargetUnchanged()
+      },
+    })
+    refreshViewerInPlace(session.startRoot, session.startGen, [
+      targetPath,
+      ...(sidecar === null ? [] : [sidecar]),
+    ])
+    return result
   } finally {
+    sidecarLease?.release()
     lease.release()
-    // Same selection-restore as `defaceFile`. See the comment there.
-    if (datasetStore.dataset !== null) revealPath(targetPath)
   }
 }
 
@@ -3249,6 +3387,7 @@ export async function fetchPointers(paths: string[]): Promise<void> {
   // fetched file. Tightening the contract matches the documentation
   // and prevents wasted spawns.
   const root = dataset.root
+  const { sessionLive } = captureSession(root)
   for (const p of paths) {
     if (p !== root && !p.startsWith(`${root}/`)) {
       throw new Error(`fetchPointers: ${p} is not under ${root}`)
@@ -3270,6 +3409,43 @@ export async function fetchPointers(paths: string[]): Promise<void> {
       throw new Error(`fetchPointers: ${p} is already being fetched`)
     }
   }
+  // Capability gate at the shared choke point (audit 2026-07-12 P2). Every
+  // fetch entry point funnels through here — Preview + StatusBar ALSO
+  // pre-disable their buttons with reasons, but the tree pointer chip and the
+  // context-menu fetch did NOT, so a click on a no-engine / no-remote /
+  // unsupported-remote dataset spawned a doomed `datalad get` and surfaced an
+  // opaque engine error. Refusing here with a clear reason gives every surface
+  // the same actionable failure. (Mixed remotes are allowed, matching Preview.)
+  if (dataladStore.available !== true) {
+    throw new Error(
+      'DataLad engine is not available, so pointer content cannot be fetched.',
+    )
+  }
+  let cap = aggregateCapabilityForDataset(root)
+  if (cap === undefined) {
+    // Unresolved: either still probing OR a prior probe FAILED without
+    // caching a terminal state (`loadCapability` only caches on success —
+    // audit 2026-07-12 Finding 4). Drive it once (awaits an in-flight probe,
+    // re-probes a failed one) and re-check; if it STILL won't resolve, FAIL
+    // OPEN — let `datalad get` run and surface its real error, rather than
+    // blocking forever behind a "still checking" message a failed probe would
+    // make permanent.
+    await loadDatasetCapability(root)
+    if (!sessionLive()) {
+      throw new Error(
+        'fetchPointers: dataset session changed while probing remotes',
+      )
+    }
+    cap = aggregateCapabilityForDataset(root)
+  }
+  if (cap !== undefined && cap.state === 'disabled') {
+    throw new Error(`Cannot fetch content: ${cap.reason}`)
+  }
+  if (cap !== undefined && cap.state === 'absent') {
+    throw new Error(
+      'No DataLad remotes are configured to provide this content.',
+    )
+  }
   // Reset any previous fetch error so the inline panel doesn't
   // stale-flash from a prior failed batch.
   datasetStore.lastActionError = null
@@ -3278,8 +3454,6 @@ export async function fetchPointers(paths: string[]): Promise<void> {
   // after the user closed or reopened a different dataset must NOT
   // mutate busyPaths / lastActionError / fetchProgress on the new
   // session. Audit-round-30 P2 #4 close.
-  const { sessionLive } = captureSession(root)
-
   // Audit (post-Milestone-B): the StatusBar Cancel chip targets ONE
   // cancel slot (`datasetStore.dataladCancel`). Two overlapping
   // `fetchPointers` invocations — or a fetch overlapping an install

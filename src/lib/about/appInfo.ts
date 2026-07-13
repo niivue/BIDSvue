@@ -20,6 +20,7 @@ import { AI_CLI_IDS, AI_CLI_LABELS, type AiCliProbe } from '$lib/ai/types'
 import { readDataladNativeBackend } from '$lib/datalad/native'
 import { cachedDetectImporter } from '$lib/import/importerDetectionCache'
 import { tauriVersionProbe } from '$lib/import/importerDetectionTauri'
+import { cachedDetectMneBids } from '$lib/import/mneBidsDetectionTauri'
 import {
   IMPORT_TOOLS,
   type ImportTool,
@@ -128,7 +129,15 @@ export async function loadAppInfo(): Promise<AppInfo> {
   const externalToolEntries: ExternalToolStatus[] = await Promise.all(
     externalTools.map(async (tool): Promise<ExternalToolStatus> => {
       try {
-        const result = await cachedDetectImporter(tool, tauriVersionProbe)
+        // mne-bids is interpreter-gated, not a PATH binary: `mne_bids` is
+        // a Python module, so the generic `<binary> <versionArgs>` probe
+        // always fails ("not detected on PATH") even when the wizard
+        // detects it. Reuse the wizard's interpreter probe so About
+        // reports the real mne-bids version when it's importable.
+        const result =
+          tool.id === 'mne-bids'
+            ? await cachedDetectMneBids()
+            : await cachedDetectImporter(tool, tauriVersionProbe)
         return {
           name: tool.binaryBasename,
           available: result.available,

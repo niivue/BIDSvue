@@ -1,7 +1,8 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
   import type { FolderNode, TreeNode } from '$lib/bids/types'
-  import { trackPointerRevisions } from '$lib/state/dataset.svelte'
+  import { fetchPointers } from '$lib/state/actions'
+  import { datasetStore, trackPointerRevisions } from '$lib/state/dataset.svelte'
   import { diagnosticsStore } from '$lib/state/diagnostics.svelte'
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { selectionStore } from '$lib/state/selection.svelte'
@@ -152,16 +153,45 @@
     if (node.kind === 'folder') return null
     const members = node.kind === 'group' ? node.members : [node]
     let total = 0
-    let unfetched = 0
+    // Un-fetched member paths double as the fetch targets when the user
+    // clicks the download chip (a group fetches all in one `datalad get`;
+    // a standalone file fetches itself). One walk feeds both the badge
+    // count and the click handler.
+    const unfetchedPaths: string[] = []
     for (const m of members) {
-      if (m.flags.pointer !== undefined) {
-        total++
-        if (m.flags.pointer.contentPresent === false) unfetched++
-      }
+      if (m.flags.pointer === undefined) continue
+      total++
+      if (m.flags.pointer.contentPresent === false) unfetchedPaths.push(m.path)
     }
     if (total === 0) return null
-    return { total, unfetched }
+    return { total, unfetched: unfetchedPaths.length, unfetchedPaths }
   })
+
+  let fetching = $state(false)
+
+  async function fetchRowPointers(e: MouseEvent): Promise<void> {
+    // Stop the row's onclick from also firing — the chip is a dedicated
+    // action, not a selection gesture.
+    e.stopPropagation()
+    const paths = pointerStatus?.unfetchedPaths ?? []
+    if (fetching || paths.length === 0) return
+    fetching = true
+    try {
+      await fetchPointers(paths)
+    } catch (err) {
+      // fetchPointers surfaces genuine `datalad get` failures through
+      // datasetStore.lastActionError itself, but its EARLY throws — path
+      // validation and `LeaseConflictError` (another DataLad op owns the
+      // lease) — happen before it sets that field. Surface those here
+      // (mirrors the Preview pane's fetch glyph) so the click isn't a
+      // silent no-op. On failure contentPresent stays false, so the chip
+      // remains, signalling the file still needs a fetch.
+      datasetStore.lastActionError =
+        err instanceof Error ? err.message : String(err)
+    } finally {
+      fetching = false
+    }
+  }
 
   /**
    * True when the row's underlying file (or any member of a group)
@@ -252,6 +282,39 @@
     // Plain click: do nothing here; the row's onclick handles it.
   }
 </script>
+
+<!-- Un-fetched DataLad / git-annex pointer chip. A clickable download button
+     (fetches the row's un-fetched content, same as the Preview glyph), shared
+     by the group and standalone-file branches below so the markup + SVG live
+     in one place. -->
+{#snippet pointerChip()}
+  {#if pointerStatus !== null && pointerStatus.unfetched > 0}
+    <button
+      type="button"
+      class="pointer-chip"
+      title={$_('tree.pointerUnfetchedTitle')}
+      aria-label={$_('tree.pointerUnfetched')}
+      disabled={fetching}
+      onclick={fetchRowPointers}
+      onkeydown={(e) => {
+        // The button natively activates on Enter/Space (→ click →
+        // fetchRowPointers). Stop the keydown from ALSO bubbling to the row +
+        // TreeView keydown handlers, which would select/expand the row and
+        // move the aria-activedescendant cursor (audit 2026-07-12 Finding 5).
+        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation()
+      }}
+    >
+      <!-- download (Lucide). Clearer at small sizes than cloud-off:
+           a down-arrow into a tray reads as "needs to be fetched"
+           at a glance. -->
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" x2="12" y1="15" y2="3" />
+      </svg>
+    </button>
+  {/if}
+{/snippet}
 
 <!--
   Each row carries role="treeitem" but no tabindex; the parent TreeView is
@@ -344,22 +407,7 @@
       </svg>
     </span>
     <span class="label">{groupLabel}</span>
-    {#if pointerStatus !== null && pointerStatus.unfetched > 0}
-      <span
-        class="pointer-chip"
-        title={$_('tree.pointerUnfetchedTitle')}
-        aria-label={$_('tree.pointerUnfetched')}
-      >
-        <!-- download (Lucide). Clearer at small sizes than cloud-off:
-             a down-arrow into a tray reads as "needs to be fetched"
-             at a glance. -->
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
-      </span>
-    {/if}
+    {@render pointerChip()}
     {#if isReadOnly}
       <span
         class="readonly-chip"
@@ -396,22 +444,7 @@
       </svg>
     </span>
     <span class="label">{node.name}</span>
-    {#if pointerStatus !== null && pointerStatus.unfetched > 0}
-      <span
-        class="pointer-chip"
-        title={$_('tree.pointerUnfetchedTitle')}
-        aria-label={$_('tree.pointerUnfetched')}
-      >
-        <!-- download (Lucide). Clearer at small sizes than cloud-off:
-             a down-arrow into a tray reads as "needs to be fetched"
-             at a glance. -->
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
-      </span>
-    {/if}
+    {@render pointerChip()}
     {#if isReadOnly}
       <span
         class="readonly-chip"
@@ -632,6 +665,23 @@
     background: #e8efff;
     color: #2755b8;
     flex-shrink: 0;
+    /* Interactive: clicking fetches the row's un-fetched pointer(s),
+       the same action as the Preview pane's download glyph. */
+    appearance: none;
+    font: inherit;
+    cursor: pointer;
+    transition: filter 120ms ease;
+  }
+  .pointer-chip:hover:not(:disabled) {
+    filter: brightness(0.94);
+  }
+  .pointer-chip:focus-visible {
+    outline: 2px solid #3a6bd6;
+    outline-offset: 1px;
+  }
+  .pointer-chip:disabled {
+    cursor: progress;
+    opacity: 0.6;
   }
 
   .row.selected .pointer-chip {

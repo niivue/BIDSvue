@@ -47,9 +47,9 @@ interface Sidecar {
   sha256: string
 }
 
-// Pinned builds (verified 2026-06-28):
+// Pinned builds:
 //   bids-validator-rs 28-Jun-2026_g321ac30
-//   niimath           28-Jun-2026_g169c563
+//   niimath           12-Jul-2026_g74e9bbc (PR #66 merge, modern allineate)
 //   dcm2niix (dev)    28-Jun-2026_gb07bfe2
 const SIDECARS: Sidecar[] = [
   // bids-validator-rs (neurolabusc/bids-validator-rs)
@@ -70,17 +70,17 @@ const SIDECARS: Sidecar[] = [
   // niimath (neurolabusc/niimath)
   {
     platform: 'linux',
-    jobId: '7n2chnwj6bsf0762',
+    jobId: '2ryi6y71hfql6r2j',
     file: 'niimath_lnx.zip',
     binary: 'niimath',
-    sha256: '1425ffd26fdd072a639f045e5590229580f3db79d675e8d1003eca065c259d7a',
+    sha256: 'ebd5a91d386f1c8bfef4216e7a0c6c435bc5824a973ec5ad87f2948bb700624c',
   },
   {
     platform: 'windows',
-    jobId: '8v7xxda61th65ep3',
+    jobId: 'r7k984qip2ramhhf',
     file: 'niimath_win.zip',
     binary: 'niimath.exe',
-    sha256: '7d9ae54892ee1e2c522b068a81ede1f42b8dd24256dec256950b85ef2c9cc337',
+    sha256: '31092fb487a4ec0d7d400968f904486d124c65bc2a3f10d8319a21108c183307',
   },
   // dcm2niix DEV build (chrisfilo/dcm2niix) — keep pinned, not latest-on-branch
   {

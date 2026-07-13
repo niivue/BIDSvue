@@ -120,10 +120,25 @@
      * user interaction (resize, click, etc.).
      */
     visible?: boolean
+    /**
+     * Bumped by the parent to force a reload of the CURRENT volume even
+     * though `path` is unchanged — used after an in-place content mutation
+     * (deface/revert) whose bytes changed but whose path/identity did not.
+     * The `lastLoadedPath` dedup below would otherwise skip the reload.
+     */
+    reloadNonce?: number
+    /** Reports deface/revert activity so Preview can hold paired navigation. */
+    onDefaceRunningChange?: (running: boolean) => void
   }
 
-  let { path, limitFrames4D = 5, specialContext = false, visible = true }: Props =
-    $props()
+  let {
+    path,
+    limitFrames4D = 5,
+    specialContext = false,
+    visible = true,
+    reloadNonce = 0,
+    onDefaceRunningChange,
+  }: Props = $props()
 
   const parsedFilename = $derived(
     path === '' ? null : parseFilename(basename(path)),
@@ -250,6 +265,9 @@
    * caller clears `path` to ''.
    */
   let lastLoadedPath: string | null = null
+  /** Companion to `lastLoadedPath`: the `reloadNonce` value the current
+   * volume was loaded at. A bump (same path, new nonce) forces a reload. */
+  let lastLoadedNonce = 0
   /**
    * Cleanup hook for the currently in-flight profile observation. Set
    * by the path-load $effect when `PROFILE_ENABLED`; fires the
@@ -604,6 +622,9 @@
 
   $effect(() => {
     const currentPath = path
+    // Track `reloadNonce` so a bump (same path) re-fires this effect and
+    // reloads the current volume after an in-place content mutation.
+    const currentNonce = reloadNonce
     if (loadState !== 'ready' || viewer === null) return
     // Audit round 7 P3.2 (2026-06-15): an empty `path` means "no
     // volume yet". Bump the load token so any in-flight `loadVolumes`
@@ -627,15 +648,23 @@
     // Dedup against Svelte 5 re-firing the effect with the SAME
     // path — see the `lastLoadedPath` docstring up top for the full
     // explanation. Cleared in the catch block below so a failed load
-    // can retry.
-    if (currentPath === lastLoadedPath) return
+    // can retry. A `reloadNonce` bump (same path, new nonce) is NOT a
+    // dedup: it means the file's bytes changed in place (deface/revert),
+    // so fall through and reload.
+    if (currentPath === lastLoadedPath && currentNonce === lastLoadedNonce)
+      return
     if (pathToAssetUrl === null) return
     // Drop any pending profile observation for the previous load —
     // the new load supersedes it. Pairs with the cleanup in
     // onDestroy and the on-success listener-remove inside the
     // perfFrame closure below. Audit P2.3.
     dropActiveProfile()
+    // Commit BOTH trackers only once we're actually loading (below the
+    // `pathToAssetUrl` null-guard) — audit 2026-07-12: committing the
+    // nonce above the guard would swallow a reload bump that arrived
+    // while the asset resolver was transiently null.
     lastLoadedPath = currentPath
+    lastLoadedNonce = currentNonce
     const myToken = ++loadToken
     volumeError = null
     loadingVolume = true
@@ -1242,7 +1271,7 @@
         count, so it flips true only after the 4D volume hydrates (brief
         no-op for a rare 4D file); the execution-layer guard is the floor.
       -->
-      <DefaceControl {path} />
+      <DefaceControl {path} onRunningChange={onDefaceRunningChange} />
     {/if}
   </div>
 

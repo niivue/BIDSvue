@@ -6,10 +6,12 @@
 // after a successful run. New tools land here without changing the
 // orchestrator's dispatch path.
 //
-// "Defacing" is overloaded in the literature. The sidecar tool masks
+// "Defacing" is overloaded in the literature. The sidecar tools mask
 // the face region by registering an avg152T1 template + mask to the
-// subject: `allineate` (niimath `-robustfov -deface`, 12-DOF affine).
-// The WebGPU mindgrab tools brain-mask instead. New tools hook into
+// subject via niimath `-deface` (12-DOF affine): `allineate` (default
+// fast engine), `allineate-robust` (`-robustfov` neck-crop first), and
+// `allineate-afni` (`-cost hel`, the AFNI Hellinger engine). The WebGPU
+// mindgrab tools brain-mask instead. New tools hook into
 // this same descriptor shape when they're wired up. (The GPL
 // `spm_coreg` 6-DOF `-spm_deface` path was removed so BIDSvue ships a
 // BSD-only niimath; see git log.)
@@ -30,8 +32,12 @@
  * operations-log entry's details. Bumped when the algorithm changes
  * in a way users should re-deface for.
  *
- * - `allineate` — niimath `-robustfov -deface` (12-DOF affine, the AFNI
- *   allineate algorithm) via the bundled niimath sidecar.
+ * - `allineate` — niimath `-deface` (12-DOF affine, default fast engine)
+ *   via the bundled niimath sidecar.
+ * - `allineate-robust` — same, with `-robustfov` chained first to crop the
+ *   neck/inferior slices before registration.
+ * - `allineate-afni` — same default engine but `-cost hel` (AFNI-style
+ *   Hellinger cost, the ordinary AFNI allineate engine — slower, no fast path).
  * - `mindgrab` — tinygrad WebGPU brain-mask model, 0 mm native-space dilation (M11).
  * - `mindgrab8` — same model, 8 mm niimath dilation pass (M11).
  * - `mindgrab8robust` — same as `mindgrab8` but the source is first cropped
@@ -40,12 +46,17 @@
  */
 export type DefaceToolId =
   | 'allineate'
+  | 'allineate-robust'
+  | 'allineate-afni'
   | 'mindgrab'
   | 'mindgrab8'
   | 'mindgrab8robust'
 
 /** IDs of `kind: 'sidecar'` tools (run a native binary via Rust command). */
-export type SidecarDefaceToolId = Extract<DefaceToolId, 'allineate'>
+export type SidecarDefaceToolId = Extract<
+  DefaceToolId,
+  'allineate' | 'allineate-robust' | 'allineate-afni'
+>
 
 /** IDs of `kind: 'webgpu'` tools (run in-process via tinygrad WGSL). */
 export type WebGpuDefaceToolId = Extract<
@@ -147,19 +158,46 @@ export interface WebGpuDefaceTool {
 /** Tool metadata used by the executor + UI. */
 export type DefaceTool = SidecarDefaceTool | WebGpuDefaceTool
 
+/** Shared bundled atlas inputs for every allineate variant. */
+const ALLINEATE_INPUTS = {
+  template: 'common/avg152T1.nii.gz',
+  mask: 'common/avg152T1mask.nii.gz',
+} as const
+
 /**
- * niimath `-deface` (the AFNI allineate algorithm, 12-DOF affine),
- * preceded by `-robustfov` to crop the neck before registration.
- * Warps the avg152T1 template + mask to the subject and masks the
- * face region. Runs via the bundled `niimath` sidecar.
+ * niimath `-deface` (12-DOF affine), the DEFAULT fast engine. Warps the
+ * avg152T1 template + mask to the subject and masks the face region. Runs
+ * via the bundled `niimath` sidecar.
  *
- *   niimath <input> -robustfov -deface <template> <mask> <output>
+ *   niimath <input> -deface <template> <mask> <output>
  */
 export const TOOL_ALLINEATE: SidecarDefaceTool = {
   kind: 'sidecar',
   id: 'allineate',
   label: 'allineate',
-  description: 'niimath robustfov + allineate 12-DOF affine deface',
+  description: 'niimath allineate 12-DOF affine deface (default fast engine)',
+  binaryBasename: 'niimath',
+  argv: ['{input}', '-deface', '{template}', '{mask}', '{output}'],
+  inputs: ALLINEATE_INPUTS,
+  deidEntry: {
+    CodingSchemeDesignator: 'BIDSvue',
+    CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-V1',
+    CodeMeaning: 'BIDSvue allineate deface',
+  },
+}
+
+/**
+ * Same as `TOOL_ALLINEATE` but chains niimath `-robustfov` before `-deface`
+ * to crop the neck/inferior slices before registration (steadier fit on
+ * scans with a long neck / large FOV).
+ *
+ *   niimath <input> -robustfov -deface <template> <mask> <output>
+ */
+export const TOOL_ALLINEATE_ROBUST: SidecarDefaceTool = {
+  kind: 'sidecar',
+  id: 'allineate-robust',
+  label: 'allineate-robust',
+  description: 'niimath robustfov neck-crop + allineate 12-DOF affine deface',
   binaryBasename: 'niimath',
   argv: [
     '{input}',
@@ -169,14 +207,42 @@ export const TOOL_ALLINEATE: SidecarDefaceTool = {
     '{mask}',
     '{output}',
   ],
-  inputs: {
-    template: 'common/avg152T1.nii.gz',
-    mask: 'common/avg152T1mask.nii.gz',
-  },
+  inputs: ALLINEATE_INPUTS,
   deidEntry: {
     CodingSchemeDesignator: 'BIDSvue',
-    CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-V1',
-    CodeMeaning: 'BIDSvue allineate skull-strip deface',
+    CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-ROBUST-V1',
+    CodeMeaning: 'BIDSvue allineate deface (robustfov neck crop)',
+  },
+}
+
+/**
+ * Same `-deface` but with `-cost hel` — the AFNI-style Hellinger cost, i.e.
+ * the ordinary AFNI allineate engine (slower, no fast path). For subjects
+ * where the default fast engine misregisters.
+ *
+ *   niimath <input> -deface <template> <mask> -cost hel <output>
+ */
+export const TOOL_ALLINEATE_AFNI: SidecarDefaceTool = {
+  kind: 'sidecar',
+  id: 'allineate-afni',
+  label: 'allineate-afni',
+  description:
+    'niimath allineate deface, AFNI-style Hellinger cost (-cost hel)',
+  binaryBasename: 'niimath',
+  argv: [
+    '{input}',
+    '-deface',
+    '{template}',
+    '{mask}',
+    '-cost',
+    'hel',
+    '{output}',
+  ],
+  inputs: ALLINEATE_INPUTS,
+  deidEntry: {
+    CodingSchemeDesignator: 'BIDSvue',
+    CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-AFNI-V1',
+    CodeMeaning: 'BIDSvue allineate deface (AFNI Hellinger cost)',
   },
 }
 
@@ -252,6 +318,8 @@ export const TOOL_MINDGRAB8ROBUST: WebGpuDefaceTool = {
  */
 export const DEFACE_TOOLS: readonly DefaceTool[] = [
   TOOL_ALLINEATE,
+  TOOL_ALLINEATE_ROBUST,
+  TOOL_ALLINEATE_AFNI,
   TOOL_MINDGRAB,
   TOOL_MINDGRAB8,
   TOOL_MINDGRAB8ROBUST,

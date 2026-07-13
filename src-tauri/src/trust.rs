@@ -17,9 +17,10 @@
 //!     entries keyed by 256-bit base64url-encoded random ids. Bound to
 //!     a path; valid for any path equal to or under the bound path
 //!     (handles composed paths like `import destDir = parent + name`).
-//!     5-minute TTL is defense-in-depth — tokens are minted in response
-//!     to a user gesture and consumed within seconds in the happy path.
-//!     Not persisted across restarts.
+//!     30-minute TTL (TOKEN_TTL) is defense-in-depth — tokens are minted
+//!     in response to a user gesture and consumed within seconds in the
+//!     happy path; the wider window covers a long import-wizard form-fill
+//!     without a false-positive expiry. Not persisted across restarts.
 //!
 //!   * **Trust set file.** JSON array of absolute paths at
 //!     `<app_data_dir>/trust/trusted_dataset_roots.json`. Rust-managed
@@ -38,13 +39,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How long a token remains valid after minting.
 ///
-/// 5 minutes is well past the longest legitimate picker → widen
-/// round-trip (typically < 1 s; the import wizard chains picker calls
-/// so the parent token might survive a minute or two while the user
-/// fills the form). A shorter TTL would risk false-positive expiry for
-/// careful users; a longer one would broaden the attack window if the
-/// renderer was compromised mid-flow.
-const TOKEN_TTL: Duration = Duration::from_secs(5 * 60);
+/// The picker → widen round-trip is typically < 1 s, but the import
+/// wizard holds the source + destination-parent tokens across the WHOLE
+/// form-fill (subject/task/session/power-line/authors/license, plus
+/// reading and distraction) and only consumes them when the user clicks
+/// Import. The original 5 min was well short of a realistic MEG/DICOM
+/// wizard session and produced false-positive `token expired` failures
+/// that forced the user to re-pick both folders (reported 2026-07-06 for
+/// the ezBIDS MEG importer). 30 min covers a careful session while
+/// keeping picked-path authorizations bounded — the token only widens
+/// scope for a path the user explicitly chose in a native dialog, and a
+/// compromised-renderer window of 30 min over that specific path is an
+/// accepted tradeoff for not breaking a normal import. The renderer also
+/// maps an expiry into a clear "re-pick" message (Import.svelte) so a
+/// genuine expiry is self-service, not a dead end.
+const TOKEN_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// In-memory record of a minted token's bound path + expiry.
 struct TrustToken {
@@ -337,7 +346,7 @@ impl TrustStore {
     /// but where the original token may have expired during the
     /// long-running operation. The native DataLad clone is the
     /// motivating case: a multi-GB clone can take longer than the
-    /// 5-minute token TTL, so re-validating the original token after
+    /// 30-minute token TTL, so re-validating the original token after
     /// the clone resolves would falsely reject a legitimate, just-
     /// completed operation. The caller has already validated the token
     /// at command entry; the action ran with that authorization;

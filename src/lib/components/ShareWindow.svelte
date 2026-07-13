@@ -13,7 +13,7 @@
 
   import { datasetStore } from '$lib/state/dataset.svelte'
   import { appView } from '$lib/state/view.svelte'
-  import { shareBackends } from '$lib/share/registry'
+  import { pickableShareBackends, shareBackends } from '$lib/share/registry'
   import { setOpenDatasetResolver as setBrainlifeOpenDatasetResolver } from '$lib/share/brainlife/backend'
   import { setOpenDatasetResolver as setEbrainsOpenDatasetResolver } from '$lib/share/ebrains/backend'
   import {
@@ -53,12 +53,32 @@
   setOpenNeuroOpenDatasetResolver(resolveOpenDataset)
   setEbrainsOpenDatasetResolver(resolveOpenDataset)
 
+  // `backends` is the RESOLUTION list (includes hidden-but-wired backends
+  // like EBRAINS) so an existing link still resolves its backend for the
+  // linked view. `pickable` is what the UI offers as tiles + auth-probes —
+  // EBRAINS is hidden from it (GDPR; see registry.ts). Un-hiding is a
+  // one-line change there, no change here.
   const backends: ShareBackend[] = shareBackends()
+  const pickable: ShareBackend[] = pickableShareBackends()
   let statuses = $state<Map<ShareBackendId, AuthStatus>>(new Map())
   let selectedId = $state<ShareBackendId | null>(
-    backends.length > 0 ? backends[0].id : null,
+    pickable.length > 0 ? pickable[0].id : null,
   )
   let link = $state<ShareLink | null>(null)
+  // What the rail SHOWS + what we auth-probe: the pickable backends PLUS an
+  // EXISTING link's backend even if that backend is hidden (a parked EBRAINS
+  // link). Without this the linked read-only view was unreachable — the rail
+  // had no EBRAINS row and its status defaulted to signed-out (audit
+  // 2026-07-12). A hidden backend appears ONLY once a link to it exists, so
+  // new shares still can't pick it.
+  const shownBackends = $derived.by(() => {
+    const linkedId = link?.backend
+    if (linkedId === undefined || pickable.some((b) => b.id === linkedId)) {
+      return pickable
+    }
+    const linked = backends.find((b) => b.id === linkedId)
+    return linked !== undefined ? [...pickable, linked] : pickable
+  })
   /** Set when `readShareState` fails (corrupt / hand-edited file).
    * The panel hides the upload form and renders a blocking banner so
    * the user can't create a duplicate remote project on top of an
@@ -104,8 +124,8 @@
     close()
   }
 
-  async function refreshStatuses(): Promise<void> {
-    const myId = ++loadId
+  async function refreshStatuses(myId: number = ++loadId): Promise<void> {
+    if (myId !== loadId || !appView.shareOpen) return
     // Parallel + per-backend timeout + per-backend commit. brainlife,
     // openneuro and EBRAINS are all network-bound for getAuthStatus,
     // so a single hung backend (DNS-blackholed, behind a captive
@@ -122,7 +142,9 @@
     // arrives or the timeout fires.
     statuses = new Map()
     await Promise.all(
-      backends.map(async (backend) => {
+      // Probe the SHOWN backends — pickable, plus an existing hidden-backend
+      // link so its linked view resolves a real auth status (not signed-out).
+      shownBackends.map(async (backend) => {
         let resolved: AuthStatus
         // Keep a handle to the timeout timer so we can clear it as
         // soon as `getAuthStatus()` resolves. Without this, a fast
@@ -194,13 +216,23 @@
       }
       link = null
       linkLoadError = null
+      if (!pickable.some((backend) => backend.id === selectedId)) {
+        selectedId = pickable[0]?.id ?? null
+      }
     } finally {
       unlinkBusy = false
     }
   }
 
-  async function refreshLink(): Promise<void> {
-    if (datasetRoot === null) {
+  // `myId` is the generation token. Default to a fresh `++loadId` for
+  // standalone callers (the link-refresh button); the mount effect passes ONE
+  // shared token so the link+status sequence is atomic (audit 2026-07-12
+  // Finding 6 — previously refreshLink READ loadId while refreshStatuses
+  // BUMPED it, so a concurrent reopen could commit the wrong dataset's link or
+  // run status probes into a closed modal).
+  async function refreshLink(myId: number = ++loadId): Promise<void> {
+    const root = datasetRoot
+    if (root === null) {
       // Clear every link-related banner so a corrupt pending file or
       // failed dismiss attempt from the previous dataset doesn't
       // survive into the no-dataset placeholder. Without this the
@@ -214,13 +246,15 @@
       pendingIntentDismissError = null
       return
     }
-    const myId = loadId
     try {
-      const state = await readShareState(datasetRoot)
+      const state = await readShareState(root)
       if (myId !== loadId) return
       if (state === null) {
         link = null
         linkLoadError = null
+        if (!pickable.some((backend) => backend.id === selectedId)) {
+          selectedId = pickable[0]?.id ?? null
+        }
       } else {
         link = state.link
         linkLoadError = null
@@ -234,6 +268,7 @@
         }
       }
     } catch (err) {
+      if (myId !== loadId) return
       // share.json is unreadable but probably present (corrupt /
       // hand-edited / schema mismatch). Set linkLoadError so the
       // panel renders a blocking banner instead of the upload form —
@@ -255,8 +290,9 @@
     // check on its own is too weak — a stale OpenNeuro link for
     // dataset A would hide a pending OpenNeuro intent for dataset B.
     // `intentMatchesShareLink` requires backend AND remote-id match.
+    if (myId !== loadId) return
     try {
-      const intent = await readIntent(datasetRoot)
+      const intent = await readIntent(root)
       if (myId !== loadId) return
       pendingIntentLoadError = null
       if (intent === null) {
@@ -267,6 +303,7 @@
         pendingIntent = intent
       }
     } catch (err) {
+      if (myId !== loadId) return
       // Audit P1.3 (2026-05-25): a torn / hand-edited
       // share.pending.json was previously silently dropped. Now it
       // surfaces a blocking banner so the user can't kick off a new
@@ -309,8 +346,17 @@
       loadId++
       return
     }
-    void refreshStatuses()
-    void refreshLink()
+    // ONE generation token for the whole sequence (audit 2026-07-12 Finding
+    // 6). Resolve the link FIRST — so `shownBackends` already includes an
+    // existing hidden-backend link before we probe (else the linked EBRAINS
+    // view renders signed-out) — then re-check the token so a close/reopen
+    // during the link read aborts BEFORE firing status network probes.
+    const myId = ++loadId
+    void (async () => {
+      await refreshLink(myId)
+      if (myId !== loadId) return
+      await refreshStatuses(myId)
+    })()
   })
 </script>
 
@@ -451,7 +497,7 @@
         {/if}
       </div>
     {/if}
-    {#if backends.length === 0}
+    {#if pickable.length === 0}
       <p class="placeholder">{$_('share.noBackends')}</p>
     {:else if datasetRoot === null}
       <p class="placeholder">{$_('share.noDataset')}</p>
@@ -476,7 +522,7 @@
       <div class="layout">
         <aside class="rail">
           <ShareBackendList
-            {backends}
+            backends={shownBackends}
             {statuses}
             {selectedId}
             onSelect={(id) => {

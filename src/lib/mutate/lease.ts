@@ -236,6 +236,7 @@ export async function acquireLease(
   // the stat resolves; assertTargetUnchanged() reads it via closure so
   // it sees the populated value when called later.
   let snapshot: FreshnessSnapshot | null = null
+  let snapshotCaptured = false
   let released = false
   const target = opts.scope.kind === 'file' ? opts.scope.path : null
   const lease: MutationLease = {
@@ -249,10 +250,20 @@ export async function acquireLease(
       // unrelated lease's write as a "drift" and throw spuriously.
       // Matches `release()`'s idempotency contract.
       if (released) return
-      if (snapshot === null) return
+      if (!snapshotCaptured) return
       if (target === null) return
       if (!opts.fs) return
       const current = await opts.fs.stat(target)
+      if (snapshot === null) {
+        if (current !== null) {
+          throw new TargetMutatedError(
+            target,
+            { mtimeMs: null, size: null },
+            current,
+          )
+        }
+        return
+      }
       if (current === null) {
         throw new TargetMutatedError(target, snapshot, {
           mtimeMs: null,
@@ -281,6 +292,7 @@ export async function acquireLease(
   if (opts.snapshotFreshness && target !== null && opts.fs) {
     try {
       snapshot = await opts.fs.stat(target)
+      snapshotCaptured = true
     } catch (err) {
       lease.release()
       throw err

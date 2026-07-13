@@ -62,7 +62,7 @@ describe('applyDeidState', () => {
       {
         CodingSchemeDesignator: 'BIDSvue',
         CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-V1',
-        CodeMeaning: 'BIDSvue allineate skull-strip deface',
+        CodeMeaning: 'BIDSvue allineate deface',
       },
     ])
   })

@@ -51,10 +51,15 @@ function isDevOrTest(): boolean {
   return false
 }
 
-/** Backends visible in the picker for the current build.
+/** All registered share backends for the current build.
  *
- * Brainlife / OpenNeuro / EBRAINS are all shipped in the beta. The
- * dev-only stub stays gated behind dev/test builds.
+ * Brainlife / OpenNeuro / EBRAINS are all wired in the beta. The
+ * dev-only stub stays gated behind dev/test builds. This is the
+ * RESOLUTION list — `findShareBackend` and any lookup of an existing
+ * link's backend go through it, so a backend can be hidden from the
+ * picker (see `pickableShareBackends`) yet still resolve for a
+ * previously-linked dataset. Keep EBRAINS here so its wiring stays
+ * intact even while the tile is hidden.
  */
 export function shareBackends(): ShareBackend[] {
   const out: ShareBackend[] = []
@@ -65,10 +70,32 @@ export function shareBackends(): ShareBackend[] {
   return out
 }
 
+/**
+ * Backend ids intentionally HIDDEN from the Share picker but kept fully
+ * wired (registered + resolvable via `shareBackends`/`findShareBackend`).
+ *
+ * EBRAINS is hidden as of 2026-07-06: EU GDPR means the EBRAINS Knowledge
+ * Graph repository cannot store imaging data, so we don't offer new EBRAINS
+ * shares. The entire `src/lib/share/ebrains/` port (auth, openMINDS
+ * conversion, upload) is deliberately left in place — un-hide by removing
+ * `'ebrains'` from this set (no other change needed). A previously-linked
+ * EBRAINS dataset still resolves its backend (linked view renders); only
+ * the pickable tile is suppressed.
+ */
+const HIDDEN_BACKEND_IDS: ReadonlySet<ShareBackendId> = new Set(['ebrains'])
+
+/** Backends offered as pickable tiles in the Share modal — the resolution
+ * list minus any hidden backend (see `HIDDEN_BACKEND_IDS`). The UI renders
+ * + auth-probes THIS list; resolution of an existing link still uses the
+ * full `shareBackends()`. */
+export function pickableShareBackends(): ShareBackend[] {
+  return shareBackends().filter((b) => !HIDDEN_BACKEND_IDS.has(b.id))
+}
+
 /** Lookup helper for components that already know which backend they
  * want to interact with. Returns `null` for unknown / gated ids
  * rather than throwing so the UI can render a "backend not
- * available" message. */
+ * available" message. Resolves hidden-but-wired backends too. */
 export function findShareBackend(id: ShareBackendId): ShareBackend | null {
   return shareBackends().find((b) => b.id === id) ?? null
 }

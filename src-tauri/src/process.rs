@@ -416,32 +416,63 @@ struct DefaceArgvParts {
     output: PathBuf,
 }
 
-/// Validate the niimath deface argv SHAPE — tool id → op flag, arg count, flag
-/// positions, and that every path is an absolute `.nii`/`.nii.gz`. App-free.
+/// The FIXED niimath flags each allineate deface variant wraps the
+/// `-deface <template> <mask>` core with. All three are `-deface` runs; they
+/// differ only in a fixed prefix (chained before `-deface`) and a fixed suffix
+/// (deface sub-options after the mask). Returning `Err` for an unknown id is
+/// the sole allowlist of sidecar deface tools — the renderer cannot inject
+/// arbitrary flags because these arrays are hardcoded here (security boundary).
+///
+///   allineate         : niimath <in> -deface <tmpl> <mask> <out>            (default fast engine)
+///   allineate-robust  : niimath <in> -robustfov -deface <tmpl> <mask> <out> (neck crop first)
+///   allineate-afni    : niimath <in> -deface <tmpl> <mask> -cost hel <out>  (AFNI Hellinger)
+fn deface_variant(
+    tool_id: &str,
+) -> Result<(&'static [&'static str], &'static [&'static str]), String> {
+    match tool_id {
+        "allineate" => Ok((&[], &[])),
+        "allineate-robust" => Ok((&["-robustfov"], &[])),
+        "allineate-afni" => Ok((&[], &["-cost", "hel"])),
+        _ => Err(format!(
+            "run_deface_process: unknown sidecar deface tool \"{tool_id}\""
+        )),
+    }
+}
+
+/// Validate the niimath deface argv SHAPE — tool id → variant flags, arg count,
+/// flag positions, and that every path is an absolute `.nii`/`.nii.gz`. App-free.
 fn validate_deface_argv(tool_id: &str, argv: &[String]) -> Result<DefaceArgvParts, String> {
-    // The sidecar defacer runs the niimath binary with the `-deface` op flag.
-    let op_flag = match tool_id {
-        "allineate" => "-deface",
-        _ => {
-            return Err(format!(
-                "run_deface_process: unknown sidecar deface tool \"{tool_id}\""
-            ))
-        }
-    };
-    if argv.len() != 6 {
+    let (pre, post) = deface_variant(tool_id)?;
+    // Layout: <input> [pre..] -deface <template> <mask> [post..] <output>
+    let expected_len = 1 + pre.len() + 1 + 2 + post.len() + 1;
+    if argv.len() != expected_len {
         return Err(format!(
-            "run_deface_process: niimath deface expects 6 args, got {}",
+            "run_deface_process: niimath deface tool \"{tool_id}\" expects {expected_len} args, got {}",
             argv.len()
         ));
     }
-    // niimath <input> -robustfov <op> <template> <mask> <output>
-    expect(argv, 1, "-robustfov", tool_id)?;
-    expect(argv, 2, op_flag, tool_id)?;
+    // Every fixed flag must be present at its exact position — this locks the
+    // argv to `-deface` (+ the variant's fixed `-robustfov` / `-cost hel`), so
+    // no arbitrary flag or cost value can ride in from the renderer.
+    let mut i = 1;
+    for flag in pre {
+        expect(argv, i, flag, tool_id)?;
+        i += 1;
+    }
+    expect(argv, i, "-deface", tool_id)?;
+    let template_idx = i + 1;
+    let mask_idx = i + 2;
+    i = mask_idx + 1;
+    for flag in post {
+        expect(argv, i, flag, tool_id)?;
+        i += 1;
+    }
+    let output_idx = i;
     Ok(DefaceArgvParts {
         input: validate_nifti_path(&argv[0], "input")?,
-        template: validate_nifti_path(&argv[3], "template")?,
-        mask: validate_nifti_path(&argv[4], "mask")?,
-        output: validate_nifti_path(&argv[5], "output")?,
+        template: validate_nifti_path(&argv[template_idx], "template")?,
+        mask: validate_nifti_path(&argv[mask_idx], "mask")?,
+        output: validate_nifti_path(&argv[output_idx], "output")?,
     })
 }
 
@@ -519,14 +550,7 @@ fn resolve_deface_spawn(
     expected_mask: &Path,
     cache_dir: &Path,
 ) -> Result<(Vec<String>, PathBuf), String> {
-    let op_flag = match tool_id {
-        "allineate" => "-deface",
-        _ => {
-            return Err(format!(
-                "run_deface_process: unknown sidecar deface tool \"{tool_id}\""
-            ))
-        }
-    };
+    let (pre, post) = deface_variant(tool_id)?;
     let root_canon = canonicalize_existing(dataset_root, "datasetRoot")?;
     let input_canon = canonicalize_existing(&parts.input, "deface input")?;
     if !input_canon.starts_with(&root_canon) {
@@ -564,14 +588,21 @@ fn resolve_deface_spawn(
     let mask_canon = canonicalize_existing(expected_mask, "mask")?;
     // Hand niimath verbatim-stripped paths (Windows `\\?\` prefix removed);
     // the canonical PathBufs above already passed every containment check.
-    let argv = vec![
-        child_path_string(&input_canon),
-        "-robustfov".into(),
-        op_flag.into(),
-        child_path_string(&template_canon),
-        child_path_string(&mask_canon),
-        child_path_string(&output_canon),
-    ];
+    // Rebuild the exact per-variant argv from CANONICAL paths + the fixed
+    // variant flags — zero raw renderer bytes reach the child for the flags.
+    // Layout: <input> [pre..] -deface <template> <mask> [post..] <output>
+    let mut argv: Vec<String> = Vec::with_capacity(6 + pre.len() + post.len());
+    argv.push(child_path_string(&input_canon));
+    for flag in pre {
+        argv.push((*flag).into());
+    }
+    argv.push("-deface".into());
+    argv.push(child_path_string(&template_canon));
+    argv.push(child_path_string(&mask_canon));
+    for flag in post {
+        argv.push((*flag).into());
+    }
+    argv.push(child_path_string(&output_canon));
     Ok((argv, simplify_verbatim(&out_parent_canon)))
 }
 
@@ -1652,32 +1683,74 @@ mod tests {
             .collect()
     }
 
-    // niimath <input> -robustfov <op> <template> <mask> <output>
-    fn deface_argv(input: &str, op: &str, output: &str) -> Vec<String> {
+    // Default allineate: niimath <input> -deface <template> <mask> <output>
+    fn deface_argv(input: &str, output: &str) -> Vec<String> {
         strings_abs(&[
             input,
-            "-robustfov",
-            op,
+            "-deface",
             "/res/avg152T1.nii.gz",
             "/res/avg152T1mask.nii.gz",
             output,
         ])
     }
 
+    // allineate-robust: niimath <input> -robustfov -deface <template> <mask> <output>
+    fn deface_argv_robust(input: &str, output: &str) -> Vec<String> {
+        strings_abs(&[
+            input,
+            "-robustfov",
+            "-deface",
+            "/res/avg152T1.nii.gz",
+            "/res/avg152T1mask.nii.gz",
+            output,
+        ])
+    }
+
+    // allineate-afni: niimath <input> -deface <template> <mask> -cost hel <output>
+    fn deface_argv_afni(input: &str, output: &str) -> Vec<String> {
+        strings_abs(&[
+            input,
+            "-deface",
+            "/res/avg152T1.nii.gz",
+            "/res/avg152T1mask.nii.gz",
+            "-cost",
+            "hel",
+            output,
+        ])
+    }
+
     #[test]
-    fn validate_deface_argv_accepts_allineate() {
+    fn validate_deface_argv_accepts_all_three_allineate_variants() {
+        // Default (5-arg, no robustfov, no cost).
         let a = validate_deface_argv(
             "allineate",
-            &deface_argv("/ds/sub-01/anat/t1.nii.gz", "-deface", "/cache/out.nii.gz"),
+            &deface_argv("/ds/sub-01/anat/t1.nii.gz", "/cache/out.nii.gz"),
         )
         .expect("allineate argv valid");
         assert_eq!(a.input, absp("/ds/sub-01/anat/t1.nii.gz"));
+        assert_eq!(a.template, absp("/res/avg152T1.nii.gz"));
+        assert_eq!(a.mask, absp("/res/avg152T1mask.nii.gz"));
         assert_eq!(a.output, absp("/cache/out.nii.gz"));
-        // The GPL `spm_coreg` / `-spm_deface` tool was removed; it is now
-        // an unknown tool id.
+        // Robust (6-arg, -robustfov prefix) resolves to the same paths.
+        let r = validate_deface_argv(
+            "allineate-robust",
+            &deface_argv_robust("/ds/t1.nii.gz", "/cache/out.nii.gz"),
+        )
+        .expect("allineate-robust argv valid");
+        assert_eq!(r.template, absp("/res/avg152T1.nii.gz"));
+        assert_eq!(r.output, absp("/cache/out.nii.gz"));
+        // AFNI (7-arg, -cost hel suffix) resolves to the same paths.
+        let f = validate_deface_argv(
+            "allineate-afni",
+            &deface_argv_afni("/ds/t1.nii.gz", "/cache/out.nii.gz"),
+        )
+        .expect("allineate-afni argv valid");
+        assert_eq!(f.mask, absp("/res/avg152T1mask.nii.gz"));
+        assert_eq!(f.output, absp("/cache/out.nii.gz"));
+        // The GPL `spm_coreg` tool was removed — now an unknown tool id.
         assert!(validate_deface_argv(
             "spm_coreg",
-            &deface_argv("/ds/sub-01/anat/t1.nii", "-spm_deface", "/cache/out.nii")
+            &deface_argv("/ds/sub-01/anat/t1.nii", "/cache/out.nii")
         )
         .is_err());
     }
@@ -1686,7 +1759,7 @@ mod tests {
     fn validate_deface_argv_rejects_unknown_tool() {
         let err = validate_deface_argv(
             "mindgrab",
-            &deface_argv("/ds/t1.nii.gz", "-deface", "/cache/out.nii.gz"),
+            &deface_argv("/ds/t1.nii.gz", "/cache/out.nii.gz"),
         )
         .unwrap_err();
         assert!(err.contains("unknown sidecar deface tool"), "{err}");
@@ -1694,28 +1767,38 @@ mod tests {
 
     #[test]
     fn validate_deface_argv_rejects_wrong_op_flag_for_tool() {
-        // allineate must use -deface, not -spm_deface.
-        let err = validate_deface_argv(
-            "allineate",
-            &deface_argv("/ds/t1.nii.gz", "-spm_deface", "/cache/out.nii.gz"),
-        )
-        .unwrap_err();
+        // allineate's op must be -deface; swapping it out fails the position check.
+        let mut argv = deface_argv("/ds/t1.nii.gz", "/cache/out.nii.gz");
+        argv[1] = "-spm_deface".into();
+        let err = validate_deface_argv("allineate", &argv).unwrap_err();
         assert!(err.contains("-deface"), "{err}");
     }
 
     #[test]
-    fn validate_deface_argv_rejects_wrong_arg_count_and_missing_robustfov() {
+    fn validate_deface_argv_rejects_wrong_arg_count_and_missing_variant_flags() {
+        // Wrong count for the default variant (expects 5).
         assert!(
             validate_deface_argv("allineate", &strings(&["/ds/t1.nii.gz"]))
                 .unwrap_err()
-                .contains("expects 6 args")
+                .contains("expects 5 args")
         );
-        // 6 args but argv[1] is not -robustfov.
-        let mut argv = deface_argv("/ds/t1.nii.gz", "-deface", "/cache/out.nii.gz");
+        // Feeding the 6-arg robust shape to the 5-arg default variant fails count.
+        assert!(validate_deface_argv(
+            "allineate",
+            &deface_argv_robust("/ds/t1.nii.gz", "/cache/out.nii.gz")
+        )
+        .unwrap_err()
+        .contains("expects 5 args"));
+        // allineate-robust with argv[1] not -robustfov.
+        let mut argv = deface_argv_robust("/ds/t1.nii.gz", "/cache/out.nii.gz");
         argv[1] = "-notrobustfov".into();
-        assert!(validate_deface_argv("allineate", &argv)
+        assert!(validate_deface_argv("allineate-robust", &argv)
             .unwrap_err()
             .contains("-robustfov"));
+        // allineate-afni with a tampered cost value (must be exactly `hel`).
+        let mut argv = deface_argv_afni("/ds/t1.nii.gz", "/cache/out.nii.gz");
+        argv[5] = "lpc".into();
+        assert!(validate_deface_argv("allineate-afni", &argv).is_err());
     }
 
     fn deface_parts(input: &str, output: &str) -> DefaceArgvParts {
@@ -1799,16 +1882,15 @@ mod tests {
     #[test]
     fn validate_deface_argv_rejects_non_nifti_and_relative_paths() {
         // Non-nifti input.
-        assert!(validate_deface_argv(
-            "allineate",
-            &deface_argv("/ds/t1.txt", "-deface", "/cache/out.nii.gz")
-        )
-        .unwrap_err()
-        .contains("input must be a .nii"));
+        assert!(
+            validate_deface_argv("allineate", &deface_argv("/ds/t1.txt", "/cache/out.nii.gz"))
+                .unwrap_err()
+                .contains("input must be a .nii")
+        );
         // Relative input (validate_abs_path rejects).
         assert!(validate_deface_argv(
             "allineate",
-            &deface_argv("sub-01/t1.nii.gz", "-deface", "/cache/out.nii.gz")
+            &deface_argv("sub-01/t1.nii.gz", "/cache/out.nii.gz")
         )
         .is_err());
     }
@@ -2058,13 +2140,13 @@ mod tests {
         };
         let (argv, cwd) = resolve_deface_spawn("allineate", &parts, &ds_link, &tmpl, &mask, &cache)
             .expect("legit symlinked root resolves");
-        assert_eq!(argv.len(), 6);
+        // Default variant: <input> -deface <tmpl> <mask> <output> (5 args).
+        assert_eq!(argv.len(), 5);
         // input canonicalizes THROUGH the picker-root symlink to the real file.
         assert_eq!(argv[0], t1.canonicalize().unwrap().to_string_lossy());
-        assert_eq!(argv[1], "-robustfov");
-        assert_eq!(argv[2], "-deface");
+        assert_eq!(argv[1], "-deface");
         assert_eq!(
-            argv[5],
+            argv[4],
             cache
                 .canonicalize()
                 .unwrap()
@@ -2073,6 +2155,23 @@ mod tests {
         );
         // cwd is the CANONICAL output parent, not the raw one.
         assert_eq!(cwd, cache.canonicalize().unwrap());
+
+        // The robust + AFNI variants rebuild the fixed flags around the same
+        // canonical paths — <in> -robustfov -deface <t> <m> <out> and
+        // <in> -deface <t> <m> -cost hel <out>.
+        let (rargv, _) =
+            resolve_deface_spawn("allineate-robust", &parts, &ds_link, &tmpl, &mask, &cache)
+                .expect("robust resolves");
+        assert_eq!(rargv.len(), 6);
+        assert_eq!(rargv[1], "-robustfov");
+        assert_eq!(rargv[2], "-deface");
+        let (fargv, _) =
+            resolve_deface_spawn("allineate-afni", &parts, &ds_link, &tmpl, &mask, &cache)
+                .expect("afni resolves");
+        assert_eq!(fargv.len(), 7);
+        assert_eq!(fargv[1], "-deface");
+        assert_eq!(fargv[4], "-cost");
+        assert_eq!(fargv[5], "hel");
 
         // A NIfTI inside the dataset that symlinks OUTSIDE the root is refused.
         let secret = base.join("secret.nii.gz");

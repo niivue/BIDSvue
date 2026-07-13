@@ -24,6 +24,11 @@
   import { datasetStore } from '$lib/state/dataset.svelte'
   import { saveSidecar } from '$lib/state/actions'
   import {
+    clearDraft,
+    setDraft,
+    takeDraftIfFresh,
+  } from '$lib/state/editorDrafts.svelte'
+  import {
     TSV_MISSING,
     type ParsedTsv,
     appendBlankRow,
@@ -159,13 +164,37 @@
     pendingExternalReseed = null
     saveError = null
     parseError = null
-    dirty = false
     lastSeeded = { path, contents }
+    // Restore an unsaved draft (edits made before the user navigated to a
+    // paired member and back) IFF it's still based on the current disk
+    // bytes. A draft whose baseline no longer matches disk is stale — the
+    // file changed underneath it — so we drop it and seed from disk rather
+    // than let an old edit mask (and on Save overwrite) newer bytes.
+    // Restore a still-fresh draft, else seed from disk. The registry is a
+    // plain Map, so this read carries no reactive dependency on the persist
+    // effect's writes — the reseed reacts only to path / contents.
+    const seedText = takeDraftIfFresh(path, contents)?.text ?? contents
+    dirty = seedText !== contents
     try {
-      parsed = parseTsv(contents)
+      parsed = parseTsv(seedText)
     } catch (err) {
       parsed = null
       parseError = err instanceof Error ? err.message : String(err)
+    }
+  })
+
+  // Persist the buffer to the draft registry on every edit so it survives
+  // this component being torn down when the Preview switches to a paired
+  // member. Keyed by path; baseline is the disk text this edit is measured
+  // against. Cleared on save / discard / dataset close.
+  $effect(() => {
+    if (dirty && parsed !== null) {
+      try {
+        setDraft(path, serializeTsv(parsed), lastSeeded.contents)
+      } catch {
+        // A serialize failure shouldn't crash the editor; keep the last
+        // good draft rather than replacing it with nothing.
+      }
     }
   })
 
@@ -177,6 +206,7 @@
     parseError = null
     dirty = false
     lastSeeded = { path, contents: next }
+    clearDraft(path)
     try {
       parsed = parseTsv(next)
     } catch (err) {
@@ -446,6 +476,7 @@
       dirty = false
       pendingExternalReseed = null
       lastSeeded = { path, contents: text }
+      clearDraft(path)
     } catch (err) {
       saveError = err instanceof Error ? err.message : String(err)
     } finally {

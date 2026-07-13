@@ -25,11 +25,10 @@
   import { cachedDetectImporter } from '$lib/import/importerDetectionCache'
   import { tauriVersionProbe } from '$lib/import/importerDetectionTauri'
   import {
-    detectMneBids,
+    cachedDetectMneBids,
     detectMneEvents,
   } from '$lib/import/mneBidsDetectionTauri'
   import { toEventIdMap, validateEventRows } from '$lib/import/mneEventsFile'
-  import type { InterpreterInfo } from '$lib/import/pythonInterpreter'
   import { parseAuthorsInput } from '$lib/import/postpass/datasetDescription'
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { importDicoms, importMeg, importMneBids } from '$lib/state/actions'
@@ -66,8 +65,6 @@
   let mneEventRows = $state<Array<{ code: number; name: string }>>([])
   let mneEventsDetecting = $state(false)
   let mneEventsProbeError = $state<string | null>(null)
-  // Resolved interpreter (path + versions) for the trust-boundary line.
-  let mneInterpreter = $state<InterpreterInfo | null>(null)
 
   // convert_mne_sample.py MEG extras (optional user-picked files).
   let mneEmptyRoom = $state('')
@@ -157,8 +154,9 @@
   /**
    * Trusted-picker tokens (round-22 P1) for the paths the orchestrator
    * needs to widen scope for. Reset on every fresh pick; the
-   * tokens are only valid for ~5 min in Rust so a stale token from a
-   * long-idle wizard will fail validation — the user re-picks.
+   * tokens are only valid for ~30 min in Rust (TOKEN_TTL) so a stale
+   * token from a long-idle wizard will fail validation — the expiry is
+   * mapped to a clear re-pick message in the run handler's catch.
    *
    * Field-level path tokens are needed for paths handed to native
    * converters. The renderer may not read all of them itself, but Rust
@@ -675,9 +673,8 @@
         // --version` probe — route it through the dedicated Rust
         // interpreter probe instead of the generic version probe.
         if (cfg.id === 'mne-bids') {
-          void detectMneBids().then((result) => {
+          void cachedDetectMneBids().then((result) => {
             detection = { ...detection, [cfg.id]: result }
-            mneInterpreter = result.interpreter
           })
           continue
         }
@@ -1205,7 +1202,15 @@
       }
     } catch (err) {
       runState = 'error'
-      runError = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error ? err.message : String(err)
+      // A trusted-picker token expires after a bounded TTL (trust.rs).
+      // A long wizard session can outlive it, and the raw Rust string
+      // ("… token expired") is opaque — map it to an actionable re-pick
+      // hint. Matches the plain-English internal-error strings above
+      // (these aren't routed through $_ by existing convention).
+      runError = /token expired|unknown or expired token/.test(message)
+        ? 'Your folder selection expired for security. Please re-pick the source and the save-in folder, then import again.'
+        : message
     }
   }
 
@@ -1295,20 +1300,6 @@
         />
       </div>
       <p class="hint">{currentConfig.description}</p>
-      {#if isMneBids}
-        <p class="hint">{$_('importWizard.mnePrivacy')}</p>
-        {#if mneInterpreter !== null && mneInterpreter.path !== null}
-          <p class="hint">
-            {$_('importWizard.mneInterpreter', {
-              values: {
-                path: mneInterpreter.path,
-                mneBids: mneInterpreter.mneBidsVersion ?? '?',
-                mne: mneInterpreter.mneVersion ?? '?',
-              },
-            })}
-          </p>
-        {/if}
-      {/if}
       {#if selectedDetection !== null && !selectedDetection.available}
         <p class="field-error" role="alert">
           {$_('importWizard.toolNotDetected', {
@@ -1418,10 +1409,11 @@
         and any wrapper the user types would just sit above it as dead
         weight. Tools that opt into `datasetNameOptional: true`
         (pet2bids) keep the field visible with a hint that an empty
-        value imports directly into the "Save in" folder. The
-        destination preview below still renders either way. Status-dot
-        validation still applies — it's surfaced via the destination
-        preview's own clobber-detection error when present.
+        value imports directly into the "Save in" folder. The verbose
+        "New dataset will be created at: <path>" preview was removed as
+        redundant with the Save-in / name fields; the destination
+        clobber-detection error still renders below when the composed
+        target already exists.
       -->
       {#if !hidesNameField}
         <label class="row">
@@ -1449,11 +1441,6 @@
       {/if}
       {#if destClobberError !== null}
         <p class="field-error">{destClobberError}</p>
-      {/if}
-      {#if composedDest !== ''}
-        <p class="hint">
-          {$_('importWizard.destinationPreview', { values: { path: composedDest } })}
-        </p>
       {/if}
 
       <!--

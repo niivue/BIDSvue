@@ -80,7 +80,7 @@ function makeStubExecutor(opts: {
       const outputPath = argv[argv.length - 1]
       opts.recordedArgv.push(...argv)
       if (opts.recordedInput !== undefined) {
-        // niimath argv leads with {input}: `<input> -robustfov <op> ...`.
+        // niimath argv leads with {input}: `<input> -deface <tmpl> ...`.
         opts.recordedInput.value = argv[0]
       }
       await writeFile(outputPath, opts.payload)
@@ -144,7 +144,7 @@ describe('runDeface', () => {
       {
         CodingSchemeDesignator: 'BIDSvue',
         CodeValue: 'BIDSVUE-DEFACE-ALLINEATE-V1',
-        CodeMeaning: 'BIDSvue allineate skull-strip deface',
+        CodeMeaning: 'BIDSvue allineate deface',
       },
     ])
     expect(updatedSidecar.RepetitionTime).toBe(2)

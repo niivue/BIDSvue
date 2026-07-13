@@ -45,6 +45,15 @@ class DatasetStore {
    */
   revision = $state(0)
   /**
+   * Bumped to force the mounted NiivueViewer to reload the CURRENT volume
+   * without a full dataset rescan. Used by deface/revert (M7): the file's
+   * bytes changed in place but its path/identity did not, so the viewer's
+   * `path`-keyed load dedup wouldn't otherwise re-fire. Lets a mutation
+   * refresh just the image instead of rehydrating the whole tree/UI (the
+   * `openDataset` rescan resets selection + re-runs the validator = a flash).
+   */
+  viewerReloadNonce = $state(0)
+  /**
    * True only after a FINAL scan result has committed. Streaming
    * partials can make `dataset` visible early so Explorer paints quickly,
    * but snapshot consumers such as Dashboard must wait until the full
