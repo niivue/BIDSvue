@@ -16,10 +16,9 @@
 //   - Preflight every destination via `fs.exists`. If any exists,
 //     throw `StemFileExistsError` BEFORE the first rename runs.
 //   - Apply renames one at a time via `ctx.rename`. If a later rename
-//     throws, reverse-rename every companion already moved (best
-//     effort — a failed inverse-rename is swallowed so the original
-//     OSError still surfaces with the actionable signal). Then
-//     rethrow.
+//     throws, reverse-rename every companion already moved. If an inverse
+//     rename also fails, throw `StemFamilyIntegrityError` so callers cannot
+//     mistake a torn family for a cleanly rolled-back failure.
 //
 // Why we use `ctx.rename` (and not `ctx.fs.rename`) for both the
 // forward and the rollback renames: every rename participates in the
@@ -47,6 +46,17 @@ export class StemFileExistsError extends Error {
     super(`stem-move target already exists: ${destPath}`)
     this.name = 'StemFileExistsError'
     this.destPath = destPath
+  }
+}
+
+/** Base class for post-pass failures that require import-wide rollback. */
+export class PostPassIntegrityError extends Error {}
+
+/** Thrown when a mid-family failure could not be rolled back completely. */
+export class StemFamilyIntegrityError extends PostPassIntegrityError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'StemFamilyIntegrityError'
   }
 }
 
@@ -81,8 +91,8 @@ export interface MoveStemFilesOptions {
  *   - `StemFileExistsError` if any destination is already present.
  *     Preflight fires BEFORE any rename so the source family stays
  *     intact.
- *   - The original rename error (with the per-family rollback already
- *     attempted) when `ctx.rename` fails mid-loop.
+ *   - The original rename error after a complete per-family rollback.
+ *   - `StemFamilyIntegrityError` when that rollback is incomplete.
  *
  * The destination directory is created lazily (only when at least one
  * companion exists at the source and every preflight passed), so a
@@ -126,13 +136,7 @@ export async function moveStemFiles(
       done.push(pair)
     } catch (err) {
       // Roll back the companions already moved so the family stays whole.
-      // Best-effort: a failed inverse-rename is swallowed so the original
-      // error surfaces unchanged. Audit can reconstruct the partial state
-      // from operations.log. Internal audit 2026-06-20 P3: emit a
-      // `console.warn` on each rollback failure so operators see "rollback
-      // partially failed" instead of debugging a half-moved family with
-      // no breadcrumb at all. The warning carries the path pair that
-      // could not be restored.
+      let rollbackOk = true
       for (let i = done.length - 1; i >= 0; i--) {
         const undo = done[i]
         try {
@@ -141,10 +145,17 @@ export async function moveStemFiles(
             rollbackOf: 'moveStemFiles',
           })
         } catch (rollbackErr) {
+          rollbackOk = false
           console.warn(
             `[moveStemFiles] rollback failed for "${undo.to}" → "${undo.from}": ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
           )
         }
+      }
+      if (!rollbackOk) {
+        throw new StemFamilyIntegrityError(
+          `stem family rollback incomplete for ${srcStem} → ${dstStem}`,
+          { cause: err },
+        )
       }
       throw err
     }

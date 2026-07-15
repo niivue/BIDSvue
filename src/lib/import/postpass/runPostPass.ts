@@ -102,6 +102,7 @@ import { runDupNaming } from './dupNaming'
 import { planEventsTsv } from './eventsTsv'
 import { planB0FieldEdits } from './fmapPairing'
 import type { PostPassFs } from './fs'
+import { PostPassIntegrityError } from './moveStem'
 import { runPhysioRescue } from './physioRescue'
 import { loadProvenance } from './provenance'
 import {
@@ -286,6 +287,12 @@ export interface PostPassResult {
    */
   bidsguessBoldDemotes: number
   /**
+   * Number of func file stems renamed to carry a `_part-<mag|phase|...>`
+   * entity (multi-echo BOLD+phase collision resolution) by the bidsguess
+   * hygiene pass. Mirrors `_resolve_part_entities`.
+   */
+  partResolved: number
+  /**
    * Number of `.bidsignore` entries added across all roots by the
    * bidsguess hygiene pass (collision suffixes, single-volume DWI
    * families, residual `Unknown/` files).
@@ -426,6 +433,7 @@ export async function runPostPass(
   let dupRenames = 0
   let bidsguessDiscardsRemoved = 0
   let bidsguessBoldDemotes = 0
+  let partResolved = 0
   let bidsignoreLinesAdded = 0
   let shortEpiToFmap = 0
   let t2wToInplaneT2 = 0
@@ -524,6 +532,7 @@ export async function runPostPass(
       unknownPhysioRescues += rescued.physioRescued
       derivedStemsMoved += rescued.derivedMoved
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       failures.push({
         sessionDir: unknownParent,
         error: `unknownRescue: ${err instanceof Error ? err.message : String(err)}`,
@@ -614,6 +623,7 @@ export async function runPostPass(
       )
       bidsguessDiscardsRemoved += cleanup.discardsRemoved
       bidsguessBoldDemotes += cleanup.boldDemotes
+      partResolved += cleanup.partResolved
       bidsignoreLinesAdded += cleanup.bidsignoreLinesAdded
       shortEpiToFmap += cleanup.shortEpiToFmap
       t2wToInplaneT2 += cleanup.t2wToInplaneT2
@@ -629,6 +639,9 @@ export async function runPostPass(
         })
       }
     } catch (err) {
+      // A torn stem family is an integrity failure, not a recoverable
+      // per-pass warning. Propagate it to runImport's rollback.
+      if (err instanceof PostPassIntegrityError) throw err
       failures.push({
         sessionDir: root,
         error: `bidsguessCleanup: ${err instanceof Error ? err.message : String(err)}`,
@@ -691,6 +704,7 @@ export async function runPostPass(
         const result = await runSessionBackfill(subDir, ctx, fs, rootProv)
         sessionBackfills.push({ subDir, ...result })
       } catch (err) {
+        if (err instanceof PostPassIntegrityError) throw err
         failures.push({
           sessionDir: subDir,
           error: `sessionBackfill: ${err instanceof Error ? err.message : String(err)}`,
@@ -736,6 +750,7 @@ export async function runPostPass(
         }
       }
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       // Audit 2026-06-11 P1 defense-in-depth: the rescue no longer
       // throws from inside its per-file loop, but a programming-error
       // throw from an outer step (mkdir / readDir) MUST still preserve
@@ -1036,6 +1051,7 @@ export async function runPostPass(
     dupRenames,
     bidsguessDiscardsRemoved,
     bidsguessBoldDemotes,
+    partResolved,
     bidsignoreLinesAdded,
     unknownPhysioRescues,
     derivedStemsMoved,

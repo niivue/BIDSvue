@@ -117,6 +117,24 @@ export async function runDupNaming(
       result.skipped++
       continue
     }
+    // If NONE of the group's as-written members (the unsuffixed base plus
+    // its suffixed siblings) still exist on disk, an earlier pass already
+    // consumed this group — e.g. `resolvePartEntities` renamed the
+    // magnitude/phase members to `_part-<x>` names. Skip silently rather
+    // than fall through to the "stale or partial group" warning below.
+    // Mirrors the `not any(_stem_has_files ...)` guard added upstream in
+    // `e6e9cbd`.
+    let anyAsWritten = false
+    for (const o of ordered) {
+      if (await stemHasFiles(bidsRoot, o.OutputStem, fs)) {
+        anyAsWritten = true
+        break
+      }
+    }
+    if (!anyAsWritten) {
+      result.skipped++
+      continue
+    }
     const currentSet = new Set(moves.map((m) => m.current))
     let unsafe = false
     for (const { current, target } of moves) {
@@ -130,6 +148,20 @@ export async function runDupNaming(
       ) {
         unsafe = true
         break
+      }
+    }
+    // A member already at its target (the unsuffixed base, omitted from
+    // `moves`) must still have files; if the base is gone while a suffixed
+    // sibling survives, the rename would leave a base-less `__dup` family.
+    // Validate it (upstream `e6e9cbd`).
+    if (!unsafe) {
+      for (let idx = 0; idx < ordered.length; idx++) {
+        const current = ordered[idx].OutputStem
+        const target = targets[idx]
+        if (current === target && !(await stemHasFiles(bidsRoot, target, fs))) {
+          unsafe = true
+          break
+        }
       }
     }
     if (unsafe) {

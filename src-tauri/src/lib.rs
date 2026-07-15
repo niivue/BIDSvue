@@ -1211,15 +1211,23 @@ fn rename_authorized_path(
     src: String,
     dest: String,
 ) -> Result<(), String> {
-    let src_buf = validate_authorized_path(&state, &src, "rename_authorized_path")?;
-    let dest_buf = validate_authorized_path(&state, &dest, "rename_authorized_path")?;
+    const CMD: &str = "rename_authorized_path";
+    let src_buf = validate_authorized_path(&state, &src, CMD)?;
+    let dest_buf = validate_authorized_path(&state, &dest, CMD)?;
+    let src_parent = canonical_runtime_parent(&state, &src_buf, CMD)?;
+    let dest_parent = canonical_runtime_parent(&state, &dest_buf, CMD)?;
     std::fs::rename(&src_buf, &dest_buf).map_err(|e| {
         format!(
             "rename_authorized_path({} -> {}) failed: {e}",
             src_buf.display(),
             dest_buf.display()
         )
-    })
+    })?;
+    sync_dir_best_effort(&dest_parent);
+    if src_parent != dest_parent {
+        sync_dir_best_effort(&src_parent);
+    }
+    Ok(())
 }
 
 fn canonical_runtime_parent(
@@ -1547,6 +1555,47 @@ fn finalize_new_file_no_replace_authorized_path(
     dest: String,
 ) -> Result<(), String> {
     finalize_new_file_no_replace_authorized_impl(&state, &src, &dest)
+}
+
+fn rename_no_replace_authorized_impl(
+    state: &TrustStore,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    const CMD: &str = "rename_no_replace_authorized_path";
+    let from_buf = validate_authorized_path(state, from, CMD)?;
+    let to_buf = validate_authorized_path(state, to, CMD)?;
+    let from_parent = canonical_runtime_parent(state, &from_buf, CMD)?;
+    let to_parent = canonical_runtime_parent(state, &to_buf, CMD)?;
+    match rename_no_replace(&from_buf, &to_buf) {
+        Ok(()) => {
+            sync_dir_best_effort(&to_parent);
+            if from_parent != to_parent {
+                sync_dir_best_effort(&from_parent);
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(format!(
+            "RENAME_NO_REPLACE_EEXIST: destination already exists: {to}"
+        )),
+        Err(e) if no_replace_unsupported(&e) => Err(format!("RENAME_NO_REPLACE_UNSUPPORTED: {e}")),
+        Err(e) => Err(format!("{CMD}({from} -> {to}) failed: {e}")),
+    }
+}
+
+/// General OS-level no-replace rename for the frontend mutation adapter,
+/// closing a TOCTOU rename race. Unlike `finalize_new_file_no_replace_*`
+/// this is a general mover: it supports files, directories, and symlinks,
+/// and cross-directory moves (no same-parent or regular-file restriction).
+/// Both paths are runtime-authorized; the underlying primitive fails
+/// atomically if `to` already exists (including a dangling dest symlink).
+#[tauri::command]
+fn rename_no_replace_authorized_path(
+    state: tauri::State<'_, TrustStore>,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    rename_no_replace_authorized_impl(&state, &from, &to)
 }
 
 /// Durable append for per-dataset operations.log.
@@ -3425,6 +3474,154 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn rename_no_replace_refuses_existing_destination() {
+        let root = std::env::temp_dir().join(format!(
+            "bidsvue-rename-nr-exists-{}-{}",
+            std::process::id(),
+            uniq()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src = root.join("src.bin");
+        let dest = root.join("dest.bin");
+        std::fs::write(&src, b"SRC\n").unwrap();
+        std::fs::write(&dest, b"DEST\n").unwrap();
+
+        let err = super::rename_no_replace(&src, &dest).unwrap_err();
+
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "got: {err}");
+        // Destination contents must be untouched and source must survive.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"DEST\n");
+        assert_eq!(std::fs::read(&src).unwrap(), b"SRC\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(all(unix, any(target_os = "macos", target_os = "linux")))]
+    #[test]
+    fn rename_no_replace_refuses_dangling_dest_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "bidsvue-rename-nr-dangling-{}-{}",
+            std::process::id(),
+            uniq()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src = root.join("src.bin");
+        let dest = root.join("dangling-link");
+        std::fs::write(&src, b"SRC\n").unwrap();
+        // Destination is a symlink whose target does not exist. The no-replace
+        // primitive must treat the symlink itself as an existing entry and
+        // refuse to clobber it.
+        symlink(root.join("nonexistent-target"), &dest).unwrap();
+
+        let err = super::rename_no_replace(&src, &dest).unwrap_err();
+
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "got: {err}");
+        assert!(
+            std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "dangling dest symlink must still be present"
+        );
+        assert_eq!(std::fs::read(&src).unwrap(), b"SRC\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn rename_no_replace_moves_regular_file_cross_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "bidsvue-rename-nr-move-{}-{}",
+            std::process::id(),
+            uniq()
+        ));
+        let from_dir = root.join("from");
+        let to_dir = root.join("to");
+        std::fs::create_dir_all(&from_dir).unwrap();
+        std::fs::create_dir_all(&to_dir).unwrap();
+        let src = from_dir.join("file.bin");
+        let dest = to_dir.join("file.bin");
+        std::fs::write(&src, b"PAYLOAD\n").unwrap();
+
+        super::rename_no_replace(&src, &dest).unwrap();
+
+        assert!(!src.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"PAYLOAD\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn rename_no_replace_moves_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "bidsvue-rename-nr-dir-{}-{}",
+            std::process::id(),
+            uniq()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let src = root.join("olddir");
+        let dest = root.join("newdir");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("inner.bin"), b"INNER\n").unwrap();
+
+        super::rename_no_replace(&src, &dest).unwrap();
+
+        assert!(!src.exists());
+        assert!(dest.is_dir());
+        assert_eq!(std::fs::read(dest.join("inner.bin")).unwrap(), b"INNER\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_no_replace_authorized_rejects_symlinked_parent_escape() {
+        use crate::trust::TrustStore;
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "bidsvue-rename-nr-parent-link-{}-{}",
+            std::process::id(),
+            uniq()
+        ));
+        let dataset = root.join("dataset");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&dataset).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, dataset.join("escape")).unwrap();
+        let store = TrustStore::empty_for_test(root.join("trust.json"));
+        store.authorize_runtime_path(dataset.clone()).unwrap();
+
+        let inside_src = dataset.join("inside-src.bin");
+        let outside_dest = dataset.join("escape").join("outside-dest.bin");
+        std::fs::write(&inside_src, b"INSIDE\n").unwrap();
+        let err = super::rename_no_replace_authorized_impl(
+            &store,
+            inside_src.to_str().unwrap(),
+            outside_dest.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("resolves outside"), "got: {err}");
+        assert!(inside_src.exists());
+        assert!(!outside.join("outside-dest.bin").exists());
+
+        let outside_src = dataset.join("escape").join("outside-src.bin");
+        let inside_dest = dataset.join("inside-dest.bin");
+        std::fs::write(outside.join("outside-src.bin"), b"OUTSIDE\n").unwrap();
+        let err = super::rename_no_replace_authorized_impl(
+            &store,
+            outside_src.to_str().unwrap(),
+            inside_dest.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("resolves outside"), "got: {err}");
+        assert!(outside.join("outside-src.bin").exists());
+        assert!(!inside_dest.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[cfg(unix)]
     #[test]
     fn finalize_new_file_authorized_accepts_user_selected_symlink_root() {
@@ -3969,6 +4166,7 @@ pub fn run() {
             chmod_path,
             rename_authorized_path,
             finalize_new_file_no_replace_authorized_path,
+            rename_no_replace_authorized_path,
             append_log_line,
             write_text_atomic_app_data,
             open_in_os,

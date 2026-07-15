@@ -813,6 +813,93 @@ describe('OperationContext — transactional grouping', () => {
     expect(await pathExists(sp.operationsLogPath)).toBe(false)
   })
 
+  test('rename refuses a target that appears AFTER the exists() preflight (no-clobber race)', async () => {
+    const root = makeTempRoot()
+    const sp = makeStatePaths()
+    await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
+    const from = join(root, 'sub-01', 'anat', 'sub-01_T1w.json')
+    const to = join(root, 'sub-01', 'anat', 'sub-02_T1w.json')
+    await writeFile(from, 'from', 'utf8')
+    // `exists(to)` (preflight) reports absent, but the atomic no-replace
+    // move reports EEXIST — the target raced in. ctx.rename must refuse and
+    // must NOT fall back to the clobbering plain rename.
+    const racingFs: MutateFs = {
+      ...nodeFs,
+      async renameNoReplace(_from, t) {
+        throw new Error(
+          `RENAME_NO_REPLACE_EEXIST: destination already exists: ${t}`,
+        )
+      },
+      async rename() {
+        throw new Error('must not fall back to plain rename on EEXIST')
+      },
+    }
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'rename', summary: 'race' },
+      racingFs,
+    )
+    await expect(ctx.rename(from, to)).rejects.toThrow(/refusing to overwrite/)
+  })
+
+  test('rename falls back to plain rename when no-replace is unsupported', async () => {
+    const root = makeTempRoot()
+    const sp = makeStatePaths()
+    await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
+    const from = join(root, 'sub-01', 'anat', 'sub-01_T1w.json')
+    const to = join(root, 'sub-01', 'anat', 'sub-02_T1w.json')
+    await writeFile(from, 'bytes', 'utf8')
+    const unsupportedFs: MutateFs = {
+      ...nodeFs,
+      async renameNoReplace() {
+        throw new Error('RENAME_NO_REPLACE_UNSUPPORTED: old kernel')
+      },
+    }
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'rename', summary: 'fallback' },
+      unsupportedFs,
+    )
+    await ctx.rename(from, to)
+    await ctx.commit()
+    expect(await pathExists(to)).toBe(true)
+    expect(await pathExists(from)).toBe(false)
+    expect(await readFile(to, 'utf8')).toBe('bytes')
+  })
+
+  test('rename does not fall back to plain rename after another no-replace failure', async () => {
+    const root = makeTempRoot()
+    const sp = makeStatePaths()
+    await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
+    const from = join(root, 'sub-01', 'anat', 'sub-01_T1w.json')
+    const to = join(root, 'sub-01', 'anat', 'sub-02_T1w.json')
+    await writeFile(from, 'bytes', 'utf8')
+    let plainRenameCalled = false
+    const failingFs: MutateFs = {
+      ...nodeFs,
+      async renameNoReplace() {
+        throw new Error('rename_no_replace: permission denied')
+      },
+      async rename() {
+        plainRenameCalled = true
+        throw new Error('plain rename must not run')
+      },
+    }
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'rename', summary: 'no unsafe fallback' },
+      failingFs,
+    )
+
+    await expect(ctx.rename(from, to)).rejects.toThrow(/permission denied/)
+    expect(plainRenameCalled).toBe(false)
+    expect(await pathExists(from)).toBe(true)
+    expect(await pathExists(to)).toBe(false)
+  })
+
   test('rollback after a write that created a new file deletes the file', async () => {
     const root = makeTempRoot()
     const sp = makeStatePaths()

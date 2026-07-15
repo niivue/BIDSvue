@@ -49,6 +49,21 @@ describe('planEventsTsv', () => {
     expect(out[0]?.path.endsWith('sub-01_task-rest_events.tsv')).toBe(true)
   })
 
+  test('collapses multi-echo + magnitude/phase parts into a single events stem', async () => {
+    await mkdir(join(root, 'func'), { recursive: true })
+    for (const name of [
+      'sub-01_task-rest_echo-1_part-mag_bold.nii.gz',
+      'sub-01_task-rest_echo-1_part-phase_bold.nii.gz',
+      'sub-01_task-rest_echo-2_part-mag_bold.nii.gz',
+      'sub-01_task-rest_echo-2_part-phase_bold.nii.gz',
+    ]) {
+      await writeFile(join(root, 'func', name), '')
+    }
+    const out = await planEventsTsv(root, nodeFsPostPassAdapter)
+    expect(out.length).toBe(1)
+    expect(out[0]?.path.endsWith('sub-01_task-rest_events.tsv')).toBe(true)
+  })
+
   test('skips when func/ is missing', async () => {
     expect(await planEventsTsv(root, nodeFsPostPassAdapter)).toEqual([])
   })

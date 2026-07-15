@@ -53,8 +53,13 @@ import { toLfEol } from '$lib/util/eol'
 import { relativeToParent } from '$lib/util/paths'
 import { BOLD_COMPANIONS, DWI_COMPANIONS } from './bidsExts'
 import type { PostPassFs } from './fs'
-import { StemFileExistsError, moveStemFiles } from './moveStem'
+import {
+  PostPassIntegrityError,
+  StemFileExistsError,
+  moveStemFiles,
+} from './moveStem'
 import { parseNiftiHeader } from './niftiHeader'
+import { resolvePartEntities } from './partEntities'
 import {
   DEFAULT_MIN_VOLUMES,
   reclassifySession,
@@ -109,6 +114,12 @@ export interface BidsguessCleanupResult {
    */
   orphanRunsStripped: number
   /**
+   * Number of func file stems renamed to carry a `_part-<mag|phase|...>`
+   * entity (multi-echo BOLD+phase collision resolution). Mirrors
+   * `_resolve_part_entities` (upstream `e6e9cbd`). See `partEntities.ts`.
+   */
+  partResolved: number
+  /**
    * Non-fatal warnings from sub-cleanups. Each entry carries the
    * session/root that the failure was scoped to and a human-readable
    * message. The orchestrator merges these into `PostPassResult.failures`
@@ -144,6 +155,7 @@ export async function runBidsguessCleanup(
     shortEpiToFmap: 0,
     t2wToInplaneT2: 0,
     orphanRunsStripped: 0,
+    partResolved: 0,
     warnings,
   }
 
@@ -167,6 +179,7 @@ export async function runBidsguessCleanup(
         warnings.push(w)
       }
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       recordWarning(
         sessionDir,
         `reclassifySession: ${err instanceof Error ? err.message : String(err)}`,
@@ -179,6 +192,7 @@ export async function runBidsguessCleanup(
       const s = await stripOrphanRuns(sessionDir, ctx, fs)
       result.orphanRunsStripped += s.stripped
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       recordWarning(
         sessionDir,
         `stripOrphanRuns: ${err instanceof Error ? err.message : String(err)}`,
@@ -203,9 +217,27 @@ export async function runBidsguessCleanup(
       result.boldDemotes += demoted.renames
       result.eventsDropped += demoted.eventsDropped
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       recordWarning(
         sessionDir,
         `demoteThreeDBoldToSbref: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    // Resolve multi-echo BOLD+phase collisions into `_part-<mag|phase>`
+    // BEFORE the single-vol-DWI sweep + BEFORE Pass 0d dup-naming, so a
+    // group this pass claims is not also renamed to `__dup-NN`. Mirrors
+    // reproinx.py's `_resolve_part_entities` call site (upstream `e6e9cbd`).
+    try {
+      const parts = await resolvePartEntities(sessionDir, ctx, fs)
+      result.partResolved += parts.renamed
+    } catch (err) {
+      // A torn-family integrity failure is NOT a recoverable classification
+      // warning — re-throw so it propagates past runPostPass to runImport's
+      // rollback rather than committing a torn dataset.
+      if (err instanceof PostPassIntegrityError) throw err
+      recordWarning(
+        sessionDir,
+        `resolvePartEntities: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
     try {
@@ -348,6 +380,7 @@ export async function demoteThreeDBoldToSbref(
       })
       if (moved === 0) continue
     } catch (err) {
+      if (err instanceof PostPassIntegrityError) throw err
       if (err instanceof StemFileExistsError) {
         // Pre-existing _sbref at destination: leave the bold family
         // untouched (the bold validator warning the user sees next

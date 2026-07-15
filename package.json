@@ -1,7 +1,7 @@
 {
   "name": "bidsvue",
   "private": true,
-  "version": "0.1.20260712",
+  "version": "0.1.20260715",
   "description": "Cross-platform desktop UI for creating, inspecting, and modifying BIDS datasets.",
   "license": "BSD-2-Clause",
   "homepage": "https://github.com/niivue/BIDSvue",

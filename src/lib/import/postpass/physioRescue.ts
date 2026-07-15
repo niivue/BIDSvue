@@ -46,7 +46,11 @@
 import type { OperationContext } from '$lib/mutate/backup'
 import { PHYSIO_COMPANIONS } from './bidsExts'
 import type { PostPassFs } from './fs'
-import { StemFileExistsError, moveStemFiles } from './moveStem'
+import {
+  PostPassIntegrityError,
+  StemFileExistsError,
+  moveStemFiles,
+} from './moveStem'
 import { injectSessionIntoName } from './sessionBackfill'
 
 // Modality suffixes that dcm2niix `-f %H` inserts between the run
@@ -315,6 +319,7 @@ export async function runPhysioRescue(
           })
           if (moved > 0) result.rescued++
         } catch (err) {
+          if (err instanceof PostPassIntegrityError) throw err
           if (err instanceof StemFileExistsError) {
             // Don't clobber a curated file at the destination. Mirrors
             // the `if dest.exists(): continue` guard upstream. Audit

@@ -124,6 +124,19 @@ export interface MutateFs {
   copyFile(src: string, dst: string): Promise<void>
   rename(from: string, to: string): Promise<void>
   /**
+   * Atomic OS-level no-replace rename of an arbitrary path (file, dir, or
+   * symlink; cross-directory ok). Rejects with a message containing
+   * `RENAME_NO_REPLACE_EEXIST` when `to` already exists (INCLUDING a broken
+   * destination symlink, which a plain `exists`-then-rename preflight would
+   * miss), and `RENAME_NO_REPLACE_UNSUPPORTED` when the platform/filesystem
+   * lacks the primitive. OPTIONAL: when absent (some in-memory test
+   * adapters) callers fall back to the plain `rename`. `OperationContext`
+   * uses it to close the TOCTOU window between its `exists(to)` preflight
+   * and the move; any non-EEXIST failure degrades to `rename` so existing
+   * behavior (incl. DataLad symlink handling) is never lost.
+   */
+  renameNoReplace?(from: string, to: string): Promise<void>
+  /**
    * No-clobber finalization: move `src` (a sibling temp) to `dst`,
    * THROWING if `dst` already exists and leaving the existing `dst`
    * untouched. The production path uses an atomic OS no-replace move when
@@ -212,6 +225,12 @@ export const tauriMutateFs: MutateFs = {
   copyFile: async (src, dest) =>
     tauriCopyFile(await resolveSymlinkIfPresent(src), dest),
   rename: renameWithRustFallback,
+  // Atomic OS no-replace rename via the Rust primitive (renamex_np /
+  // renameat2). Operates on raw paths (renames the symlink itself, never
+  // follows), so symlink semantics match `renameWithRustFallback`. Distinct
+  // EEXIST / UNSUPPORTED error prefixes let OperationContext branch.
+  renameNoReplace: (from, to) =>
+    invoke('rename_no_replace_authorized_path', { from, to }),
   // `src` is a sibling temp this op just created (a real file, never a
   // symlink), so no pre-resolve. plugin-fs has no no-replace rename, so
   // this goes straight to Rust for the OS-specific primitive/fallback.
@@ -646,7 +665,7 @@ export class OperationContext {
     // Idempotent on existing dirs.
     await this.fs.mkdir(this.statePaths.stateDir, { recursive: true })
 
-    await this.fs.rename(from, to)
+    await this._renameNoClobber(from, to)
     this._children.push({
       kind: 'rename',
       from: posixRelative(this.datasetRoot, from),
@@ -654,6 +673,39 @@ export class OperationContext {
       details,
     })
     this._undo.push({ kind: 'rename', from, to })
+  }
+
+  /**
+   * Move `from` → `to` atomically refusing to clobber an existing `to`.
+   * Uses the OS no-replace primitive when the adapter exposes one, closing
+   * the TOCTOU window a plain `exists`-then-`rename` leaves open (and
+   * catching a broken destination symlink that `exists` reports absent). An
+   * `EEXIST` rejection is surfaced as the same "refusing to overwrite"
+   * error. Only an absent adapter or an explicit platform/filesystem
+   * `UNSUPPORTED` result degrades to plain `rename`; other failures retain
+   * their original signal and must not silently switch to a clobbering move.
+   */
+  private async _renameNoClobber(from: string, to: string): Promise<void> {
+    const noReplace = this.fs.renameNoReplace
+    if (noReplace === undefined) {
+      await this.fs.rename(from, to)
+      return
+    }
+    try {
+      await noReplace.call(this.fs, from, to)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('RENAME_NO_REPLACE_EEXIST')) {
+        throw new Error(
+          `rename: target "${to}" already exists; refusing to overwrite`,
+        )
+      }
+      if (msg.includes('RENAME_NO_REPLACE_UNSUPPORTED')) {
+        await this.fs.rename(from, to)
+        return
+      }
+      throw err
+    }
   }
 
   /**
@@ -937,7 +989,11 @@ export class OperationContext {
               .catch((e) => warnRollback('backup', step.backupAbsPath ?? '', e))
           }
         } else if (step.kind === 'rename') {
-          await this.fs.rename(step.to, step.from)
+          // No-clobber on the inverse too: if the original location is now
+          // occupied, refuse rather than destroy it (the per-step catch
+          // below logs and continues — a partial rollback is safer than
+          // clobbering external/cloud-synced data).
+          await this._renameNoClobber(step.to, step.from)
         } else {
           // 'delete' — reversal is restore-from-backup (if any).
           if (step.backupAbsPath !== null) {

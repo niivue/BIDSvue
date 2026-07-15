@@ -43,7 +43,11 @@ import {
   STEM_FAMILY_EXTS,
 } from './bidsExts'
 import type { PostPassFs } from './fs'
-import { StemFileExistsError, moveStemFiles } from './moveStem'
+import {
+  PostPassIntegrityError,
+  StemFileExistsError,
+  moveStemFiles,
+} from './moveStem'
 import { type ProvenanceRow, loadProvenance } from './provenance'
 
 const UNKNOWN_DIR_NAME = 'Unknown'
@@ -327,7 +331,8 @@ export async function runUnknownRescue(
           meta: { kind: 'post-pass-unknown-derived-move', bidsRoot },
         })
         if (moved > 0) result.derivedMoved++
-      } catch {
+      } catch (err) {
+        if (err instanceof PostPassIntegrityError) throw err
         // Collision at the curated dest OR an OS error: leave the family
         // in Unknown/ (the `.bidsignore` sweep routes leftovers). Benign
         // — fail-safe, matching reproinx.py's FileExistsError/OSError arms.
@@ -549,6 +554,7 @@ export async function runUnknownRescue(
         if (moved > 0) result.rescued++
         else result.skipped++
       } catch (err) {
+        if (err instanceof PostPassIntegrityError) throw err
         if (err instanceof StemFileExistsError) {
           // Collision at the target: leave the source family in
           // Unknown/ so the .bidsignore sweep can route it. Mirrors

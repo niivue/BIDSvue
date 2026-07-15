@@ -117,6 +117,100 @@ describe('runDupNaming', () => {
     ).toBe(true)
   })
 
+  test('skips a group whose as-written members were already consumed (part-resolved)', async () => {
+    const root = makeRoot('bidsvue-dup-naming-part-')
+    const sp = makeStatePaths()
+    // Provenance carries a base + `a` collision pair, but resolvePartEntities
+    // already renamed BOTH to `_part-<x>` names, so neither as-written stem
+    // exists on disk. dupNaming must skip silently (no rename, no warning),
+    // not fall through to the stale/partial branch.
+    const baseStem = 'sub-01/func/sub-01_task-rest_bold'
+    const aStem = 'sub-01/func/sub-01_task-rest_bolda'
+    await writeStem(root, 'sub-01/func/sub-01_task-rest_part-mag_bold', [
+      '.nii.gz',
+      '.json',
+    ])
+    await writeStem(root, 'sub-01/func/sub-01_task-rest_part-phase_bold', [
+      '.nii.gz',
+      '.json',
+    ])
+    await writeProvenance(root, [
+      {
+        StudyInstanceUID: '1.2.3',
+        SeriesNumber: '5',
+        ProtocolName: 'func-bold',
+        SeriesDescription: 'func-bold',
+        OutputStem: baseStem,
+      },
+      {
+        StudyInstanceUID: '1.2.3',
+        SeriesNumber: '9',
+        ProtocolName: 'func-bold',
+        SeriesDescription: 'func-bold',
+        OutputStem: aStem,
+      },
+    ])
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'import', summary: 'dup naming' },
+      nodeMutateFs,
+    )
+    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    await ctx.commit()
+    expect(out.renamed).toBe(0)
+    // The part-resolved files are untouched; no __dup family appears.
+    expect(
+      existsSync(
+        join(root, 'sub-01/func/sub-01_task-rest_part-phase_bold.nii.gz'),
+      ),
+    ).toBe(true)
+    expect(
+      existsSync(
+        join(root, 'sub-01/func/sub-01_task-rest_bold__dup-01.nii.gz'),
+      ),
+    ).toBe(false)
+  })
+
+  test('skips when the unsuffixed base is gone but a suffixed sibling survives', async () => {
+    const root = makeRoot('bidsvue-dup-naming-nobase-')
+    const sp = makeStatePaths()
+    // Base row present in provenance but its files are missing on disk,
+    // while the `a` sibling survives. Renaming would leave a base-less
+    // `__dup` family — the base-validation must mark the group unsafe.
+    const baseStem = 'sub-01/anat/sub-01_T1w'
+    const aStem = 'sub-01/anat/sub-01_T1wa'
+    await writeStem(root, aStem, ['.nii.gz', '.json'])
+    await writeProvenance(root, [
+      {
+        StudyInstanceUID: '1.2.3',
+        SeriesNumber: '5',
+        ProtocolName: 'anat-T1w',
+        SeriesDescription: 'anat-T1w',
+        OutputStem: baseStem,
+      },
+      {
+        StudyInstanceUID: '1.2.3',
+        SeriesNumber: '9',
+        ProtocolName: 'anat-T1w',
+        SeriesDescription: 'anat-T1w',
+        OutputStem: aStem,
+      },
+    ])
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'import', summary: 'dup naming' },
+      nodeMutateFs,
+    )
+    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    await ctx.commit()
+    expect(out.renamed).toBe(0)
+    expect(out.skipped).toBe(1)
+    // The surviving sibling stays as-written (not renamed to a base-less dup).
+    expect(existsSync(join(root, `${aStem}.nii.gz`))).toBe(true)
+  })
+
   test('does NOT treat a 1-char acq-X value as a collision suffix', async () => {
     const root = makeRoot('bidsvue-dup-naming-acq-')
     const sp = makeStatePaths()

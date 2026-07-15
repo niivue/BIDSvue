@@ -10,7 +10,7 @@ The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `
 
 ## Status
 
-**Current version `0.1.20260712`** — alpha; expect breaking churn. Five alpha tracks live in `main` alongside stable v0.1: **Cohort Dashboard**, **Cloud-share** (parked — see ROADMAP), **in-app TSV/text editors**, **Merge datasets**, **Task events**. Per-track scope, locked decisions, and history: [ROADMAP.md](ROADMAP.md) + `git log`.
+**Current version `0.1.20260715`** — alpha; expect breaking churn. Five alpha tracks live in `main` alongside stable v0.1: **Cohort Dashboard**, **Cloud-share** (parked — see ROADMAP), **in-app TSV/text editors**, **Merge datasets**, **Task events**. Per-track scope, locked decisions, and history: [ROADMAP.md](ROADMAP.md) + `git log`.
 
 **Updates are manual DMG re-downloads** — no outbound version check (so PRIVACY.md needn't disclose one). The version is bumped in [package.json](package.json) / [src-tauri/Cargo.toml](src-tauri/Cargo.toml) / [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json) (release script asserts they match). The last shipped notarized DMG is `0.1.20260615`. **When you flip the next DMG live on GitHub Releases, change this line to "Released as a notarized macOS arm64 DMG…"** — the prior "version bumped ≠ DMG released" conflation confused a release operator.
 

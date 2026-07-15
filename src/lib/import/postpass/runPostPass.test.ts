@@ -10,6 +10,7 @@ import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { nodeFsPostPassAdapter } from './__testFs'
 import { buildSyntheticNiftiHeader } from './niftiHeader'
+import { PartEntitiesIntegrityError } from './partEntities'
 import {
   computeEffectiveExcludeTopLevel,
   computeProducedRoot,
@@ -437,6 +438,63 @@ describe('runPostPass', () => {
     expect(parsed.License).toBe('CC0')
   })
 
+  test('a torn part-entity family propagates as a fatal integrity error (not a recorded failure)', async () => {
+    // The multi-echo collision is set up as in the happy-path test, but the
+    // ctx is wired so echo-1's phase forward move AND the mag inverse both
+    // fail → resolvePartEntities throws PartEntitiesIntegrityError, which
+    // must propagate OUT of runPostPass (reaching runImport's rollback)
+    // rather than being downgraded into result.failures.
+    const root = makeRoot('bidsvue-postpass-integrity-')
+    const sp = makeStatePaths()
+    const func = join(root, 'sub-01', 'ses-1', 'func')
+    await mkdir(func, { recursive: true })
+    await writeNiftiPair(
+      func,
+      'sub-01_ses-1_task-rest_bold',
+      { ImageType: ['ORIGINAL', 'MAGNITUDE'] },
+      BOLD_DIM_4D,
+    )
+    await writeNiftiPair(
+      func,
+      'sub-01_ses-1_task-rest_bolda',
+      { ImageType: ['ORIGINAL', 'PHASE'] },
+      BOLD_DIM_4D,
+    )
+    const real = beginOperation(
+      root,
+      sp,
+      { opType: 'import', summary: 'integrity' },
+      nodeMutateFs,
+    )
+    const ctx = new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'rename') {
+          return async (from: string, to: string, details?: unknown) => {
+            if (
+              to.includes('_part-phase_bold.') ||
+              to.includes('_task-rest_bold.')
+            ) {
+              throw new Error(`injected rename failure: ${to}`)
+            }
+            return (
+              target.rename as (
+                f: string,
+                t: string,
+                d?: unknown,
+              ) => Promise<void>
+            )(from, to, details)
+          }
+        }
+        const value = Reflect.get(target, prop, target)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    }) as typeof real
+    await expect(
+      runPostPass(root, ctx, nodeFsPostPassAdapter),
+    ).rejects.toBeInstanceOf(PartEntitiesIntegrityError)
+    await real.rollback(new Error('test')).catch(() => {})
+  })
+
   test('empty root: no sessions, no failures, no children', async () => {
     const root = makeRoot('bidsvue-postpass-empty-')
     const sp = makeStatePaths()
@@ -458,6 +516,81 @@ describe('runPostPass', () => {
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
     expect(entries.length).toBe(1)
     expect(entries[0].children).toEqual([])
+  })
+
+  test('multi-echo BOLD+phase: part → dup → events order produces a valid _part-* tree', async () => {
+    // Integration coverage for the load-bearing pass ORDER (the non-CI
+    // 900 MB DICOM fixture can't run here). dcm2niix collides magnitude +
+    // phase of each echo onto one stem, appending an `a` collision letter.
+    // Expected: part resolution renames the family to `_part-<x>`, dup
+    // naming does NOT also fire (it must skip the consumed group), and one
+    // run-level events.tsv is shared across echoes AND parts. (All NIfTI
+    // here are 4D, so the upstream 3D-bold demote is a no-op — this fixture
+    // covers part → dup → events, not the demote step.)
+    const root = makeRoot('bidsvue-postpass-multiecho-')
+    const sp = makeStatePaths()
+    const func = join(root, 'sub-01', 'ses-1', 'func')
+    await mkdir(func, { recursive: true })
+    for (const echo of [1, 2]) {
+      await writeNiftiPair(
+        func,
+        `sub-01_ses-1_task-rest_echo-${echo}_bold`,
+        {
+          ImageType: ['ORIGINAL', 'PRIMARY', 'MAGNITUDE'],
+          Manufacturer: 'Siemens',
+        },
+        BOLD_DIM_4D,
+      )
+      // dcm2niix collided the phase series onto the same stem → `bolda`.
+      await writeNiftiPair(
+        func,
+        `sub-01_ses-1_task-rest_echo-${echo}_bolda`,
+        {
+          ImageType: ['ORIGINAL', 'PRIMARY', 'PHASE'],
+          Manufacturer: 'Siemens',
+        },
+        BOLD_DIM_4D,
+      )
+    }
+
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'import', summary: 'multi-echo phase' },
+      nodeMutateFs,
+    )
+    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    await ctx.commit()
+
+    expect(result.failures).toEqual([])
+    expect(result.partResolved).toBe(4) // 2 echoes × (mag + phase)
+    expect(result.dupRenames).toBe(0) // the consumed collision group is NOT dup-renamed
+    expect(result.bidsignoreLinesAdded).toBe(0) // nothing left for .bidsignore
+
+    const names = (await nodeFsPostPassAdapter.readDir(func))
+      .filter((e) => e.isFile && e.name.endsWith('.nii.gz'))
+      .map((e) => e.name)
+      .sort()
+    expect(names).toEqual([
+      'sub-01_ses-1_task-rest_echo-1_part-mag_bold.nii.gz',
+      'sub-01_ses-1_task-rest_echo-1_part-phase_bold.nii.gz',
+      'sub-01_ses-1_task-rest_echo-2_part-mag_bold.nii.gz',
+      'sub-01_ses-1_task-rest_echo-2_part-phase_bold.nii.gz',
+    ])
+
+    // Exactly one run-level events.tsv, shared across echoes + parts.
+    const events = (await nodeFsPostPassAdapter.readDir(func))
+      .filter((e) => e.name.endsWith('_events.tsv'))
+      .map((e) => e.name)
+    expect(events).toEqual(['sub-01_ses-1_task-rest_events.tsv'])
+
+    // BIDS requires Units on phase data; Siemens phase → "arbitrary".
+    const phaseJson = JSON.parse(
+      await nodeFsPostPassAdapter.readTextFile(
+        `${func}/sub-01_ses-1_task-rest_echo-1_part-phase_bold.json`,
+      ),
+    )
+    expect(phaseJson.Units).toBe('arbitrary')
   })
 })
 

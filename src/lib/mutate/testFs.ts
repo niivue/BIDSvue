@@ -91,6 +91,26 @@ export const nodeMutateFs: MutateFs = {
   async rename(from, to) {
     await rename(from, to)
   },
+  async renameNoReplace(from, to) {
+    // node has no atomic no-replace rename on POSIX; model the production
+    // contract's distinct error prefixes with link+unlink. `link` rejects
+    // EEXIST if `to` exists (files) and EPERM/EXDEV for dirs / cross-device
+    // — surface the former as the EEXIST prefix (the caller refuses to
+    // overwrite) and everything else as UNSUPPORTED (the caller falls back
+    // to plain rename, which handles directories and cross-device moves).
+    try {
+      await link(from, to)
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException
+      if (err.code === 'EEXIST') {
+        throw new Error(
+          `RENAME_NO_REPLACE_EEXIST: destination already exists: ${to}`,
+        )
+      }
+      throw new Error(`RENAME_NO_REPLACE_UNSUPPORTED: ${err.message}`)
+    }
+    await rm(from, { force: false })
+  },
   async finalizeNewFileNoReplace(src, dst) {
     // node has no no-replace rename on POSIX. Model the production
     // contract with link+unlink: link throws EEXIST if dst exists; on

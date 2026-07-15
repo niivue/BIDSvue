@@ -1140,6 +1140,7 @@ export async function runImport(
       dupRenames: 0,
       bidsguessDiscardsRemoved: 0,
       bidsguessBoldDemotes: 0,
+      partResolved: 0,
       bidsignoreLinesAdded: 0,
       unknownPhysioRescues: 0,
       derivedStemsMoved: 0,

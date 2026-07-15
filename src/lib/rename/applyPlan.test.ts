@@ -335,6 +335,9 @@ describe('applyPlan — subject rename end-to-end on a real tmp tree', () => {
     // Inject a failure on the LAST rename op (the leaf sidecar rename
     // inside the renamed folder). The text edit + folder rename will
     // have completed before this throws.
+    // Inject on BOTH rename entrypoints: OperationContext.rename now moves
+    // via `renameNoReplace` and only falls back to `rename` on a non-EEXIST
+    // failure, so a faithful injection must fail the leaf on both.
     const failingFs = {
       ...nodeMutateFs,
       async rename(from: string, to: string) {
@@ -342,6 +345,12 @@ describe('applyPlan — subject rename end-to-end on a real tmp tree', () => {
           throw new Error('injected leaf rename failure')
         }
         return nodeMutateFs.rename(from, to)
+      },
+      async renameNoReplace(from: string, to: string) {
+        if (to.endsWith('sub-99_T1w.json')) {
+          throw new Error('injected leaf rename failure')
+        }
+        return nodeMutateFs.renameNoReplace?.(from, to)
       },
     }
 

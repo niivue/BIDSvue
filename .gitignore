@@ -75,9 +75,9 @@ tests/e2e/artifacts/
 .env.local
 .env.macos-release
 
-# /audit workspace scratch file. Regenerated per session; the canonical
+# /audit workspace scratch files. Regenerated per session; the canonical
 # audit-response trail lives in commit messages + the roadmap docs.
-audit_temp.md
+audit*.md
 
 # Local BIDS datasets used for development and testing — not part of the project.
 # Each developer provides their own; example references in spec/milestones use

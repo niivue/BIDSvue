@@ -28,6 +28,11 @@ const BOLD_NII_RE = /_bold\.nii(?:\.gz)?$/
 // task-label syntax; if that happens, anchor the strip to the entity
 // boundary (e.g. `(?<=_)echo-[0-9]+_` or a per-segment scan).
 const ECHO_RE = /_echo-[0-9]+/g
+// Strips the `_part-<x>` segment (mag/phase/real/imag) so a multi-echo
+// BOLD acquired with phase shares ONE run-level events.tsv across every
+// magnitude/phase part, not one per part. Mirrors the `_part-` strip added
+// to `_emit_events_tsv` in reproinx.py (upstream `e6e9cbd`).
+const PART_RE = /_part-[A-Za-z0-9]+/g
 
 export async function planEventsTsv(
   sessionDir: string,
@@ -46,10 +51,12 @@ export async function planEventsTsv(
     .filter((e) => e.isFile && BOLD_NII_RE.test(e.name))
     .sort((a, b) => a.name.localeCompare(b.name))
   for (const bold of sorted) {
-    // Strip `_bold.nii(.gz)` suffix, then any `_echo-N` marker so all
-    // echoes of one acquisition share a single events.tsv.
+    // Strip `_bold.nii(.gz)` suffix, then any `_echo-N` and `_part-<x>`
+    // marker so all echoes / magnitude+phase parts of one acquisition
+    // share a single events.tsv.
     let stem = bold.name.replace(BOLD_NII_RE, '')
     stem = stem.replace(ECHO_RE, '')
+    stem = stem.replace(PART_RE, '')
     if (stems.has(stem)) continue
     stems.add(stem)
     const path = `${funcDir}/${stem}_events.tsv`
