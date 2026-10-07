@@ -151,14 +151,6 @@ export async function runDeface(
   const sep = detectSeparator(stripTrailingSeparators(datasetRoot))
 
   const tool = findTool(toolId)
-  if (tool.kind !== 'sidecar') {
-    // Should be unreachable — `RunDefaceOptions.toolId` is narrowed to
-    // `SidecarDefaceToolId`. Defensive against a future caller that
-    // bypasses the type system.
-    throw new Error(
-      `runDeface: tool "${toolId}" has kind "${tool.kind}", not sidecar. WebGPU tools must go through runMindgrab.`,
-    )
-  }
   const sourcedataPath = sourcedataMirrorPath(datasetRoot, targetPath)
   if (sourcedataPath === null) {
     throw new Error(
@@ -178,8 +170,15 @@ export async function runDeface(
   // Validate the sidecar mapping (throws on an unknown basename); Rust
   // resolves the actual binary from the tool id, so we don't keep the path.
   await executor.resolveBinary(tool.binaryBasename)
-  const templatePath = await executor.resolveResource(tool.inputs.template)
-  const maskPath = await executor.resolveResource(tool.inputs.mask)
+  // Atlas inputs exist only for the allineate variants; brainchop-mindgrab
+  // is self-contained (weights compiled in) and references no {template}/
+  // {mask} placeholder, so leave those substitutions unresolved.
+  const templatePath = tool.inputs
+    ? await executor.resolveResource(tool.inputs.template)
+    : ''
+  const maskPath = tool.inputs
+    ? await executor.resolveResource(tool.inputs.mask)
+    : ''
 
   // Pick the actual input: pristine sourcedata if it already exists,
   // otherwise the user-facing target (which IS the pristine source on

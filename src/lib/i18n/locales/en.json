@@ -47,6 +47,10 @@
     "cancelClone": "Cancel clone",
     "cancelling": "Cancelling…",
     "authNote": "Clones that prompt for a password won't complete (no terminal). Use a credential helper for HTTPS. SSH uses your host ssh-agent and ~/.ssh/ — BIDSvue does not store or generate SSH keys.",
+    "symlinkEmulatedTitle": "This disk can't store portable shortcuts",
+    "symlinkEmulatedBody": "Large data files are saved as symbolic links. On this disk macOS can only imitate them, so the dataset will work on this Mac, but those files will appear as small unreadable text files on Windows or Linux. exFAT and FAT disks have this limitation. You can continue, or pick a different folder.",
+    "symlinkUnsupportedTitle": "This disk can't store shortcuts",
+    "symlinkUnsupportedBody": "Large data files are saved as symbolic links, which this disk does not support. The dataset would not work — not even on this computer. Pick a different folder to continue.",
     "error": "Clone failed: {detail}"
   },
   "importWizard": {
@@ -404,7 +408,8 @@
     "ebrainsDatasetNamePlaceholder": "e.g. AgingBrain v1",
     "diffError": "Couldn't compute diff: {detail}",
     "refreshDiff": "Retry diff",
-    "notImplementedDetail": "{reason}"
+    "notImplementedDetail": "{reason}",
+    "reauthHint": "OpenNeuro rejected the operation. Your sign-in may be stale — sign out and back in, then retry."
   },
   "preview": {
     "label": "File preview",
@@ -582,7 +587,7 @@
     "optionOriginal": "original",
     "running": "Defacing…",
     "error": "Defacing failed: {detail}",
-    "disabledTooltip": "No deface tool is available on this machine. The niimath deface sidecar ships for macOS arm64, Linux x86_64, and Windows x86_64, and the mindgrab WebGPU model needs `shader-f16` plus a ~1.4 GB max storage buffer (open Help > About BIDSvue for the per-check WebGPU report).",
+    "disabledTooltip": "No deface tool is available on this machine. The niimath deface sidecar ships for macOS arm64, Linux x86_64, and Windows x86_64; the mindgrab brain-extraction sidecar (brainchop) ships for macOS arm64.",
     "batch": {
       "title": "Batch deface scans",
       "toolHeading": "Defacer",
@@ -746,10 +751,7 @@
     "reportHint": "Open GitHub Issues with the diagnostic report prefilled. No dataset paths are included.",
     "copied": "Copied!",
     "copyFailed": "Copy failed",
-    "close": "Close",
-    "webgpuHeading": "WebGPU capability",
-    "webgpuOk": "PASS",
-    "webgpuFail": "FAIL"
+    "close": "Close"
   },
   "preferences": {
     "title": "Preferences",

@@ -14,6 +14,7 @@
 
 pub mod ai;
 mod datalad_native;
+mod fsprobe;
 mod import_mne_bids;
 mod process;
 mod runtime;
@@ -2214,6 +2215,34 @@ async fn prepare_clone_destination(
     })
 }
 
+/// Report whether a clone destination can hold real, portable symlinks
+/// so the clone dialog can warn before 80 GB lands somewhere that
+/// silently produces a macOS-only dataset. See [`fsprobe`] for why the
+/// verdict has three states rather than a crippled/not bit.
+///
+/// Token-gated like every other path-taking command: the probe writes
+/// (and removes) a scratch file, so a compromised renderer must not be
+/// able to aim it at an arbitrary directory. `Err` means undetermined,
+/// not "no symlinks" — the renderer stays silent on it.
+#[tauri::command]
+async fn probe_symlink_support(
+    state: tauri::State<'_, TrustStore>,
+    path: String,
+    token: String,
+) -> Result<fsprobe::SymlinkSupport, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.is_absolute() {
+        return Err(format!(
+            "probe_symlink_support: path must be absolute, got: {path}"
+        ));
+    }
+    state.validate_token(&token, &path_buf)?;
+    if !path_buf.is_dir() {
+        return Err(format!("probe_symlink_support: {path} is not a directory"));
+    }
+    fsprobe::probe_symlink_support(&path_buf)
+}
+
 /// In-memory pool of paths that the OS-level webview drag-drop event
 /// has recently observed. Closes the audit 2026-06-20 P1: without it,
 /// `accept_dropped_dataset` would mint a trust token for any
@@ -4183,6 +4212,7 @@ pub fn run() {
             run_deface_process,
             run_bids_validator,
             cancel_datalad_op,
+            probe_symlink_support,
             share_token_put,
             share_token_get,
             share_token_delete,

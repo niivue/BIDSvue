@@ -2,7 +2,7 @@
   M9: About BIDSvue dialog. Opens from the Help > About BIDSvue menu
   item (via the bidsvue:about-dialog-open event bridge in
   aboutDialogEvents.ts). Reports app version, platform, bundled-tool
-  versions, detected external tools, and WebGPU capability — the
+  versions, and detected external tools — the
   diagnostics users need when filing an issue. Exposes a "Copy
   diagnostic report" button that writes a privacy-respecting markdown
   block to the clipboard (no dataset paths, no user data — see
@@ -141,14 +141,6 @@
         {/each}
       </dl>
     {/if}
-
-    <h3 class="section">
-      {$_('about.webgpuHeading')}
-      <span class="webgpu-tag" class:fail={!info.webgpu.ok}>
-        {info.webgpu.ok ? $_('about.webgpuOk') : $_('about.webgpuFail')}
-      </span>
-    </h3>
-    <pre class="webgpu-body">{info.webgpu.report}</pre>
   {/if}
 
   <footer class="footer">
@@ -222,34 +214,6 @@
   .fields dd {
     margin: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    word-break: break-word;
-  }
-  .webgpu-tag {
-    display: inline-block;
-    margin-left: 0.5rem;
-    padding: 0 0.4rem;
-    border-radius: 3px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    vertical-align: middle;
-  }
-  .webgpu-tag.fail {
-    background: rgba(196, 56, 56, 0.12);
-    color: rgb(196, 56, 56);
-  }
-  .webgpu-body {
-    margin: 0;
-    padding: 0.5rem 0.65rem;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.78rem;
-    line-height: 1.4;
-    white-space: pre-wrap;
     word-break: break-word;
   }
   .footer {

@@ -11,11 +11,13 @@
 // Platform support: macOS arm64, Linux x86_64, Windows x86_64 — every
 // platform we stage a niimath sidecar for. The externalBin entry in
 // `tauri.conf.json` is `binaries/niimath`; Rust resolves the staged
-// `niimath-<target-triple>` at runtime. The BSD deface paths (`allineate`
-// + mindgrab `niimath_dilate`) run on all three platforms; niimath is a
-// BSD build everywhere (the GPL `spm_coreg` path was removed).
+// `niimath-<target-triple>` at runtime. The BSD `allineate` deface paths
+// run on all three platforms; niimath is a BSD build everywhere (the GPL
+// `spm_coreg` path was removed).
 // A platform with no staged sidecar errors when Rust can't find the binary,
 // which the deface surface gates on so users never reach the error path.
+// The mindgrab variants run the separate `brainchop-mindgrab` sidecar
+// (macOS arm64 today); it flows through this same executor + Rust command.
 
 import { invoke } from '@tauri-apps/api/core'
 import { resolveResource } from '@tauri-apps/api/path'
@@ -30,7 +32,7 @@ import type { DefaceExecutor } from './runDeface'
  * Known native deface sidecars. Kept local so `resolveBinary` catches
  * descriptor mistakes before `runDeface` reaches Rust.
  */
-const SIDECAR_NAMES = new Set(['niimath'])
+const SIDECAR_NAMES = new Set(['niimath', 'brainchop-mindgrab'])
 
 /**
  * Production `DefaceExecutor`. Keep this thin — every method maps 1:1

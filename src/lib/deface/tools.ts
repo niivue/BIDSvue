@@ -6,15 +6,17 @@
 // after a successful run. New tools land here without changing the
 // orchestrator's dispatch path.
 //
-// "Defacing" is overloaded in the literature. The sidecar tools mask
+// "Defacing" is overloaded in the literature. The allineate tools mask
 // the face region by registering an avg152T1 template + mask to the
 // subject via niimath `-deface` (12-DOF affine): `allineate` (default
 // fast engine), `allineate-robust` (`-robustfov` neck-crop first), and
-// `allineate-afni` (`-cost hel`, the AFNI Hellinger engine). The WebGPU
-// mindgrab tools brain-mask instead. New tools hook into
-// this same descriptor shape when they're wired up. (The GPL
-// `spm_coreg` 6-DOF `-spm_deface` path was removed so BIDSvue ships a
-// BSD-only niimath; see git log.)
+// `allineate-afni` (`-cost hel`, the AFNI Hellinger engine). The
+// mindgrab tools brain-extract instead, via the native
+// `brainchop-mindgrab` MeshNet sidecar (which replaced the former
+// in-WebView WebGPU model — see git log). New tools hook into this same
+// descriptor shape when they're wired up. (The GPL `spm_coreg` 6-DOF
+// `-spm_deface` path was removed so BIDSvue ships a BSD-only niimath;
+// see git log.)
 //
 // The descriptor's argv template uses named placeholders:
 //   {template}   — the atlas image bundled with the app
@@ -38,11 +40,9 @@
  *   neck/inferior slices before registration.
  * - `allineate-afni` — same default engine but `-cost hel` (AFNI-style
  *   Hellinger cost, the ordinary AFNI allineate engine — slower, no fast path).
- * - `mindgrab` — tinygrad WebGPU brain-mask model, 0 mm native-space dilation (M11).
- * - `mindgrab8` — same model, 8 mm niimath dilation pass (M11).
- * - `mindgrab8robust` — same as `mindgrab8` but the source is first cropped
- *   with niimath `-robustfov` (removes excess neck/inferior slices) so the
- *   model isn't thrown off by a long neck.
+ * - `mindgrab` — native `brainchop-mindgrab` MeshNet brain extraction, no
+ *   mask dilation.
+ * - `mindgrab8` — same model, 8 mm mask border (the binary's own `--border`).
  */
 export type DefaceToolId =
   | 'allineate'
@@ -50,19 +50,30 @@ export type DefaceToolId =
   | 'allineate-afni'
   | 'mindgrab'
   | 'mindgrab8'
-  | 'mindgrab8robust'
 
-/** IDs of `kind: 'sidecar'` tools (run a native binary via Rust command). */
-export type SidecarDefaceToolId = Extract<
-  DefaceToolId,
-  'allineate' | 'allineate-robust' | 'allineate-afni'
->
+/**
+ * Every deface tool now runs a bundled native binary via a Rust process
+ * command (`kind: 'sidecar'`) — the allineate variants via `niimath`, the
+ * mindgrab variants via `brainchop-mindgrab`. The former in-WebView WebGPU
+ * mindgrab path was removed (see git log); this alias is retained for the
+ * many call sites that narrow to a runnable tool id.
+ */
+export type SidecarDefaceToolId = DefaceToolId
 
-/** IDs of `kind: 'webgpu'` tools (run in-process via tinygrad WGSL). */
-export type WebGpuDefaceToolId = Extract<
-  DefaceToolId,
-  'mindgrab' | 'mindgrab8' | 'mindgrab8robust'
->
+/**
+ * The tool ids backed by the `brainchop-mindgrab` engine (native sidecar,
+ * or the WebGL2 wasm executor under `VITE_BIDSVUE_MINDGRAB_BACKEND=wasm`).
+ * Single source of truth for the renderer-side routing/gating so it can't
+ * regress into per-site id lists or a mix of `id` vs `binaryBasename`
+ * checks. The Rust `is_brainchop_tool` in process.rs is the deliberate
+ * cross-boundary copy — keep the two in sync.
+ */
+export const MINDGRAB_TOOL_IDS = ['mindgrab', 'mindgrab8'] as const
+
+/** True when `id` routes to the brainchop mindgrab engine. */
+export function isMindgrabTool(id: DefaceToolId): boolean {
+  return (MINDGRAB_TOOL_IDS as readonly string[]).includes(id)
+}
 
 /**
  * "Original" is not a tool — it's the dropdown's pre-deface state.
@@ -85,8 +96,13 @@ export interface DefaceDeidEntry {
 }
 
 /**
- * A sidecar-binary tool (M7 path). Run by `runDeface.ts` via a Rust
- * process command. `allineate` runs wherever a bundled niimath exists.
+ * A sidecar-binary tool. Run by `runDeface.ts` via a Rust process
+ * command: the argv template's `{input}`/`{output}` (and, for the
+ * allineate variants, `{template}`/`{mask}`) placeholders are substituted,
+ * the binary writes to a cache temp file, and the bytes are committed over
+ * the target through an `OperationContext`. `allineate` runs `niimath`;
+ * `mindgrab` runs `brainchop-mindgrab`. Both run wherever their bundled
+ * binary exists.
  */
 export interface SidecarDefaceTool {
   kind: 'sidecar'
@@ -108,11 +124,13 @@ export interface SidecarDefaceTool {
    */
   binaryBasename: string
   /**
-   * Bundle-relative paths of the inputs the argv template references.
-   * Resolved against the app's bundled resources/common/ tree before
-   * the binary runs.
+   * Bundle-relative paths of the bundled-atlas inputs the argv template
+   * references (`{template}`/`{mask}`). Resolved against the app's bundled
+   * `resources/common/` tree before the binary runs. Absent for tools
+   * whose argv references no atlas (brainchop-mindgrab is self-contained —
+   * its model weights are compiled into the binary).
    */
-  inputs: {
+  inputs?: {
     template: string
     mask: string
   }
@@ -120,43 +138,8 @@ export interface SidecarDefaceTool {
   deidEntry: DefaceDeidEntry
 }
 
-/**
- * A WebGPU tool (M11 path). The brain-mask inference runs in-process via
- * tinygrad-generated WGSL on the GPU; the optional mask dilation
- * (`dilationMm > 0`) shells out to the bundled NATIVE niimath sidecar
- * (`niimath_dilate` — there is no WASM niimath in the app). The UI gates
- * this with a `webgpuAvailable` check (via the `View > Probe WebGPU
- * support…` dialog's same probe code).
- */
-export interface WebGpuDefaceTool {
-  kind: 'webgpu'
-  id: WebGpuDefaceToolId
-  label: string
-  description: string
-  /**
-   * Bundle-relative path of the model weights blob. Resolved against
-   * the app's bundled `resources/common/` tree at execution time.
-   */
-  weightsResource: string
-  /**
-   * Native-space mask dilation in mm. 0 for `mindgrab` (no dilation),
-   * 8 for `mindgrab8`. Threaded into the niimath dilation pipeline's
-   * `-thr N` step inside the orchestrator (full pipeline:
-   * `[binv, edt, thr N, binv]`).
-   */
-  dilationMm: number
-  /**
-   * When true, the source is cropped with niimath `-robustfov` (removes
-   * excess neck/inferior slices) before conform + inference. The cropped
-   * copy becomes the single working volume for the whole pipeline. Used by
-   * `mindgrab8robust` for scans whose long neck throws off the model.
-   */
-  robustfov?: boolean
-  deidEntry: DefaceDeidEntry
-}
-
 /** Tool metadata used by the executor + UI. */
-export type DefaceTool = SidecarDefaceTool | WebGpuDefaceTool
+export type DefaceTool = SidecarDefaceTool
 
 /** Shared bundled atlas inputs for every allineate variant. */
 const ALLINEATE_INPUTS = {
@@ -247,67 +230,48 @@ export const TOOL_ALLINEATE_AFNI: SidecarDefaceTool = {
 }
 
 /**
- * tinygrad WebGPU brain-mask model, no dilation. Native-space mask ×
- * original = brain-only NIfTI. Cross-platform wherever WebGPU +
- * `shader-f16` is available (see [`decisions/M11-mindgrab-deface.md`]).
+ * Native MeshNet brain-extraction defacer (`brainchop-mindgrab`), no
+ * dilation. Reads the source NIfTI and writes the skull-stripped result in
+ * the input's own space (non-brain voxels floored). `-backend auto` selects
+ * Metal on macOS and the threaded-CPU engine elsewhere. The model weights
+ * are compiled into the binary, so there is no atlas input. Replaces the
+ * former in-WebView WebGPU mindgrab (see git log).
+ *
+ *   brainchop-mindgrab <input> -o <output> -backend auto --border 0
  */
-export const TOOL_MINDGRAB: WebGpuDefaceTool = {
-  kind: 'webgpu',
+export const TOOL_MINDGRAB: SidecarDefaceTool = {
+  kind: 'sidecar',
   id: 'mindgrab',
   label: 'mindgrab',
-  description: 'WebGPU brain-mask model — native-space masking, no dilation',
-  weightsResource: 'common/mindgrab/net_mindgrab.safetensors',
-  dilationMm: 0,
+  description: 'Native MeshNet brain extraction (brainchop), no dilation',
+  binaryBasename: 'brainchop-mindgrab',
+  argv: ['{input}', '-o', '{output}', '-backend', 'auto', '--border', '0'],
   deidEntry: {
     CodingSchemeDesignator: 'BIDSvue',
     CodeValue: 'BIDSVUE-DEFACE-MINDGRAB-V1',
-    CodeMeaning: 'BIDSvue mindgrab WebGPU brain-mask deface',
+    CodeMeaning: 'BIDSvue mindgrab brain-extraction deface',
   },
 }
 
 /**
- * Same model as `TOOL_MINDGRAB` but with an 8 mm niimath dilation
- * pass (`[binv, edt, thr 8, binv]`) on the native-space mask. The
- * wider margin keeps the cortex intact for downstream intensity-
- * homogeneity correction.
+ * Same model as `TOOL_MINDGRAB` but grows the brain mask by an 8 mm border
+ * (the binary's own `--border` distance grow, replacing the former niimath
+ * `-edt` dilation pass). The wider margin keeps the cortex intact for
+ * downstream intensity-homogeneity correction.
+ *
+ *   brainchop-mindgrab <input> -o <output> -backend auto --border 8
  */
-export const TOOL_MINDGRAB8: WebGpuDefaceTool = {
-  kind: 'webgpu',
+export const TOOL_MINDGRAB8: SidecarDefaceTool = {
+  kind: 'sidecar',
   id: 'mindgrab8',
   label: 'mindgrab-8mm',
-  description:
-    'WebGPU brain-mask model — native-space masking, 8 mm niimath -edt dilation',
-  weightsResource: 'common/mindgrab/net_mindgrab.safetensors',
-  dilationMm: 8,
+  description: 'Native MeshNet brain extraction (brainchop), 8 mm mask border',
+  binaryBasename: 'brainchop-mindgrab',
+  argv: ['{input}', '-o', '{output}', '-backend', 'auto', '--border', '8'],
   deidEntry: {
     CodingSchemeDesignator: 'BIDSvue',
     CodeValue: 'BIDSVUE-DEFACE-MINDGRAB-DIL8-V1',
-    CodeMeaning: 'BIDSvue mindgrab WebGPU brain-mask deface (8 mm dilation)',
-  },
-}
-
-/**
- * Same as `TOOL_MINDGRAB8` but crops the source with niimath `-robustfov`
- * before conform + inference. robustfov removes excess neck/inferior
- * slices; the cropped copy is then the single working volume through the
- * whole pipeline (conform, infer, inverse-conform, mask-apply) — mixing
- * cropped and pristine grids would corrupt the mask. For scans where the
- * stock mindgrab fails on a long neck.
- */
-export const TOOL_MINDGRAB8ROBUST: WebGpuDefaceTool = {
-  kind: 'webgpu',
-  id: 'mindgrab8robust',
-  label: 'mindgrab-robust-8mm',
-  description:
-    'WebGPU brain-mask model — robustfov neck crop + 8 mm niimath -edt dilation',
-  weightsResource: 'common/mindgrab/net_mindgrab.safetensors',
-  dilationMm: 8,
-  robustfov: true,
-  deidEntry: {
-    CodingSchemeDesignator: 'BIDSvue',
-    CodeValue: 'BIDSVUE-DEFACE-MINDGRAB-ROBUST-DIL8-V1',
-    CodeMeaning:
-      'BIDSvue mindgrab WebGPU brain-mask deface (robustfov + 8 mm dilation)',
+    CodeMeaning: 'BIDSvue mindgrab brain-extraction deface (8 mm border)',
   },
 }
 
@@ -322,7 +286,6 @@ export const DEFACE_TOOLS: readonly DefaceTool[] = [
   TOOL_ALLINEATE_AFNI,
   TOOL_MINDGRAB,
   TOOL_MINDGRAB8,
-  TOOL_MINDGRAB8ROBUST,
 ]
 
 export function findTool(id: DefaceToolId): DefaceTool {

@@ -2,12 +2,10 @@
 //
 // Deface tools only handle 3D anatomical scans. A BOLD / DWI / ASL
 // series (4D, often >1 GB) silently produces meaningless output if
-// pushed through allineate, and the mindgrab pipeline `applyMaskToImage`
-// at the tail throws AFTER a 5–30 s WebGPU run. Pre-check the file's
+// pushed through allineate or brainchop-mindgrab. Pre-check the file's
 // dimensionality from its 352-byte NIfTI header so 4D inputs fail fast
-// — before any subprocess spawn for allineate, before any inference
-// for mindgrab — with a clear message instead of an opaque late
-// failure.
+// — before any subprocess spawn — with a clear message instead of an
+// opaque late failure.
 //
 // **Header-only** by design. For an uncompressed `.nii` the read is
 // exactly 352 bytes off disk. For a `.nii.gz` the gzip stream is

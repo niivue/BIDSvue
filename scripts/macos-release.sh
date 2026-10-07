@@ -259,7 +259,7 @@ log "datalad-rs:      submodule present"
 # Stage the arm64 sidecars before tauri build so a clean checkout produces a
 # reproducible DMG; fail loud if any source is missing.
 mkdir -p src-tauri/binaries
-sidecar_basenames=(dcm2niix niimath bids-validator)
+sidecar_basenames=(dcm2niix niimath bids-validator brainchop-mindgrab)
 sidecar_triple="aarch64-apple-darwin"
 for basename in "${sidecar_basenames[@]}"; do
   src="resources/darwin/$basename"
@@ -273,20 +273,6 @@ for basename in "${sidecar_basenames[@]}"; do
   chmod +x "$dst"
 done
 log "staged sidecars: ${sidecar_basenames[*]} ($sidecar_triple)"
-
-# --- preflight: mindgrab weights present -------------------------------------
-
-# tauri.conf.json glob-bundles resources/common/mindgrab/*.safetensors as
-# bundle.resources; the weight blob is gitignored (~574 KB binary). Fail
-# loud if absent so the DMG isn't quietly built without the WebGPU deface
-# capability.
-mindgrab_weights="resources/common/mindgrab/net_mindgrab.safetensors"
-if [[ ! -f "$mindgrab_weights" ]]; then
-  err "missing mindgrab weights: $mindgrab_weights"
-  err "see resources/common/mindgrab/README.md for how to obtain them"
-  exit 1
-fi
-log "mindgrab weights present ($(du -h "$mindgrab_weights" | cut -f1))"
 
 # --- preflight: tools + identity ---------------------------------------------
 

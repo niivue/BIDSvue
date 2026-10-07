@@ -118,6 +118,7 @@ import {
 import { aggregateScansTsv, loadBidsignorePatterns } from './scansTsv'
 import { runSessionBackfill } from './sessionBackfill'
 import { runShiftDates } from './shiftDates'
+import { stripSbrefGradients } from './stripSbref'
 import { maybePurgeAllDiscardUnknown, runUnknownRescue } from './unknownRescue'
 import { walkSessions } from './walkSessions'
 
@@ -132,6 +133,8 @@ export interface PostPassResult {
   b0FieldEdits: number
   /** Number of `_events.tsv` placeholders written. */
   eventsTsvWrites: number
+  /** Number of `.bval`/`.bvec` companions stripped from `_sbref` files. */
+  sbrefGradientsStripped: number
   /** Number of root-scaffolding files written across all roots. */
   scaffoldingWrites: number
   /**
@@ -458,6 +461,7 @@ export async function runPostPass(
   let scansTsvWrites = 0
   let b0FieldEdits = 0
   let eventsTsvWrites = 0
+  let sbrefGradientsStripped = 0
   let scaffoldingWrites = 0
   let readmeMdStubsRemoved = 0
   let taskBoldStubsRemoved = 0
@@ -783,6 +787,11 @@ export async function runPostPass(
     }
     for (const sessionDir of sessions) {
       try {
+        // Drop `.bval`/`.bvec` companions of `_sbref` files (a diffusion
+        // single-band reference; BIDS doesn't associate gradients with the
+        // `_sbref` suffix). Mirrors reproinx.py's `_strip_sbref_gradients`,
+        // called before scans.tsv aggregation.
+        sbrefGradientsStripped += await stripSbrefGradients(sessionDir, ctx, fs)
         // The orchestrator pre-loads `.bidsignore` patterns above and
         // threads them in so the per-session aggregator skips the read.
         // Mirrors reproinx.py's `_write_scans_tsv` filter.
@@ -1031,6 +1040,7 @@ export async function runPostPass(
     scansTsvWrites,
     b0FieldEdits,
     eventsTsvWrites,
+    sbrefGradientsStripped,
     scaffoldingWrites,
     readmeMdStubsRemoved,
     taskBoldStubsRemoved,

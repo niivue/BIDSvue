@@ -1124,6 +1124,7 @@ export async function runImport(
       scansTsvWrites: 0,
       b0FieldEdits: 0,
       eventsTsvWrites: 0,
+      sbrefGradientsStripped: 0,
       scaffoldingWrites: 0,
       readmeMdStubsRemoved: 0,
       taskBoldStubsRemoved: 0,

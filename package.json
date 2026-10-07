@@ -1,7 +1,7 @@
 {
   "name": "bidsvue",
   "private": true,
-  "version": "0.1.20260715",
+  "version": "0.1.20261007",
   "description": "Cross-platform desktop UI for creating, inspecting, and modifying BIDS datasets.",
   "license": "BSD-2-Clause",
   "homepage": "https://github.com/niivue/BIDSvue",
@@ -14,9 +14,9 @@
   },
   "type": "module",
   "scripts": {
-    "predev": "bun run scripts/ensure-validator-artifacts.ts",
+    "predev": "bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-mindgrab-wasm.ts",
     "dev": "vite dev",
-    "prebuild": "bun run scripts/ensure-validator-artifacts.ts",
+    "prebuild": "bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-mindgrab-wasm.ts",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -40,13 +40,14 @@
   },
   "dependencies": {
     "@bids/validator": "npm:@jsr/bids__validator@2.4.1",
+    "@brainchop/mindgrab": "^0.1.20260813",
     "@niivue/niivue": "1.0.0-rc.10",
-    "gl-matrix": "^3.4.4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2",
     "@tauri-apps/plugin-os": "^2",
     "@tauri-apps/plugin-store": "^2",
+    "gl-matrix": "^3.4.4",
     "svelte-i18n": "^4"
   },
   "devDependencies": {

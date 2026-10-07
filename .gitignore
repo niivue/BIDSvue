@@ -124,3 +124,6 @@ DICOMs/
 /dcm2bids_linux_*/
 /dcm2bids_windows_*/
 /icons/
+
+# Staged @brainchop/mindgrab WebGL2 module (wasm backend only; scripts/stage-mindgrab-wasm.ts)
+/static/brainchop/

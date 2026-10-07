@@ -329,8 +329,8 @@ export interface BoldDemoteResult {
  * deleted events.tsv first, so a pre-existing `_sbref.json` at the
  * destination (collision) would leave the bold family intact AND
  * have already wiped the events.tsv with no rollback. A
- * `StemFileExistsError` at preflight now skips this candidate
- * cleanly; the events.tsv stays put for the caller to inspect.
+ * `StemFileExistsError` at preflight skips this candidate (no throw)
+ * and the events.tsv stays put.
  */
 export async function demoteThreeDBoldToSbref(
   sessionDir: string,
@@ -381,17 +381,13 @@ export async function demoteThreeDBoldToSbref(
       if (moved === 0) continue
     } catch (err) {
       if (err instanceof PostPassIntegrityError) throw err
-      if (err instanceof StemFileExistsError) {
-        // Pre-existing _sbref at destination: leave the bold family
-        // untouched (the bold validator warning the user sees next
-        // is the right surface; clobbering a real single-band
-        // reference would be worse). Surface to orchestrator via
-        // throw — bidsguess's per-session try/catch records the
-        // warning without breaking the wider pass.
-        throw new Error(
-          `bidsguess: 3D bold "${stem}" cannot demote — "${newStem}" family already exists in ${funcDir}`,
-        )
-      }
+      // Pre-existing _sbref: skip, as reproinx.py does. The usual cause is a
+      // dcm2niix phase SBRef mislabeled `_bold` beside the magnitude
+      // `_sbref`; resolvePartEntities (next) renames it to
+      // `_part-phase_sbref`. A genuine leftover stays a 3D `_bold` for the
+      // validator to flag. Throwing here aborted the loop and raised a
+      // spurious import warning.
+      if (err instanceof StemFileExistsError) continue
       // Non-collision rename error (EXDEV, EPERM, etc.) — the
       // moveStemFiles per-family rollback already restored what it
       // moved; surface to the orchestrator.

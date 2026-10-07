@@ -122,8 +122,7 @@ Upstream: <https://github.com/rordenlab/niimath> (BSD-2-Clause)
 BIDSvue ships the `niimath` binary as a Tauri sidecar, committed under
 [`resources/<platform>/`](resources/) for macOS arm64, Linux x86_64, and
 Windows x86_64. It backs the `allineate` CPU deface tool (the
-`-robustfov -deface` 12-DOF affine path) and the mindgrab mask-dilation
-pass (`niimath_dilate`).
+`-robustfov -deface` 12-DOF affine path).
 
 The binary is niimath's **default BSD-2-Clause build** (compiled with
 `OMP=0 ZSTD=0` to keep the notarized macOS bundle self-contained; recipe
@@ -151,11 +150,20 @@ BIDSvue depends on `@niivue/niivue` (1.0.0-rc.10) for in-app NIfTI
 visualisation, consumed from the npm-published package. No source is
 vendored.
 
-### mindgrab (BSD-2-Clause)
+### mindgrab
 
-Upstream: bundled WebGPU mindgrab model. The model weights and
-runtime code ship under BSD-2-Clause per their committed sidecar
-manifest. See [resources/](resources/) for the staged binaries.
+Upstream: [brainchop](https://github.com/neuroneural/brainchop) MeshNet
+brain extraction, backing the `mindgrab` / `mindgrab8` deface variants.
+Two interchangeable backends, one per build (`VITE_BIDSVUE_MINDGRAB_BACKEND`):
+
+- **native (default, BSD-2-Clause):** BIDSvue ships the `brainchop-mindgrab`
+  binary (model weights compiled in) as a Tauri sidecar under
+  [`resources/darwin/`](resources/darwin/), macOS arm64 only.
+- **wasm (MIT):** the `@brainchop/mindgrab` npm package, consumed
+  unmodified from the npm-published package; its WebGL2 module + assets
+  are staged into `static/brainchop/` at build time by
+  [`scripts/stage-mindgrab-wasm.ts`](scripts/stage-mindgrab-wasm.ts) and
+  served in-WebView. No source is vendored.
 
 ### Other dependencies
 

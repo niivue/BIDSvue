@@ -50,9 +50,9 @@
   // the Linux build unusable (the WebGPU-only constructor throws "This
   // niivuegpu distribution includes only WebGPU"). Trade-off accepted:
   // the universal bundle is larger because it carries the WebGL2 path.
-  // (The `probeWebGpu()` helper in `src/lib/deface/mindgrab/probe.ts` is
-  // deface-specific — it also needs `shader-f16` + 1.4 GiB buffers that
-  // NiiVue itself does not — and is NOT invoked here.)
+  // (Deface no longer runs any in-WebView GPU model — the mindgrab
+  // brain-extraction path is the native `brainchop-mindgrab` sidecar —
+  // so nothing here depends on WebGPU beyond NiiVue's own rendering.)
   import type { NVImage } from '@niivue/niivue'
 
   /**
@@ -1256,10 +1256,10 @@
 
     {#if isDefaceable && !is4D}
       <!--
-        Platform / WebGPU gating lives inside DefaceControl (M11): each
-        tool kind has its own capability check (allineate → macOS arm64;
-        mindgrab → WebGPU + shader-f16) and the dropdown grays out
-        per-option rather than gating the whole control on one flag.
+        Platform gating lives inside DefaceControl: each tool has its own
+        bundled-binary capability check (allineate → niimath platforms;
+        mindgrab → brainchop-mindgrab platforms) and the dropdown grays
+        out per-option rather than gating the whole control on one flag.
 
         `!is4D` hides the control for a 4D timeseries: the defacers
         (allineate / mindgrab) only handle 3D volumes and

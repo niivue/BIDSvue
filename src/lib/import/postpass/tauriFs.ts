@@ -17,33 +17,24 @@
 //      348-byte header read.
 
 import {
+  existsWithRustFallback,
   readTextFileWithRustFallback,
   resolveSymlinkIfPresent,
 } from '$lib/util/readTextFile'
-import { type DirEntry, exists, open, readDir } from '@tauri-apps/plugin-fs'
+import { type DirEntry, open, readDir } from '@tauri-apps/plugin-fs'
 import type { PostPassDirEntry, PostPassFs } from './fs'
 
 const COMPRESSED_CHUNK = 4096
 
 export const tauriPostPassFs: PostPassFs = {
   async exists(path: string): Promise<boolean> {
-    // plugin-fs's `exists()` THROWS for paths that fall outside the
-    // runtime-widened scope. Before falling all the way back to a
-    // silent `false`, retry through the Rust read helper that
-    // bypasses plugin-fs's broken-on-dotfile glob check (see
-    // `src/lib/util/readTextFile.ts` for the full story). If THAT
-    // also says the file isn't there (or genuinely errors), treat
-    // it as ENOENT.
-    try {
-      return await exists(path)
-    } catch {
-      try {
-        await readTextFileWithRustFallback(path)
-        return true
-      } catch {
-        return false
-      }
-    }
+    // Dotfile-safe existence check: plugin-fs's `exists()` throws
+    // "forbidden path" for paths outside the runtime-widened scope
+    // (notably dotfile basenames). `existsWithRustFallback` retries
+    // through the Rust read helper that bypasses the glob and, unlike a
+    // blanket `false`, re-throws a genuine unreadable error. See
+    // `src/lib/util/readTextFile.ts`.
+    return existsWithRustFallback(path)
   },
 
   async readDir(path: string): Promise<PostPassDirEntry[]> {

@@ -13,6 +13,19 @@ const host = process.env.TAURI_DEV_HOST
 export default defineConfig({
   plugins: [sveltekit()],
 
+  // Normalise the mindgrab-backend build flag to a compile-time LITERAL so
+  // esbuild/Rollup can constant-fold `import.meta.env.VITE_BIDSVUE_MINDGRAB_
+  // BACKEND === 'wasm'` and tree-shake the unused branch. Without this, an
+  // UNSET `VITE_` var stays a runtime lookup (Vite only statically replaces
+  // vars that are defined), so a native build would still bundle the
+  // ~1.5 MB `@brainchop/mindgrab` WebGL2 package it never loads. See
+  // `MINDGRAB_BACKEND` in src/lib/deface/capabilities.ts.
+  define: {
+    'import.meta.env.VITE_BIDSVUE_MINDGRAB_BACKEND': JSON.stringify(
+      process.env.VITE_BIDSVUE_MINDGRAB_BACKEND === 'wasm' ? 'wasm' : 'native',
+    ),
+  },
+
   // The renderer runs only in Tauri's WebViews (WKWebView / WebView2 /
   // WebKitGTK). All three target Safari 15+ / Chrome 89+ -- past the
   // top-level-await threshold. Vite's default build target is broader

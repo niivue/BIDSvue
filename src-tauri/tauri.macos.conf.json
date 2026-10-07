@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/niimath",
+      "binaries/dcm2niix",
+      "binaries/bids-validator",
+      "binaries/brainchop-mindgrab"
+    ]
+  }
+}

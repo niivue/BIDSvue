@@ -1,43 +1,34 @@
 // Centralised, MODULE-LEVEL-CACHED capability resolution for the deface
-// UI. Two probes:
+// UI. Two probes, one per bundled deface binary:
 //
-//   - `getSidecarSupported()`     — niimath sidecar shipped for this platform?
-//   - `getWebGpuSupported()`      — WebGPU + shader-f16 + ~1.4 GB max buffer?
-//                                   (M11 mindgrab tool family)
+//   - `getSidecarSupported()`   — niimath (allineate variants) shipped
+//                                 for this platform?
+//   - `getMindgrabSupported()`  — brainchop-mindgrab (mindgrab variants)
+//                                 shipped for this platform?
 //
-// Why module-level cache: `DefaceControl.svelte` ran both probes on
-// every component mount, including the WebGPU probe's
-// `adapter.requestDevice({ requiredLimits: { 1.4 GB, 1.4 GB } })`. On
-// a dataset with many anatomicals, arrow-key cursoring through subjects
-// re-mounted the control and re-allocated a 1.4 GB-limit GPU device per
-// selection — wasteful, and driver memory release isn't always prompt.
-// Capabilities don't change while the app is running, so a per-session
-// cache is correct.
-//
-// External audit H2 + refactor #3 + security review P1-1 all flagged
-// this; the cache is the unified fix.
+// Both are cheap `@tauri-apps/plugin-os` reads; the module-level cache
+// keeps `DefaceControl.svelte` from re-resolving on every mount (it
+// re-mounts as the user arrow-keys through anatomicals). Capabilities
+// don't change while the app is running, so a per-session cache is
+// correct.
 
-import {
-  type ProbeResult,
-  formatProbeResult,
-  probeWebGpu,
-} from './mindgrab/probe'
-
-// Reuse the probe's structured shape so the caller has both a boolean
-// and the per-check breakdown (the `View > Probe WebGPU support…`
-// dialog and any future "why is this disabled?" affordance share the
-// same data).
-export type { ProbeResult }
-export { formatProbeResult }
+/**
+ * Which mindgrab backend this build ships, selected at build time (mirrors
+ * `VITE_BIDSVUE_VALIDATOR_BACKEND`). Unset / `native` = the bundled
+ * `brainchop-mindgrab` sidecar (macOS arm64). `wasm` = the in-WebView
+ * `@brainchop/mindgrab` WebGL2 module (portable — the Linux story). Vite
+ * inlines the env literal, so the unused executor + package are dead-coded.
+ */
+export const MINDGRAB_BACKEND: 'native' | 'wasm' =
+  import.meta.env.VITE_BIDSVUE_MINDGRAB_BACKEND === 'wasm' ? 'wasm' : 'native'
 
 let sidecarSupportedPromise: Promise<boolean> | null = null
-let webgpuProbePromise: Promise<ProbeResult> | null = null
+let mindgrabSupportedPromise: Promise<boolean> | null = null
 
 /**
  * `true` when this build bundles a niimath sidecar — i.e. the BSD deface
- * paths (`allineate` 12-DOF affine + the mindgrab `niimath_dilate`) can run.
- * We ship niimath on macOS arm64, Linux x86_64, and Windows x86_64. Cached
- * for the session.
+ * paths (`allineate` 12-DOF affine) can run. We ship niimath on macOS arm64,
+ * Linux x86_64, and Windows x86_64. Cached for the session.
  */
 export async function getSidecarSupported(): Promise<boolean> {
   if (sidecarSupportedPromise === null) {
@@ -60,22 +51,34 @@ export async function getSidecarSupported(): Promise<boolean> {
 }
 
 /**
- * The WebGPU probe result (full per-check breakdown). Cached for the
- * session — the `adapter.requestDevice()` call inside the probe is the
- * expensive bit. Re-running this dialog from `View > Probe WebGPU
- * support…` calls `probeWebGpu()` directly and bypasses the cache (the
- * menu item is the explicit "re-check" surface).
+ * `true` when this build can run the `mindgrab` brain-extraction defacer.
+ *
+ * The `native` backend (default; `VITE_BIDSVUE_MINDGRAB_BACKEND` unset or
+ * `native`) bundles the `brainchop-mindgrab` sidecar, currently staged for
+ * **macOS arm64 only** — extend this matrix when Linux/Windows native
+ * binaries are added. The `wasm` backend (in-WebView WebGL2, for Linux) is
+ * a separate follow-up and will report its own support here. Cached for the
+ * session.
  */
-export async function getWebGpuProbe(): Promise<ProbeResult> {
-  if (webgpuProbePromise === null) {
-    webgpuProbePromise = probeWebGpu()
+export async function getMindgrabSupported(): Promise<boolean> {
+  if (mindgrabSupportedPromise === null) {
+    mindgrabSupportedPromise = (async () => {
+      try {
+        if (import.meta.env.VITE_BIDSVUE_MINDGRAB_BACKEND === 'wasm') {
+          // In-WebView WebGL2: supported wherever the WebView exposes a
+          // usable WebGL2 context (Linux WebKitGTK, macOS WKWebView, …).
+          const { checkWebgl2Support } = await import('@brainchop/mindgrab')
+          return checkWebgl2Support().supported
+        }
+        // Native brainchop sidecar: bundled for macOS arm64 today.
+        const { platform, arch } = await import('@tauri-apps/plugin-os')
+        return platform() === 'macos' && arch() === 'aarch64'
+      } catch {
+        return false
+      }
+    })()
   }
-  return webgpuProbePromise
-}
-
-/** Convenience: just the boolean. */
-export async function getWebGpuSupported(): Promise<boolean> {
-  return (await getWebGpuProbe()).ok
+  return mindgrabSupportedPromise
 }
 
 /**
@@ -86,5 +89,5 @@ export async function getWebGpuSupported(): Promise<boolean> {
  */
 export function __resetCapabilityCachesForTests(): void {
   sidecarSupportedPromise = null
-  webgpuProbePromise = null
+  mindgrabSupportedPromise = null
 }

@@ -41,14 +41,5 @@ export function buildDiagnosticReport(info: AppInfo): string {
       lines.push(`- ${t.name}: ${status}`)
     }
   }
-  // WebGPU capability — reported as a fenced block so the
-  // pre-formatted per-check lines from `formatProbeResult` survive
-  // markdown rendering verbatim. PASS/FAIL goes in the heading so
-  // the body doesn't need a separate summary line (which would
-  // duplicate the badge in the About dialog).
-  const webgpuTag = info.webgpu.ok ? 'PASS' : 'FAIL'
-  lines.push('', `### WebGPU capability — ${webgpuTag}`, '', '```')
-  lines.push(info.webgpu.report)
-  lines.push('```')
   return `${lines.join('\n')}\n`
 }

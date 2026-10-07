@@ -71,12 +71,12 @@ struct ValidatedImportArgs {
 struct ValidatedDefaceRun {
     binary: ProcessBinary,
     cwd: PathBuf,
-    /// The exact argv to spawn — CANONICAL (symlink-resolved) paths in both
-    /// branches, so no raw renderer byte reaches the child. `niimath_dilate`:
-    /// canonical in/out + constant flags + re-stringified threshold (built by
-    /// `resolve_niimath_dilate_spawn`). Sidecar defacers: canonical input +
-    /// bundled template/mask + canonical output and cwd (built by
-    /// `resolve_deface_spawn`).
+    /// The exact argv to spawn — CANONICAL (symlink-resolved) paths in every
+    /// branch, so no raw renderer byte reaches the child. Allineate defacers:
+    /// canonical input + bundled template/mask + canonical output and cwd
+    /// (built by `resolve_deface_spawn`). brainchop-mindgrab: canonical
+    /// input/output + validated backend/border (built by
+    /// `resolve_brainchop_spawn`).
     argv: Vec<String>,
 }
 
@@ -250,9 +250,10 @@ pub async fn probe_import_tool(tool_id: String) -> Result<ProbeOutput, String> {
 /// Run a sidecar defacing process.
 ///
 /// Documented Rust exception: this is the same shell-execution
-/// security boundary as `run_import_process`, with an even narrower
-/// argv contract for the `niimath` deface sidecar (backs the
-/// `allineate` 12-DOF deface tool).
+/// security boundary as `run_import_process`, with narrow argv contracts
+/// for the `niimath` deface sidecar (backs the `allineate` 12-DOF deface
+/// tools) and the `brainchop-mindgrab` brain-extraction sidecar (backs
+/// the `mindgrab` tools).
 #[tauri::command]
 pub async fn run_deface_process(
     app: tauri::AppHandle,
@@ -261,20 +262,35 @@ pub async fn run_deface_process(
     argv: Vec<String>,
     dataset_root: String,
 ) -> Result<ProcessOutput, String> {
-    // `niimath_dilate` is the mindgrab 8 mm mask-dilation pass. It runs the
-    // SAME bundled niimath binary as the defacers (no WASM niimath in the
-    // app — the executable handles larger files and is faster), but operates
-    // on a temporary mask file the renderer wrote under `$APPCACHE`, so it
-    // has no template/mask/datasetRoot — only cache-scoped in+out paths.
-    let run = if tool_id == "niimath_dilate" {
-        validate_niimath_dilate_run(&app, &argv)?
+    // The renderer sends the TOOL id (`tool.id`), not the binary basename:
+    // `mindgrab` / `mindgrab8` route to the native brainchop brain-extraction
+    // defacer, everything else to the allineate niimath sidecars. (The
+    // brainchop binary is `brainchop-mindgrab`, resolved inside
+    // `resolve_brainchop_spawn` — do NOT match on the basename here.)
+    let validated = if is_brainchop_tool(&tool_id) {
+        // Native brain-extraction defacer (replaces the former in-WebView
+        // WebGPU mindgrab). Reads a dataset NIfTI, writes the skull-stripped
+        // result to a cache temp file — same in-under-root / out-under-cache
+        // shape as the allineate sidecars, different binary + argv.
+        validate_brainchop_run(&app, &state, &argv, &dataset_root)
     } else {
-        validate_deface_run(&app, &state, &tool_id, &argv, &dataset_root)?
+        validate_deface_run(&app, &state, &tool_id, &argv, &dataset_root)
+    };
+    // Diagnostic on the failure path (visible in `bun tauri dev` output): the
+    // renderer surfaces the same message as an "action failed" toast, but the
+    // terminal line makes tool-id / argv-shape / path-authorization rejections
+    // debuggable without opening devtools.
+    let run = match validated {
+        Ok(run) => run,
+        Err(e) => {
+            eprintln!("[run_deface_process] tool_id={tool_id} failed validation: {e}");
+            return Err(e);
+        }
     };
     // Spawn `run.argv`, NOT the renderer's raw `argv`: in BOTH branches it is
     // the CANONICAL (symlink-resolved) argv that passed validation, so the
     // bytes that were authorized are the bytes the child receives — no raw
-    // renderer path is ever handed to niimath.
+    // renderer path is ever handed to the sidecar.
     tauri::async_runtime::spawn_blocking(move || {
         let exit = run_process(run.binary, &run.argv, Some(&run.cwd), false)?;
         require_success(exit)
@@ -551,39 +567,13 @@ fn resolve_deface_spawn(
     cache_dir: &Path,
 ) -> Result<(Vec<String>, PathBuf), String> {
     let (pre, post) = deface_variant(tool_id)?;
-    let root_canon = canonicalize_existing(dataset_root, "datasetRoot")?;
-    let input_canon = canonicalize_existing(&parts.input, "deface input")?;
-    if !input_canon.starts_with(&root_canon) {
-        return Err(format!(
-            "run_deface_process: deface input {} resolves outside datasetRoot {}",
-            input_canon.display(),
-            root_canon.display()
-        ));
-    }
-    let cache_canon = canonicalize_existing(cache_dir, "app cache dir")?;
-    let out_parent = parts
-        .output
-        .parent()
-        .ok_or_else(|| format!("output has no parent: {}", parts.output.display()))?;
-    let out_parent_canon = canonicalize_existing(out_parent, "deface output parent")?;
-    let out_name = parts
-        .output
-        .file_name()
-        .ok_or_else(|| format!("output has no file name: {}", parts.output.display()))?;
-    let output_canon = out_parent_canon.join(out_name);
-    if !output_canon.starts_with(&cache_canon) {
-        return Err(format!(
-            "run_deface_process: deface output {} resolves outside app cache {}",
-            output_canon.display(),
-            cache_canon.display()
-        ));
-    }
-    if std::fs::symlink_metadata(&output_canon).is_ok() {
-        return Err(format!(
-            "run_deface_process: deface output {} must not already exist",
-            output_canon.display()
-        ));
-    }
+    let (input_canon, output_canon, out_parent_canon) = resolve_in_under_root_out_under_cache(
+        &parts.input,
+        dataset_root,
+        &parts.output,
+        cache_dir,
+        "deface",
+    )?;
     let template_canon = canonicalize_existing(expected_template, "template")?;
     let mask_canon = canonicalize_existing(expected_mask, "mask")?;
     // Hand niimath verbatim-stripped paths (Windows `\\?\` prefix removed);
@@ -659,136 +649,168 @@ fn validate_deface_paths(
     })
 }
 
-/// Validate the niimath mask-dilation argv SHAPE — the mindgrab 8 mm pass.
-/// App-free + pure so it's unit-testable. The pipeline mirrors the working
-/// CLI `niimath <mask> -binv -edt -thr <N> -binv <out>`:
-///   binv (invert) -> edt (distance from brain) -> thr N (keep >= N mm) ->
-///   binv (re-invert) = brain + N-mm halo.
-fn validate_niimath_dilate_argv(argv: &[String]) -> Result<(PathBuf, PathBuf, f64), String> {
+/// The deface tool ids (renderer-side `tool.id` values from
+/// `src/lib/deface/tools.ts`) that route to the native `brainchop-mindgrab`
+/// sidecar rather than the allineate niimath path. Keep in sync with the
+/// `mindgrab*` descriptors in tools.ts — this is the TS↔Rust routing
+/// contract that `run_deface_process` dispatches on.
+fn is_brainchop_tool(tool_id: &str) -> bool {
+    matches!(tool_id, "mindgrab" | "mindgrab8")
+}
+
+/// Allowed `-backend` values for the native brainchop defacer. `auto`
+/// selects Metal on macOS and the threaded-CPU engine elsewhere; `metal`
+/// and `cpu` force one. Locking the token here is the sole allowlist —
+/// the renderer cannot inject an arbitrary backend string.
+const BRAINCHOP_BACKENDS: &[&str] = &["auto", "cpu", "metal"];
+
+/// Validate the native brainchop-mindgrab argv SHAPE. App-free + pure so
+/// it's unit-testable. Fixed layout:
+///   <input> -o <output> -backend <auto|cpu|metal> --border <mm>
+/// `--border 0` is valid (no dilation), matching the tool's own default.
+fn validate_brainchop_argv(argv: &[String]) -> Result<(PathBuf, PathBuf, String, f64), String> {
     if argv.len() != 7 {
         return Err(format!(
-            "run_deface_process: niimath_dilate expects 7 args, got {}",
+            "run_deface_process: brainchop-mindgrab expects 7 args, got {}",
             argv.len()
         ));
     }
-    // niimath <input> -binv -edt -thr <N> -binv <output>
     let input = validate_nifti_path(&argv[0], "input")?;
-    expect(argv, 1, "-binv", "niimath_dilate")?;
-    expect(argv, 2, "-edt", "niimath_dilate")?;
-    expect(argv, 3, "-thr", "niimath_dilate")?;
-    // The threshold (dilation mm). Parsing as f64 rejects flag-injection
-    // (`-8` parses to -8.0, caught by the range check) and any non-numeric
-    // token. 1000 mm is a generous ceiling for a head-sized halo.
-    let thr: f64 = argv[4]
-        .parse()
-        .map_err(|_| format!("niimath_dilate: -thr must be a number, got \"{}\"", argv[4]))?;
-    if !thr.is_finite() || thr <= 0.0 || thr > 1000.0 {
+    expect(argv, 1, "-o", "brainchop-mindgrab")?;
+    let output = validate_nifti_path(&argv[2], "output")?;
+    expect(argv, 3, "-backend", "brainchop-mindgrab")?;
+    let backend = &argv[4];
+    if !BRAINCHOP_BACKENDS.contains(&backend.as_str()) {
         return Err(format!(
-            "niimath_dilate: -thr must be in (0, 1000] mm, got {thr}"
+            "brainchop-mindgrab: -backend must be one of {BRAINCHOP_BACKENDS:?}, got \"{backend}\""
         ));
     }
-    expect(argv, 5, "-binv", "niimath_dilate")?;
-    let output = validate_nifti_path(&argv[6], "output")?;
-    Ok((input, output, thr))
+    expect(argv, 5, "--border", "brainchop-mindgrab")?;
+    // Parsing as f64 rejects flag-injection (`-8` -> -8.0, caught by the
+    // range check) and any non-numeric token. 0 = no dilation; 1000 mm is
+    // a generous ceiling for a head-sized halo.
+    let border: f64 = argv[6].parse().map_err(|_| {
+        format!(
+            "brainchop-mindgrab: --border must be a number, got \"{}\"",
+            argv[6]
+        )
+    })?;
+    if !border.is_finite() || border < 0.0 || border > 1000.0 {
+        return Err(format!(
+            "brainchop-mindgrab: --border must be in [0, 1000] mm, got {border}"
+        ));
+    }
+    Ok((input, output, backend.clone(), border))
 }
 
-/// The dilation privilege-boundary policy: both the mask input and the
-/// dilated output must live under the app cache (the renderer wrote the
-/// input there from in-memory mask bytes). No dataset file is touched.
-fn validate_niimath_dilate_paths(
-    input: &Path,
-    output: &Path,
+fn validate_brainchop_run(
+    app: &tauri::AppHandle,
+    state: &TrustStore,
+    argv: &[String],
+    dataset_root: &str,
+) -> Result<ValidatedDefaceRun, String> {
+    let dataset_root = validate_abs_path(dataset_root, "datasetRoot")?;
+    // TRUST membership is checked LEXICALLY on the as-typed root (the trust
+    // set is stored lexical so a symlinked picker root keeps matching — see
+    // AGENTS.md). Do NOT canonicalize dataset_root before this check.
+    if !state.is_under_any_runtime_path(&dataset_root)? {
+        return Err(format!(
+            "run_deface_process: datasetRoot is not authorized in this session: {}",
+            dataset_root.display()
+        ));
+    }
+    let cache_dir = app_cache_dir(app)?;
+    resolve_brainchop_spawn(argv, &dataset_root, &cache_dir)
+}
+
+/// Resolve a brainchop-mindgrab invocation to the exact `ValidatedDefaceRun`
+/// (binary + cwd + CANONICAL argv). Mirrors `resolve_deface_spawn`: the input
+/// must resolve under the (already lexically-trusted) dataset root and the
+/// output under `$APPCACHE`, both re-checked AFTER `canonicalize` so a
+/// symlinked NIfTI can't redirect the read out of the dataset nor a symlinked
+/// output parent redirect the write out of the cache. Refuses a pre-existing
+/// output. Zero raw renderer bytes reach the child — every path is rebuilt
+/// canonical and the backend/border tokens are re-emitted from validated
+/// values. Pure given paths (no AppHandle), so it's unit-testable.
+fn resolve_brainchop_spawn(
+    argv: &[String],
+    dataset_root: &Path,
     cache_dir: &Path,
 ) -> Result<ValidatedDefaceRun, String> {
-    if !input.starts_with(cache_dir) {
-        return Err(format!(
-            "run_deface_process: niimath_dilate input {} is not under app cache {}",
-            input.display(),
-            cache_dir.display()
-        ));
-    }
-    if !output.starts_with(cache_dir) {
-        return Err(format!(
-            "run_deface_process: niimath_dilate output {} is not under app cache {}",
-            output.display(),
-            cache_dir.display()
-        ));
-    }
-    let cwd = output
-        .parent()
-        .ok_or_else(|| format!("output has no parent: {}", output.display()))?
-        .to_path_buf();
-    // argv is filled by `resolve_niimath_dilate_spawn` (canonical paths).
+    let (input, output, backend, border) = validate_brainchop_argv(argv)?;
+    let (input_canon, output_canon, out_parent_canon) = resolve_in_under_root_out_under_cache(
+        &input,
+        dataset_root,
+        &output,
+        cache_dir,
+        "brainchop",
+    )?;
+    let argv = vec![
+        child_path_string(&input_canon),
+        "-o".into(),
+        child_path_string(&output_canon),
+        "-backend".into(),
+        backend,
+        "--border".into(),
+        border.to_string(),
+    ];
     Ok(ValidatedDefaceRun {
-        binary: ProcessBinary::Sidecar("niimath"),
-        cwd,
-        argv: Vec::new(),
+        binary: ProcessBinary::Sidecar("brainchop-mindgrab"),
+        cwd: simplify_verbatim(&out_parent_canon),
+        argv,
     })
 }
 
-fn validate_niimath_dilate_run(
-    app: &tauri::AppHandle,
-    argv: &[String],
-) -> Result<ValidatedDefaceRun, String> {
-    let cache_dir = app_cache_dir(app)?;
-    resolve_niimath_dilate_spawn(argv, &cache_dir)
-}
-
-/// Resolve a niimath_dilate invocation to the exact `ValidatedDefaceRun`
-/// (binary + cwd + the CANONICAL argv to spawn). Pure given a `cache_dir`
-/// path (no AppHandle), so it's unit-testable against a real temp dir.
-///
-/// Canonicalizing before the containment check (audit 2026-06-28) stops a
-/// symlinked descendant under `$APPCACHE` from redirecting niimath's
-/// read/write outside the cache, and the resolved argv — canonical input,
-/// canonical-parent-joined output, constant flags, and the re-stringified
-/// numeric threshold — means ZERO raw renderer bytes reach the child
-/// (closing the "validate canonical, spawn raw" gap). Refusing a
-/// pre-existing output blocks a planted leaf symlink niimath would follow
-/// on write (best-effort TOCTOU narrowing; niimath owns the open). The
-/// input file + output parent exist by now (renderer mkdir'd the per-call
-/// temp dir and wrote the mask); canonicalizing the cache root also fixes
-/// false rejections when it traverses a symlink (/var -> /private/var).
-fn resolve_niimath_dilate_spawn(
-    argv: &[String],
+/// The security-critical containment check shared by every sidecar defacer:
+/// the `input` must resolve UNDER `dataset_root` and the `output` UNDER
+/// `cache_dir`, both re-checked AFTER `canonicalize` (so a symlinked input
+/// can't redirect the child's read out of the dataset, nor a symlinked
+/// output parent redirect its write out of the cache), and a pre-existing
+/// output is refused. Returns the canonical `(input, output, output_parent)`;
+/// the caller appends its own tool-specific argv/cwd around them. Centralized
+/// so the allineate (`resolve_deface_spawn`) and brainchop
+/// (`resolve_brainchop_spawn`) resolvers can't drift on this logic. `label`
+/// names the tool in the rejection messages. Pure given paths (no AppHandle),
+/// so it's exercised by both resolvers' unit tests.
+fn resolve_in_under_root_out_under_cache(
+    input: &Path,
+    dataset_root: &Path,
+    output: &Path,
     cache_dir: &Path,
-) -> Result<ValidatedDefaceRun, String> {
-    let (input, output, thr) = validate_niimath_dilate_argv(argv)?;
+    label: &str,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let root_canon = canonicalize_existing(dataset_root, "datasetRoot")?;
+    let input_canon = canonicalize_existing(input, "input")?;
+    if !input_canon.starts_with(&root_canon) {
+        return Err(format!(
+            "run_deface_process: {label} input {} resolves outside datasetRoot {}",
+            input_canon.display(),
+            root_canon.display()
+        ));
+    }
     let cache_canon = canonicalize_existing(cache_dir, "app cache dir")?;
-    let input_canon = canonicalize_existing(&input, "niimath_dilate input")?;
     let out_parent = output
         .parent()
         .ok_or_else(|| format!("output has no parent: {}", output.display()))?;
-    let out_parent_canon = canonicalize_existing(out_parent, "niimath_dilate output parent")?;
+    let out_parent_canon = canonicalize_existing(out_parent, "output parent")?;
     let out_name = output
         .file_name()
         .ok_or_else(|| format!("output has no file name: {}", output.display()))?;
     let output_canon = out_parent_canon.join(out_name);
-    let mut run = validate_niimath_dilate_paths(&input_canon, &output_canon, &cache_canon)?;
-    // Refuse a pre-existing output (the renderer lets niimath create it).
-    // Checking the COMPOSED canonical path catches a leaf symlink that
-    // niimath would otherwise follow on write.
+    if !output_canon.starts_with(&cache_canon) {
+        return Err(format!(
+            "run_deface_process: {label} output {} resolves outside app cache {}",
+            output_canon.display(),
+            cache_canon.display()
+        ));
+    }
     if std::fs::symlink_metadata(&output_canon).is_ok() {
         return Err(format!(
-            "run_deface_process: niimath_dilate output {} must not already exist",
+            "run_deface_process: {label} output {} must not already exist",
             output_canon.display()
         ));
     }
-    // Spawn canonical paths + constant flags + the re-stringified validated
-    // threshold — no raw renderer byte survives into the child argv. Paths
-    // are verbatim-stripped (Windows `\\?\`) so niimath can open them; the
-    // canonical forms above already passed every containment check.
-    run.argv = vec![
-        child_path_string(&input_canon),
-        "-binv".into(),
-        "-edt".into(),
-        "-thr".into(),
-        thr.to_string(),
-        "-binv".into(),
-        child_path_string(&output_canon),
-    ];
-    run.cwd = simplify_verbatim(&run.cwd);
-    Ok(run)
+    Ok((input_canon, output_canon, out_parent_canon))
 }
 
 /// `std::fs::canonicalize` with a typed error. Used to resolve symlinks
@@ -1895,130 +1917,6 @@ mod tests {
         .is_err());
     }
 
-    fn dilate_argv(input: &str, thr: &str, output: &str) -> Vec<String> {
-        strings_abs(&[input, "-binv", "-edt", "-thr", thr, "-binv", output])
-    }
-
-    #[test]
-    fn validate_niimath_dilate_argv_accepts_well_formed_pipeline() {
-        let (input, output, thr) = validate_niimath_dilate_argv(&dilate_argv(
-            "/cache/m/mask.nii.gz",
-            "8",
-            "/cache/m/d.nii.gz",
-        ))
-        .expect("dilate argv valid");
-        assert_eq!(input, absp("/cache/m/mask.nii.gz"));
-        assert_eq!(output, absp("/cache/m/d.nii.gz"));
-        assert_eq!(thr, 8.0);
-    }
-
-    #[test]
-    fn validate_niimath_dilate_argv_rejects_bad_shape_and_threshold() {
-        // Wrong arg count.
-        assert!(validate_niimath_dilate_argv(&strings(&["/cache/m.nii.gz"]))
-            .unwrap_err()
-            .contains("expects 7 args"));
-        // Non-numeric / flag-injection threshold.
-        assert!(validate_niimath_dilate_argv(&dilate_argv(
-            "/cache/m.nii.gz",
-            "-rm",
-            "/cache/d.nii.gz"
-        ))
-        .unwrap_err()
-        .contains("-thr"));
-        // Out-of-range threshold (negative parses but fails the range check).
-        assert!(validate_niimath_dilate_argv(&dilate_argv(
-            "/cache/m.nii.gz",
-            "-8",
-            "/cache/d.nii.gz"
-        ))
-        .unwrap_err()
-        .contains("(0, 1000]"));
-        // Wrong pipeline flag.
-        let mut argv = dilate_argv("/cache/m.nii.gz", "8", "/cache/d.nii.gz");
-        argv[2] = "-dilD".into();
-        assert!(validate_niimath_dilate_argv(&argv)
-            .unwrap_err()
-            .contains("-edt"));
-    }
-
-    #[test]
-    fn validate_niimath_dilate_paths_requires_both_under_cache() {
-        let run = validate_niimath_dilate_paths(
-            Path::new("/cache/m/mask.nii.gz"),
-            Path::new("/cache/m/d.nii.gz"),
-            Path::new("/cache"),
-        )
-        .expect("both under cache");
-        assert_eq!(run.cwd, PathBuf::from("/cache/m"));
-        // Input outside cache (e.g. a dataset file) is refused.
-        assert!(validate_niimath_dilate_paths(
-            Path::new("/ds/sub-01/anat/t1.nii.gz"),
-            Path::new("/cache/m/d.nii.gz"),
-            Path::new("/cache"),
-        )
-        .unwrap_err()
-        .contains("not under app cache"));
-        // Output outside cache is refused.
-        assert!(validate_niimath_dilate_paths(
-            Path::new("/cache/m/mask.nii.gz"),
-            Path::new("/ds/sub-01/anat/t1.nii.gz"),
-            Path::new("/cache"),
-        )
-        .unwrap_err()
-        .contains("not under app cache"));
-    }
-
-    /// The canonical-containment check (as composed in
-    /// `validate_niimath_dilate_run`) must reject a symlinked input that
-    /// resolves outside the cache, and accept a genuine in-cache file even
-    /// when the cache root itself traverses a symlink (temp_dir on macOS is
-    /// /var -> /private/var). Audit 2026-06-28 regression guard.
-    #[cfg(unix)]
-    #[test]
-    fn niimath_dilate_canonical_check_rejects_cache_symlink_escape() {
-        use std::fs;
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let base = std::env::temp_dir().join(format!("bidsvue-dilate-canon-{ts}"));
-        let job = base.join("cache").join("deface-tmp").join("job");
-        let outside = base.join("outside");
-        fs::create_dir_all(&job).expect("mkdir job");
-        fs::create_dir_all(&outside).expect("mkdir outside");
-        let cache_canon = base.join("cache").canonicalize().expect("canon cache");
-        let job_canon = job.canonicalize().expect("canon job");
-
-        // Positive: a real mask under the cache canonicalizes in-bounds.
-        let real_mask = job.join("mask.nii.gz");
-        fs::write(&real_mask, b"x").expect("write mask");
-        let real_canon = real_mask.canonicalize().expect("canon mask");
-        assert!(validate_niimath_dilate_paths(
-            &real_canon,
-            &job_canon.join("d.nii.gz"),
-            &cache_canon,
-        )
-        .is_ok());
-
-        // Escape: a symlink under the cache pointing outside resolves out
-        // of bounds once canonicalized, so the check refuses it.
-        let secret = outside.join("secret.nii.gz");
-        fs::write(&secret, b"x").expect("write secret");
-        let link = job.join("evil.nii.gz");
-        std::os::unix::fs::symlink(&secret, &link).expect("symlink");
-        let link_canon = link.canonicalize().expect("canon link");
-        assert!(validate_niimath_dilate_paths(
-            &link_canon,
-            &job_canon.join("d.nii.gz"),
-            &cache_canon,
-        )
-        .unwrap_err()
-        .contains("not under app cache"));
-
-        fs::remove_dir_all(&base).ok();
-    }
-
     /// On Windows, `std::fs::canonicalize` returns a `\\?\`-verbatim path that
     /// bundled C sidecars (niimath) can't open; `simplify_verbatim` must strip
     /// the prefix for the child argv while leaving already-plain paths intact.
@@ -2046,70 +1944,103 @@ mod tests {
             .starts_with(r"\\?\"));
     }
 
-    /// `resolve_niimath_dilate_spawn` must emit CANONICAL paths + constant
-    /// flags + a re-stringified threshold (no raw renderer byte survives),
-    /// and refuse a pre-existing output. Guards the "validate canonical,
-    /// spawn raw" regression (audit 2026-06-28 follow-up P2).
-    #[cfg(unix)]
-    #[test]
-    fn resolve_niimath_dilate_spawn_emits_canonical_argv_and_refuses_existing_output() {
-        use std::fs;
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let base = std::env::temp_dir().join(format!("bidsvue-dilate-spawn-{ts}"));
-        let job = base.join("cache").join("deface-tmp").join("job");
-        fs::create_dir_all(&job).expect("mkdir job");
-        let cache_canon = base.join("cache").canonicalize().expect("canon cache");
-        let job_canon = job.canonicalize().expect("canon job");
-        let mask = job.join("mask.nii.gz");
-        fs::write(&mask, b"x").expect("write mask");
-        let out = job.join("d.nii.gz");
-
-        let run = resolve_niimath_dilate_spawn(
-            &dilate_argv(mask.to_str().unwrap(), "8", out.to_str().unwrap()),
-            &cache_canon,
-        )
-        .expect("resolve ok");
-        // Spawned argv is the canonical input/output + constant flags + "8".
-        assert_eq!(run.argv.len(), 7);
-        assert_eq!(run.argv[0], mask.canonicalize().unwrap().to_string_lossy());
-        assert_eq!(run.argv[1], "-binv");
-        assert_eq!(run.argv[2], "-edt");
-        assert_eq!(run.argv[3], "-thr");
-        assert_eq!(run.argv[4], "8");
-        assert_eq!(run.argv[5], "-binv");
-        assert_eq!(run.argv[6], job_canon.join("d.nii.gz").to_string_lossy());
-        assert_eq!(run.cwd, job_canon);
-
-        // A pre-existing output is refused (no-clobber / planted-symlink guard).
-        fs::write(&out, b"y").expect("write out");
-        assert!(resolve_niimath_dilate_spawn(
-            &dilate_argv(mask.to_str().unwrap(), "8", out.to_str().unwrap()),
-            &cache_canon,
-        )
-        .unwrap_err()
-        .contains("must not already exist"));
-
-        fs::remove_dir_all(&base).ok();
+    fn brainchop_argv(input: &str, backend: &str, border: &str, output: &str) -> Vec<String> {
+        strings_abs(&[input, "-o", output, "-backend", backend, "--border", border])
     }
 
-    /// The sidecar-defacer spawn resolver must (a) accept a legit input under
-    /// a SYMLINKED picker root and emit canonical argv, (b) reject a NIfTI
-    /// inside the dataset that symlinks OUTSIDE the root, and (c) refuse a
-    /// pre-existing output. Audit 2026-06-28 round-3 P2 (the production-path
-    /// canonicalization, finally landed).
+    /// The TS↔Rust routing contract: the renderer sends `tool.id`
+    /// (`mindgrab` / `mindgrab8`), NOT the binary basename. `run_deface_process`
+    /// must route those to the brainchop validator; any other id (the allineate
+    /// variants) must NOT. Regression guard for the dispatch mismatch where the
+    /// arm keyed on the basename `brainchop-mindgrab` and every mindgrab run
+    /// fell through to the allineate path and failed "unknown sidecar tool".
+    #[test]
+    fn brainchop_dispatch_matches_renderer_tool_ids() {
+        assert!(is_brainchop_tool("mindgrab"));
+        assert!(is_brainchop_tool("mindgrab8"));
+        // The basename must NOT be the routing key.
+        assert!(!is_brainchop_tool("brainchop-mindgrab"));
+        // Allineate variants take the niimath path.
+        assert!(!is_brainchop_tool("allineate"));
+        assert!(!is_brainchop_tool("allineate-robust"));
+        assert!(!is_brainchop_tool("allineate-afni"));
+    }
+
+    #[test]
+    fn validate_brainchop_argv_accepts_well_formed_and_rejects_bad_shape() {
+        let (input, output, backend, border) = validate_brainchop_argv(&brainchop_argv(
+            "/ds/sub-01/anat/t1.nii.gz",
+            "auto",
+            "8",
+            "/cache/j/out.nii.gz",
+        ))
+        .expect("brainchop argv valid");
+        assert_eq!(input, absp("/ds/sub-01/anat/t1.nii.gz"));
+        assert_eq!(output, absp("/cache/j/out.nii.gz"));
+        assert_eq!(backend, "auto");
+        assert_eq!(border, 8.0);
+
+        // `--border 0` is valid (no dilation) — the tool's own default.
+        assert!(validate_brainchop_argv(&brainchop_argv(
+            "/ds/t1.nii.gz",
+            "metal",
+            "0",
+            "/cache/o.nii.gz"
+        ))
+        .is_ok());
+
+        // Wrong arg count.
+        assert!(validate_brainchop_argv(&strings(&["/ds/t1.nii.gz"]))
+            .unwrap_err()
+            .contains("expects 7 args"));
+        // Backend outside the allowlist (flag-injection guard).
+        assert!(validate_brainchop_argv(&brainchop_argv(
+            "/ds/t1.nii.gz",
+            "vulkan",
+            "8",
+            "/cache/o.nii.gz"
+        ))
+        .unwrap_err()
+        .contains("-backend must be one of"));
+        // Negative border parses but fails the range check.
+        assert!(validate_brainchop_argv(&brainchop_argv(
+            "/ds/t1.nii.gz",
+            "auto",
+            "-8",
+            "/cache/o.nii.gz"
+        ))
+        .unwrap_err()
+        .contains("[0, 1000]"));
+        // Non-numeric border.
+        assert!(validate_brainchop_argv(&brainchop_argv(
+            "/ds/t1.nii.gz",
+            "auto",
+            "-rf",
+            "/cache/o.nii.gz"
+        ))
+        .unwrap_err()
+        .contains("--border"));
+        // Wrong flag position.
+        let mut argv = brainchop_argv("/ds/t1.nii.gz", "auto", "8", "/cache/o.nii.gz");
+        argv[3] = "-b".into();
+        assert!(validate_brainchop_argv(&argv)
+            .unwrap_err()
+            .contains("-backend"));
+    }
+
+    /// `resolve_brainchop_spawn` must (a) accept a legit input under a
+    /// SYMLINKED picker root and emit canonical argv, (b) reject a NIfTI inside
+    /// the dataset that symlinks OUTSIDE the root, and (c) refuse a pre-existing
+    /// output. Mirrors the allineate spawn guard for the brainchop tool.
     #[cfg(unix)]
     #[test]
-    fn resolve_deface_spawn_canonicalizes_and_blocks_symlink_escape() {
+    fn resolve_brainchop_spawn_canonicalizes_and_blocks_symlink_escape() {
         use std::fs;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let base = std::env::temp_dir().join(format!("bidsvue-deface-spawn-{ts}"));
-        // A SYMLINKED picker root: real dir at base/real_ds, symlink base/ds.
+        let base = std::env::temp_dir().join(format!("bidsvue-brainchop-spawn-{ts}"));
         let real_ds = base.join("real_ds");
         let anat = real_ds.join("sub-01").join("anat");
         fs::create_dir_all(&anat).expect("mkdir anat");
@@ -2117,84 +2048,66 @@ mod tests {
         fs::write(&t1, b"x").expect("write t1");
         let ds_link = base.join("ds");
         std::os::unix::fs::symlink(&real_ds, &ds_link).expect("symlink ds");
-        // cache + bundled template/mask + an outside secret.
         let cache = base.join("cache");
         fs::create_dir_all(&cache).expect("mkdir cache");
-        let res = base.join("res");
-        fs::create_dir_all(&res).expect("mkdir res");
-        let tmpl = res.join("avg152T1.nii.gz");
-        fs::write(&tmpl, b"t").expect("write tmpl");
-        let mask = res.join("avg152T1mask.nii.gz");
-        fs::write(&mask, b"m").expect("write mask");
         let out = cache.join("out.nii.gz");
 
-        // dataset_root passed in is the SYMLINKED picker root (as-typed).
-        let parts = DefaceArgvParts {
-            input: ds_link
-                .join("sub-01")
-                .join("anat")
-                .join("sub-01_T1w.nii.gz"),
-            template: tmpl.clone(),
-            mask: mask.clone(),
-            output: out.clone(),
-        };
-        let (argv, cwd) = resolve_deface_spawn("allineate", &parts, &ds_link, &tmpl, &mask, &cache)
-            .expect("legit symlinked root resolves");
-        // Default variant: <input> -deface <tmpl> <mask> <output> (5 args).
-        assert_eq!(argv.len(), 5);
-        // input canonicalizes THROUGH the picker-root symlink to the real file.
-        assert_eq!(argv[0], t1.canonicalize().unwrap().to_string_lossy());
-        assert_eq!(argv[1], "-deface");
+        let input = ds_link
+            .join("sub-01")
+            .join("anat")
+            .join("sub-01_T1w.nii.gz");
+        let run = resolve_brainchop_spawn(
+            &brainchop_argv(input.to_str().unwrap(), "auto", "8", out.to_str().unwrap()),
+            &ds_link,
+            &cache,
+        )
+        .expect("legit symlinked root resolves");
+        // <input> -o <output> -backend auto --border 8 (7 args), all canonical.
+        assert_eq!(run.argv.len(), 7);
+        assert_eq!(run.argv[0], t1.canonicalize().unwrap().to_string_lossy());
+        assert_eq!(run.argv[1], "-o");
         assert_eq!(
-            argv[4],
+            run.argv[2],
             cache
                 .canonicalize()
                 .unwrap()
                 .join("out.nii.gz")
                 .to_string_lossy()
         );
-        // cwd is the CANONICAL output parent, not the raw one.
-        assert_eq!(cwd, cache.canonicalize().unwrap());
-
-        // The robust + AFNI variants rebuild the fixed flags around the same
-        // canonical paths — <in> -robustfov -deface <t> <m> <out> and
-        // <in> -deface <t> <m> -cost hel <out>.
-        let (rargv, _) =
-            resolve_deface_spawn("allineate-robust", &parts, &ds_link, &tmpl, &mask, &cache)
-                .expect("robust resolves");
-        assert_eq!(rargv.len(), 6);
-        assert_eq!(rargv[1], "-robustfov");
-        assert_eq!(rargv[2], "-deface");
-        let (fargv, _) =
-            resolve_deface_spawn("allineate-afni", &parts, &ds_link, &tmpl, &mask, &cache)
-                .expect("afni resolves");
-        assert_eq!(fargv.len(), 7);
-        assert_eq!(fargv[1], "-deface");
-        assert_eq!(fargv[4], "-cost");
-        assert_eq!(fargv[5], "hel");
+        assert_eq!(run.argv[3], "-backend");
+        assert_eq!(run.argv[4], "auto");
+        assert_eq!(run.argv[5], "--border");
+        assert_eq!(run.argv[6], "8");
+        assert_eq!(run.cwd, cache.canonicalize().unwrap());
 
         // A NIfTI inside the dataset that symlinks OUTSIDE the root is refused.
         let secret = base.join("secret.nii.gz");
         fs::write(&secret, b"s").expect("write secret");
         let evil = anat.join("evil.nii.gz");
         std::os::unix::fs::symlink(&secret, &evil).expect("symlink evil");
-        let evil_parts = DefaceArgvParts {
-            input: ds_link.join("sub-01").join("anat").join("evil.nii.gz"),
-            ..parts.clone()
-        };
-        assert!(
-            resolve_deface_spawn("allineate", &evil_parts, &ds_link, &tmpl, &mask, &cache)
-                .unwrap_err()
-                .contains("resolves outside datasetRoot")
-        );
+        let evil_input = ds_link.join("sub-01").join("anat").join("evil.nii.gz");
+        assert!(resolve_brainchop_spawn(
+            &brainchop_argv(
+                evil_input.to_str().unwrap(),
+                "auto",
+                "8",
+                out.to_str().unwrap()
+            ),
+            &ds_link,
+            &cache,
+        )
+        .unwrap_err()
+        .contains("resolves outside datasetRoot"));
 
         // Pre-existing output is refused.
         fs::write(&out, b"y").expect("write out");
-        assert!(
-            resolve_deface_spawn("allineate", &parts, &ds_link, &tmpl, &mask, &cache)
-                .unwrap_err()
-                .contains("must not already exist")
-        );
+        assert!(resolve_brainchop_spawn(
+            &brainchop_argv(input.to_str().unwrap(), "auto", "8", out.to_str().unwrap()),
+            &ds_link,
+            &cache,
+        )
+        .unwrap_err()
+        .contains("must not already exist"));
 
         fs::remove_dir_all(&base).ok();
     }

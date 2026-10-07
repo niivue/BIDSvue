@@ -13,14 +13,15 @@
     patternFromDefaceTarget,
   } from '$lib/deface/batch'
   import {
+    getMindgrabSupported,
     getSidecarSupported,
-    getWebGpuSupported,
   } from '$lib/deface/capabilities'
   import { probeNiftiDimensions } from '$lib/deface/headerProbe'
   import { tauriPostPassFs } from '$lib/import/postpass/tauriFs'
   import {
     DEFACE_TOOLS,
     type DefaceToolId,
+    isMindgrabTool,
   } from '$lib/deface/tools'
   import {
     type BatchDefaceProgress,
@@ -70,17 +71,13 @@
   let resetKey = ''
 
   let sidecarSupported = $state(false)
-  let webgpuSupported = $state(false)
-  // Per-kind probe readiness. Split so the dropdown can light up sidecar
-  // options as soon as that probe resolves (instant — just plugin-os
-  // reads) without waiting for the WebGPU probe, which can take several
-  // seconds on cold start (Metal-backed `requestAdapter` +
-  // `requestDevice({1.4 GB})` on WKWebView). Pre-fix the dialog gated
-  // every option on both probes via a single `capabilitiesReady` flag,
-  // so users saw "Checking tools…" for the entire combined latency
-  // and the dialog felt frozen.
+  let mindgrabSupported = $state(false)
+  // Per-binary probe readiness. Both probes are now cheap plugin-os reads
+  // (`getSidecarSupported` gates the allineate/niimath variants,
+  // `getMindgrabSupported` the mindgrab/brainchop variants); the split is
+  // retained so an option lights up the instant its own probe resolves.
   let sidecarReady = $state(false)
-  let webgpuReady = $state(false)
+  let mindgrabReady = $state(false)
   let selectedToolId = $state<DefaceToolId | null>(null)
 
   let applying = $state(false)
@@ -95,9 +92,9 @@
       sidecarSupported = s
       sidecarReady = true
     })
-    void getWebGpuSupported().then((s) => {
-      webgpuSupported = s
-      webgpuReady = true
+    void getMindgrabSupported().then((s) => {
+      mindgrabSupported = s
+      mindgrabReady = true
     })
   })
 
@@ -156,19 +153,16 @@
     DEFACE_TOOLS.map((tool) => ({
       value: tool.id,
       label: tool.label,
-      disabled:
-        tool.kind === 'sidecar'
-          ? !sidecarReady || !sidecarSupported
-          : !webgpuReady || !webgpuSupported,
+      disabled: isMindgrabTool(tool.id)
+        ? !mindgrabReady || !mindgrabSupported
+        : !sidecarReady || !sidecarSupported,
     })),
   )
 
-  // Drop the "Checking tools…" placeholder as soon as the cheap sidecar
-  // probe resolves (it's instant). The slower WebGPU probe keeps its
-  // options disabled until it completes, but allineate is selectable
-  // immediately — matching the user's mental model of macOS arm64
-  // being the primary deface platform.
-  const capabilitiesReady = $derived(sidecarReady || webgpuReady)
+  // Drop the "Checking tools…" placeholder as soon as either cheap probe
+  // resolves; each tool's option enables independently as its own probe
+  // lands.
+  const capabilitiesReady = $derived(sidecarReady || mindgrabReady)
 
   $effect(() => {
     const current = selectedToolId

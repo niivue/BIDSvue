@@ -60,6 +60,12 @@
    *  the auto-suggest stops overriding it. */
   let leafTouched = $state(false)
   let recursive = $state(false)
+  /** Whether the picked parent folder can hold real, portable symlinks
+   *  (git-annex stores large files as links into `.git/annex/objects`).
+   *  `null` = not probed yet, or the probe could not run — we stay
+   *  silent rather than blame symlinks for a permissions problem. See
+   *  `src-tauri/src/fsprobe.rs` for why this has three states. */
+  let symlinkSupport = $state<SymlinkSupport | null>(null)
   let cloning = $state(false)
   /** True between user-clicked Cancel and the spawn actually returning.
    *  The Cancel button switches to a disabled "Cancelling…" state so
@@ -101,6 +107,9 @@
     token: string
   }
 
+  /** Mirrors the Rust `SymlinkSupport` enum (serde lowercase). */
+  type SymlinkSupport = 'native' | 'emulated' | 'unsupported'
+
   async function pickParent(): Promise<void> {
     error = null
     const picked = await invoke<PickedPath | null>('pick_dataset_directory', {
@@ -109,6 +118,17 @@
     if (picked === null) return
     parentPath = picked.path
     parentToken = picked.token
+    symlinkSupport = null
+    try {
+      symlinkSupport = await invoke<SymlinkSupport>('probe_symlink_support', {
+        path: picked.path,
+        token: picked.token,
+      })
+    } catch {
+      // Undetermined (unwritable folder, etc). The clone itself will
+      // surface any real problem with a better message than we could.
+      symlinkSupport = null
+    }
   }
 
   const canClone = $derived(
@@ -116,7 +136,10 @@
       url.trim().length > 0 &&
       parentPath !== null &&
       parentToken !== null &&
-      leafName.trim().length > 0,
+      leafName.trim().length > 0 &&
+      // 'emulated' is a warning the user may knowingly proceed past;
+      // 'unsupported' would produce a dataset broken on THIS machine.
+      symlinkSupport !== 'unsupported',
   )
 
   async function startClone(): Promise<void> {
@@ -213,6 +236,17 @@
         {parentPath ?? $_('clone.parentPlaceholder')}
       </span>
     </div>
+    {#if symlinkSupport === 'emulated'}
+      <p class="fs-warning" role="status">
+        <strong>{$_('clone.symlinkEmulatedTitle')}</strong>
+        {$_('clone.symlinkEmulatedBody')}
+      </p>
+    {:else if symlinkSupport === 'unsupported'}
+      <p class="fs-warning fs-blocking" role="alert">
+        <strong>{$_('clone.symlinkUnsupportedTitle')}</strong>
+        {$_('clone.symlinkUnsupportedBody')}
+      </p>
+    {/if}
   </div>
 
   <label class="field">
@@ -382,6 +416,25 @@
     margin: 0 0 0.85rem 0;
     font-size: 0.78rem;
     color: var(--fg-faint);
+  }
+  /* Amber for 'emulated' (proceed allowed), red for 'unsupported'
+     (Clone is disabled), matching the .error treatment. */
+  .fs-warning {
+    margin: 0.5rem 0 0 0;
+    color: #8a5a00;
+    background: color-mix(in srgb, #d08700 12%, transparent);
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .fs-warning strong {
+    display: block;
+  }
+  .fs-blocking {
+    color: #c43838;
+    background: color-mix(in srgb, #c43838 8%, transparent);
   }
   .footer {
     display: flex;

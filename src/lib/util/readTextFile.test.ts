@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  type ExistsDeps,
   type ReadFileDeps,
   type ReadTextFileDeps,
+  existsWithRustFallback,
   readFileWithSymlinkResolve,
   readTextFileWithRustFallback,
   resolveSymlinkIfPresent,
@@ -31,6 +33,83 @@ function makeDeps(
       }),
   }
 }
+
+function makeExistsDeps(opts: {
+  pluginFs?: (path: string) => Promise<boolean>
+  rust?: (path: string) => Promise<string | null>
+}): ExistsDeps {
+  return {
+    pluginFsExists:
+      opts.pluginFs ??
+      (async () => {
+        throw new Error('test did not configure pluginFsExists')
+      }),
+    invokeReadAuthorizedTextFile:
+      opts.rust ??
+      (async () => {
+        throw new Error('test did not configure invokeReadAuthorizedTextFile')
+      }),
+  }
+}
+
+describe('existsWithRustFallback', () => {
+  test('happy path: plugin-fs answers, Rust never invoked', async () => {
+    let rustCalls = 0
+    const deps = makeExistsDeps({
+      pluginFs: async () => true,
+      rust: async () => {
+        rustCalls++
+        return null
+      },
+    })
+    expect(await existsWithRustFallback('/root/x.json', deps)).toBe(true)
+    expect(rustCalls).toBe(0)
+  })
+
+  test('plugin-fs rejects dotfile + Rust returns content -> true', async () => {
+    const deps = makeExistsDeps({
+      pluginFs: async () => {
+        throw new Error('forbidden path: /root/.bidsignore … allow-exists')
+      },
+      rust: async () => 'pattern\n',
+    })
+    expect(await existsWithRustFallback('/root/.bidsignore', deps)).toBe(true)
+  })
+
+  test('plugin-fs rejects + Rust returns null (ENOENT) -> false', async () => {
+    const deps = makeExistsDeps({
+      pluginFs: async () => {
+        throw new Error('forbidden path: /root/.bidsignore')
+      },
+      rust: async () => null,
+    })
+    expect(await existsWithRustFallback('/root/.bidsignore', deps)).toBe(false)
+  })
+
+  test('plugin-fs rejects + Rust ERRORS (unreadable) -> RE-THROWS, never a silent false', async () => {
+    // The reversibility-critical case: a target that exists but can't be
+    // read (non-UTF-8 / permission denied) must NOT be reported as absent,
+    // or _doAtomicWrite would skip its backup and overwrite the original.
+    const rustErr = new Error(
+      'read_authorized_text_file: stream did not contain valid UTF-8',
+    )
+    const deps = makeExistsDeps({
+      pluginFs: async () => {
+        throw new Error('forbidden path')
+      },
+      rust: async () => {
+        throw rustErr
+      },
+    })
+    let caught: unknown
+    try {
+      await existsWithRustFallback('/root/.bidsignore', deps)
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBe(rustErr)
+  })
+})
 
 describe('readTextFileWithRustFallback', () => {
   test('happy path: plugin-fs succeeds, Rust fallback never invoked', async () => {

@@ -20,22 +20,6 @@ export interface AppInfo {
    * versions in the diagnostic report without re-running probes.
    */
   externalTools: ExternalToolStatus[]
-  /**
-   * WebGPU capability probe (M11 mindgrab gate). Populated by the
-   * cached `getWebGpuProbe()` in `src/lib/deface/capabilities.ts`, so
-   * the About dialog reuses whatever DefaceControl already paid for.
-   * `report` is the multi-line text from `formatProbeResult` —
-   * rendered as-is in the dialog `<pre>` and indented under the
-   * "WebGPU capability" heading in the diagnostic report.
-   */
-  webgpu: WebGpuStatus
-}
-
-export interface WebGpuStatus {
-  /** True iff every probe check passed. */
-  ok: boolean
-  /** Pre-formatted multi-line text (per-check `[OK]`/`[FAIL]` lines + adapter info). */
-  report: string
 }
 
 export interface BundledToolVersions {
@@ -55,12 +39,9 @@ export interface BundledToolVersions {
   /** Description string for the bundled niimath deface/dilation sidecar. */
   niimath: string
   /**
-   * Description string for the bundled mindgrab WebGPU brain-mask model.
-   * No semver — the model is vendored from @niivue/nv-ext-brain2print
-   * (an unpublished technology demo); weights live at
-   * `resources/common/mindgrab/net_mindgrab.safetensors` and the WGSL
-   * pipeline at `src/lib/deface/mindgrab/_vendor/mindgrab.ts`. Bump
-   * this string when the weights blob is refreshed.
+   * Description string for the bundled `brainchop-mindgrab` native
+   * brain-extraction sidecar (MeshNet, model weights compiled into the
+   * binary). Bump when the staged binary is refreshed.
    */
   mindgrab: string
   /**

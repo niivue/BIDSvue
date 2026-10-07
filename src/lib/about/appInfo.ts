@@ -29,12 +29,7 @@ import {
 import bundleMeta from '$lib/validation/_validator.bundle.meta.json'
 import { VALIDATOR_BACKEND } from '$lib/validation/runValidator'
 import { invoke } from '@tauri-apps/api/core'
-import type {
-  AppInfo,
-  BundledToolVersions,
-  ExternalToolStatus,
-  WebGpuStatus,
-} from './types'
+import type { AppInfo, BundledToolVersions, ExternalToolStatus } from './types'
 
 /**
  * v1 bundled-tool descriptions for the binaries we don't probe live.
@@ -51,14 +46,11 @@ import type {
  */
 const BUNDLED_TOOL_DESCRIPTIONS = {
   niimath:
-    'niimath sidecar (BSD) — allineate deface + mindgrab dilation on macOS arm64, Linux x86_64, and Windows x86_64',
-  // No semver — vendored from @niivue/nv-ext-brain2print, an
-  // unpublished tinygrad-generated WGSL demo. The weights blob at
-  // resources/common/mindgrab/net_mindgrab.safetensors is the moving
-  // part; bump the description here when it's refreshed upstream.
-  // Surface string credits brainchop (the underlying brain-extraction
-  // model lineage) compiled via tinygrad to WGSL.
-  mindgrab: 'brainchop::tinygrad',
+    'niimath sidecar (BSD) — allineate deface on macOS arm64, Linux x86_64, and Windows x86_64',
+  // Native brain-extraction sidecar (MeshNet); weights compiled into the
+  // binary. Bundled for macOS arm64 today — bump when the staged binary
+  // is refreshed or other platforms are added.
+  mindgrab: 'brainchop-mindgrab (native MeshNet, macOS arm64)',
 } as const
 
 /**
@@ -185,8 +177,6 @@ export async function loadAppInfo(): Promise<AppInfo> {
     }
   }
 
-  const webgpu = await loadWebGpuStatus()
-
   return {
     version,
     platform,
@@ -194,33 +184,6 @@ export async function loadAppInfo(): Promise<AppInfo> {
     osVersion,
     bundledTools,
     externalTools: externalToolEntries,
-    webgpu,
-  }
-}
-
-/**
- * WebGPU probe for the About dialog. Goes through the cached
- * `getWebGpuProbe()` so we reuse whatever DefaceControl already paid
- * for in this session; on a cold open of About, this is the one place
- * that pays the `requestDevice({1.4 GB})` cost. Failures (probe
- * throws, capability module unavailable in a browser build) surface as
- * a single FAIL line so the diagnostic report stays useful.
- */
-async function loadWebGpuStatus(): Promise<WebGpuStatus> {
-  try {
-    const { getWebGpuProbe, formatProbeResult } = await import(
-      '$lib/deface/capabilities'
-    )
-    const result = await getWebGpuProbe()
-    return { ok: result.ok, report: formatProbeResult(result) }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      // No leading "WebGPU probe — FAIL" line — the dialog badge +
-      // diagnostic-report heading carry the PASS/FAIL signal.
-      report: `[FAIL] probe failed to load\n     ${detail}`,
-    }
   }
 }
 

@@ -23,6 +23,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import {
+  exists as pluginFsExists,
   readFile as pluginFsReadFile,
   readTextFile as pluginFsReadTextFile,
   rename as pluginFsRename,
@@ -164,6 +165,47 @@ export async function readTextFileWithRustFallback(
     }
     if (fallback === null) throw err
     return fallback
+  }
+}
+
+/** Pluggable deps for `existsWithRustFallback` (mirrors `ReadTextFileDeps`). */
+export interface ExistsDeps {
+  pluginFsExists: (path: string) => Promise<boolean>
+  invokeReadAuthorizedTextFile: (path: string) => Promise<string | null>
+}
+
+const defaultExistsDeps: ExistsDeps = {
+  pluginFsExists,
+  invokeReadAuthorizedTextFile: (path) =>
+    invoke<string | null>('read_authorized_text_file', { path }),
+}
+
+/**
+ * `exists()` that survives plugin-fs's broken-for-dotfiles scope check.
+ * plugin-fs's `exists` THROWS "forbidden path" for a dotfile basename
+ * (e.g. `.bidsignore`) because Tauri 2's pre-escaped `<root>/**` glob
+ * refuses a leading dot. On that throw we ask Rust's
+ * `read_authorized_text_file`, which bypasses the glob: it returns `null`
+ * for a genuinely-absent file (→ `false`), the content for a present one
+ * (→ `true`), and THROWS for a real error (non-UTF-8, permission denied).
+ *
+ * Crucially we distinguish `null` (absent) from a thrown error and
+ * RE-THROW the latter, rather than collapsing both to `false`. A silent
+ * `false` on an existing-but-unreadable target would let the atomic-write
+ * backup step (`OperationContext._doAtomicWrite`) skip its backup and then
+ * overwrite the original — an irreversible mutation. Failing loud is the
+ * safe choice for the reversibility invariant. (Callers pass an
+ * already-symlink-resolved path where that matters.)
+ */
+export async function existsWithRustFallback(
+  path: string,
+  deps: ExistsDeps = defaultExistsDeps,
+): Promise<boolean> {
+  try {
+    return await deps.pluginFsExists(path)
+  } catch {
+    // Throws on a genuine Rust-side error (propagates); null → absent.
+    return (await deps.invokeReadAuthorizedTextFile(path)) !== null
   }
 }
 

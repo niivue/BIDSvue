@@ -12,12 +12,10 @@
      / PDw); see NiivueViewer.svelte. Caller also gates on
      specialFolder / bidsIgnored so we don't deface inside
      `sourcedata/` / `derivatives/`.
-   - `kind: 'sidecar'` tools (`allineate`): require a bundled niimath for
-     the current platform. Greyed out elsewhere with a tooltip.
-   - `kind: 'webgpu'` tools (mindgrab, mindgrab8): require the WebView
-     to expose WebGPU + `shader-f16` + ~1.4 GB max storage buffer. Same
-     checks View > Probe WebGPU support… surfaces. Greyed out when
-     unsupported.
+   - allineate tools require a bundled niimath for the current platform.
+     Greyed out elsewhere with a tooltip.
+   - mindgrab tools require the bundled brainchop-mindgrab sidecar
+     (macOS arm64 today). Greyed out where it isn't bundled.
    - The outer dropdown only goes fully `disabled` when NO option is
      supported on this machine.
 
@@ -33,14 +31,15 @@
   import { onDestroy, onMount } from 'svelte'
 
   import {
+    getMindgrabSupported,
     getSidecarSupported,
-    getWebGpuSupported,
   } from '$lib/deface/capabilities'
   import { detectTargetState } from '$lib/deface/runDeface'
   import {
     DEFACE_TOOLS,
     type DefaceState,
     type DefaceToolId,
+    isMindgrabTool,
   } from '$lib/deface/tools'
   import { tauriMutateFs } from '$lib/mutate/backup'
   import { defaceFile, revertDefaceFile } from '$lib/state/actions'
@@ -74,20 +73,20 @@
   // in NiivueViewer.svelte / SidecarEditor.svelte.
   let detectToken = 0
 
-  // Per-kind capability checks, populated on mount. Until both
+  // Per-binary capability checks, populated on mount. Until both
   // resolve, the per-option disabled flags fall back to `true` so the
   // user can't pick something we haven't yet confirmed is supported.
+  // `sidecarSupported` gates the allineate (niimath) variants;
+  // `mindgrabSupported` gates the mindgrab (brainchop) variants.
   let sidecarSupported = $state(false)
-  let webgpuSupported = $state(false)
+  let mindgrabSupported = $state(false)
 
   onMount(async () => {
-    // Capability resolution is module-cached in `defaceCapabilities`:
-    // mounting DefaceControl on every anat-suffixed selection used to
-    // re-run the full WebGPU `requestDevice({ 1.4 GB })` probe per
-    // mount (audit H2 / security review P1-1). The cache is a session-
-    // lifetime promise so we only pay the probe cost once.
+    // Capability resolution is module-cached in `capabilities.ts` (session-
+    // lifetime promises), so mounting DefaceControl on every anat-suffixed
+    // selection resolves both from cache after the first probe.
     sidecarSupported = await getSidecarSupported()
-    webgpuSupported = await getWebGpuSupported()
+    mindgrabSupported = await getMindgrabSupported()
   })
 
   onDestroy(() => onRunningChange?.(false))
@@ -116,9 +115,9 @@
     ...DEFACE_TOOLS.map((t) => ({
       value: t.id,
       label: t.label,
-      // Sidecar tools (`allineate`) run on any niimath-bundled platform;
-      // webgpu tools (mindgrab) need the WebGPU probe to pass.
-      disabled: t.kind === 'sidecar' ? !sidecarSupported : !webgpuSupported,
+      // allineate variants run wherever niimath is bundled; mindgrab
+      // variants wherever the brainchop-mindgrab backend is available.
+      disabled: isMindgrabTool(t.id) ? !mindgrabSupported : !sidecarSupported,
     })),
   ])
 
@@ -130,7 +129,7 @@
    * support, every option is disabled and the dropdown grays out.
    */
   const noOptionSelectable = $derived(
-    !canRevert && !sidecarSupported && !webgpuSupported,
+    !canRevert && !sidecarSupported && !mindgrabSupported,
   )
 
   $effect(() => {

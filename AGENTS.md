@@ -4,13 +4,13 @@ Working guide for AI agents (Claude Code, Codex, …) + humans. **Root file: alw
 
 ## What this is
 
-A lean **orchestrator** for creating, inspecting, and modifying BIDS datasets. Heavy lifting is delegated to external tools (`dcm2niix`, `bids-validator-rs`, `niimath`, NiiVue, the `datalad-rs` engine, the mindgrab WebGPU model). The UI is web tech in a WebView; the compute tools are native binaries across a process boundary. When adding a feature, ask whether it belongs in the portable web front end or as a native tool — don't fuse them, and don't rebuild what those tools already do well. Resist adding Rust without measurement (see [src-tauri/AGENTS.md](src-tauri/AGENTS.md)).
+A lean **orchestrator** for creating, inspecting, and modifying BIDS datasets. Heavy lifting is delegated to external tools (`dcm2niix`, `bids-validator-rs`, `niimath`, NiiVue, the `datalad-rs` engine, the `brainchop-mindgrab` sidecar). The UI is web tech in a WebView; the compute tools are native binaries across a process boundary. When adding a feature, ask whether it belongs in the portable web front end or as a native tool — don't fuse them, and don't rebuild what those tools already do well. Resist adding Rust without measurement (see [src-tauri/AGENTS.md](src-tauri/AGENTS.md)).
 
 The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `bidsvue` — don't rename without a deliberate decision.
 
 ## Status
 
-**Current version `0.1.20260715`** — alpha; expect breaking churn. Five alpha tracks live in `main` alongside stable v0.1: **Cohort Dashboard**, **Cloud-share** (parked — see ROADMAP), **in-app TSV/text editors**, **Merge datasets**, **Task events**. Per-track scope, locked decisions, and history: [ROADMAP.md](ROADMAP.md) + `git log`.
+**Current version `0.1.20261007`** — alpha; expect breaking churn. Five alpha tracks live in `main` alongside stable v0.1: **Cohort Dashboard**, **Cloud-share** (parked — see ROADMAP), **in-app TSV/text editors**, **Merge datasets**, **Task events**. Per-track scope, locked decisions, and history: [ROADMAP.md](ROADMAP.md) + `git log`.
 
 **Updates are manual DMG re-downloads** — no outbound version check (so PRIVACY.md needn't disclose one). The version is bumped in [package.json](package.json) / [src-tauri/Cargo.toml](src-tauri/Cargo.toml) / [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json) (release script asserts they match). The last shipped notarized DMG is `0.1.20260615`. **When you flip the next DMG live on GitHub Releases, change this line to "Released as a notarized macOS arm64 DMG…"** — the prior "version bumped ≠ DMG released" conflation confused a release operator.
 
@@ -21,7 +21,7 @@ The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `
 - **Tauri plugins (TS, official):** `plugin-fs` / `-dialog` / `-store` / `-os`. `plugin-shell` is intentionally NOT installed — process spawning is owned by Rust.
 - **i18n:** `svelte-i18n` (ICU). Catalogs `en` (source) / `pt` / `es` at `src/lib/i18n/locales/` (pt/es AI-bootstrapped, `humanReviewed:false`).
 - **Validator:** `bids-validator-rs` (bundled sidecar, default) — JS `@bids/validator` 2.4.1 is an opt-in fallback. **DataLad engine:** the vendored [`datalad-rs`](https://github.com/rordenlab/datalad-rs) submodule. **Viewer:** `@niivue/niivue` (npm `1.0.0-rc.10`; the universal entry runtime-selects WebGPU with a WebGL2 fallback — see [LIMITATIONS.md](LIMITATIONS.md)).
-- Bundled sidecars (`dcm2niix`, `niimath`, `bids-validator`) + optional PATH-resolved Python tools (`heudiconv`, `dcm2bids`) + in-process WebGPU mindgrab. Recompile recipes + the cross-platform sidecar matrix: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
+- Bundled sidecars (`dcm2niix`, `niimath`, `bids-validator`, `brainchop-mindgrab` native deface — macOS arm64 only) + optional PATH-resolved Python tools (`heudiconv`, `dcm2bids`) + an in-WebView WebGL2 mindgrab wasm build (`VITE_BIDSVUE_MINDGRAB_BACKEND=wasm`, the Linux deface story). Recompile recipes + the cross-platform sidecar matrix: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
 
 ## Workspace layout
 

@@ -146,7 +146,7 @@ describe('demoteThreeDBoldToSbref', () => {
     expect(existsSync(join(func, `${stem}_events.tsv`))).toBe(false)
   })
 
-  test('pre-existing _sbref at destination throws BEFORE touching events.tsv (external audit 2026-06-20 P2#1)', async () => {
+  test('pre-existing _sbref at destination skips without touching events.tsv (external audit 2026-06-20 P2#1)', async () => {
     // Atomicity regression: the pre-fix code deleted `_events.tsv`
     // first, then renamed companions one by one — so a collision on
     // the .json or .nii.gz rename left the bold family intact but
@@ -176,9 +176,12 @@ describe('demoteThreeDBoldToSbref', () => {
       { opType: 'import', summary: 'bold demote collision' },
       nodeMutateFs,
     )
-    await expect(
-      demoteThreeDBoldToSbref(session, ctx, nodeFsPostPassAdapter),
-    ).rejects.toThrow(/cannot demote/)
+    const res = await demoteThreeDBoldToSbref(
+      session,
+      ctx,
+      nodeFsPostPassAdapter,
+    )
+    expect(res.renames).toBe(0)
     await ctx.commit()
 
     // Bold family + events.tsv untouched (the load-bearing invariant).

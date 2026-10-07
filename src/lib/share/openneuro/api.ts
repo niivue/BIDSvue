@@ -63,6 +63,13 @@ export class OpenNeuroApiError extends Error {
     message: string,
     readonly status: number | null,
     readonly endpoint: string,
+    /** True when OpenNeuro's server REJECTED an authenticated request (a
+     * GraphQL resolver error, a non-2xx status, or a vanished user record)
+     * — as opposed to a client parse/network problem. The share UI uses
+     * this to suggest re-authenticating: a stale sign-in token can pass the
+     * `Me` auth ping yet make `createDataset` throw "Internal Server Error"
+     * server-side, and re-login mints a fresh, working token. */
+    readonly serverRejected = false,
   ) {
     super(message)
     this.name = 'OpenNeuroApiError'
@@ -102,6 +109,15 @@ async function graphql<T>(
   fetcher: FetchLike,
 ): Promise<T> {
   const url = OPENNEURO_API.graphql
+  // Name the operation in every error. OpenNeuro's opaque
+  // "Internal Server Error" (a server-side resolver throw, distinct from a
+  // query-shape validation error) is otherwise unattributable to one of the
+  // ~7 share steps; the tag turns it into "[CreateDataset] Internal Server
+  // Error" so a failure points at the exact mutation.
+  const op = operationName(query)
+  // Trace each share step so the console shows the sequence; the last line
+  // before an error is the operation that failed.
+  console.debug(`[openneuro] GraphQL → ${op}`)
   const res = await safeFetch(fetcher, url, {
     method: 'POST',
     headers: {
@@ -115,9 +131,10 @@ async function graphql<T>(
   if (!res.ok) {
     const hint = await bodyHint(res)
     throw new OpenNeuroApiError(
-      `OpenNeuro rejected the request (HTTP ${res.status})${hint ? ` — ${hint}` : ''}`,
+      `OpenNeuro rejected the request (HTTP ${res.status}) [${op}]${hint ? ` — ${hint}` : ''}`,
       res.status,
       url,
+      true,
     )
   }
   let body: GraphqlResponse<T>
@@ -136,20 +153,51 @@ async function graphql<T>(
         typeof e.message === 'string' ? e.message : JSON.stringify(e),
       )
       .join('; ')
+    // Console diagnostic: the toast shows the joined message, but the
+    // console gets the operation + variable KEYS (never values — a value
+    // could carry dataset content; never the JWT) + the raw error array,
+    // so an opaque "Internal Server Error" is traceable to one resolver.
+    console.error(
+      `[openneuro] GraphQL ${op} failed (HTTP ${res.status}); vars=${safeVars(variables)}`,
+      body.errors,
+    )
     throw new OpenNeuroApiError(
-      `OpenNeuro GraphQL error: ${detail}`,
+      `OpenNeuro GraphQL error [${op}]: ${detail}`,
       res.status,
       url,
+      true,
     )
   }
   if (body.data === undefined || body.data === null) {
+    console.error(`[openneuro] GraphQL ${op} returned no data`, body)
     throw new OpenNeuroApiError(
-      'OpenNeuro response is missing `data`',
+      `OpenNeuro response is missing \`data\` [${op}]`,
       res.status,
       url,
     )
   }
   return body.data
+}
+
+/** Pull the operation name from a GraphQL document (`mutation Foo(...)` /
+ * `query Foo(...)`) so a server error can name which of the share steps
+ * failed. Returns `'anonymous'` for an unnamed document (none of ours). */
+function operationName(query: string): string {
+  return query.match(/\b(?:query|mutation)\s+(\w+)/)?.[1] ?? 'anonymous'
+}
+
+/** Compact, length-capped JSON of the GraphQL variables for a console
+ * diagnostic. Booleans/ids (createDataset) show in full; a long value
+ * (e.g. an UpdateDescription payload) is truncated so we never dump
+ * dataset content into the log. */
+function safeVars(variables: Record<string, unknown>): string {
+  let s: string
+  try {
+    s = JSON.stringify(variables)
+  } catch {
+    return `[${Object.keys(variables).join(', ')}]`
+  }
+  return s.length > 300 ? `${s.slice(0, 300)}…` : s
 }
 
 const ME_QUERY = `
@@ -192,8 +240,18 @@ export async function fetchOwnUser(
       `OpenNeuro returned no user record for id=${userId}; the token may be expired or revoked.`,
       null,
       OPENNEURO_API.graphql,
+      true,
     )
   }
+  // Diagnostic: the account BIDSvue is signed in as. A missing name/email is
+  // a known cause of a createDataset "Internal Server Error" — OpenNeuro's
+  // git-worker uses them as the commit author. (Logs presence, not values.)
+  const u = data.user
+  console.debug(
+    `[openneuro] signed in as id=${u.id} ` +
+      `name=${u.name ? 'set' : 'MISSING'} email=${u.email ? 'set' : 'MISSING'} ` +
+      `orcid=${u.orcid ? 'set' : 'none'}`,
+  )
   return data.user
 }
 

@@ -47,6 +47,10 @@
     "cancelClone": "Cancelar clone",
     "cancelling": "Cancelando…",
     "authNote": "Clones que pedem senha não serão concluídos (sem terminal). Use um auxiliar de credenciais para HTTPS. SSH usa o ssh-agent e ~/.ssh/ do seu sistema — o BIDSvue não armazena nem gera chaves SSH.",
+    "symlinkEmulatedTitle": "Este disco não armazena atalhos portáteis",
+    "symlinkEmulatedBody": "Arquivos de dados grandes são salvos como links simbólicos. Neste disco o macOS só consegue imitá-los, então o conjunto de dados funcionará neste Mac, mas esses arquivos aparecerão como pequenos arquivos de texto ilegíveis no Windows ou Linux. Discos exFAT e FAT têm essa limitação. Você pode continuar ou escolher outra pasta.",
+    "symlinkUnsupportedTitle": "Este disco não armazena atalhos",
+    "symlinkUnsupportedBody": "Arquivos de dados grandes são salvos como links simbólicos, que este disco não suporta. O conjunto de dados não funcionaria — nem mesmo neste computador. Escolha outra pasta para continuar.",
     "error": "Falha no clone: {detail}"
   },
   "importWizard": {
@@ -404,7 +408,8 @@
     "ebrainsDatasetNamePlaceholder": "ex.: AgingBrain v1",
     "diffError": "Não foi possível calcular o diff: {detail}",
     "refreshDiff": "Tentar diff novamente",
-    "notImplementedDetail": "{reason}"
+    "notImplementedDetail": "{reason}",
+    "reauthHint": "O OpenNeuro rejeitou a operação. Seu login pode estar desatualizado — saia e entre novamente, depois tente outra vez."
   },
   "preview": {
     "label": "Visualização do arquivo",
@@ -582,7 +587,7 @@
     "optionOriginal": "original",
     "running": "Anonimizando face…",
     "error": "Falha ao anonimizar face: {detail}",
-    "disabledTooltip": "Nenhuma ferramenta de anonimização de face está disponível nesta máquina. O sidecar de anonimização niimath é enviado para macOS arm64, Linux x86_64 e Windows x86_64, e o modelo WebGPU mindgrab precisa de `shader-f16` mais um buffer de armazenamento máximo de ~1.4 GB (abra Ajuda > Sobre o BIDSvue para o relatório WebGPU por verificação).",
+    "disabledTooltip": "Nenhuma ferramenta de anonimização de face está disponível nesta máquina. O sidecar de anonimização niimath é enviado para macOS arm64, Linux x86_64 e Windows x86_64; o sidecar de extração cerebral mindgrab (brainchop) é enviado para macOS arm64.",
     "batch": {
       "title": "Anonimizar face em lote",
       "toolHeading": "Anonimizador",
@@ -746,10 +751,7 @@
     "reportHint": "Abre o GitHub Issues com o relatório de diagnóstico preenchido. Nenhum caminho de conjunto de dados é incluído.",
     "copied": "Copiado!",
     "copyFailed": "Falha ao copiar",
-    "close": "Fechar",
-    "webgpuHeading": "Capacidade WebGPU",
-    "webgpuOk": "PASSOU",
-    "webgpuFail": "FALHOU"
+    "close": "Fechar"
   },
   "preferences": {
     "title": "Preferências",

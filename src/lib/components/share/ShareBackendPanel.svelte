@@ -15,6 +15,7 @@
   import { invoke } from '@tauri-apps/api/core'
 
   import { datasetStore } from '$lib/state/dataset.svelte'
+  import { OpenNeuroApiError } from '$lib/share/openneuro/api'
   import {
     ACCESSIBILITY_LABELS,
     LICENSE_LABELS,
@@ -104,6 +105,19 @@
   let uploadProgress = $state<UploadProgress | null>(null)
   let pushBusy = $state(false)
   let panelError = $state<string | null>(null)
+  /** True when the panel error came from OpenNeuro REJECTING an
+   * authenticated request (see OpenNeuroApiError.serverRejected) — a stale
+   * sign-in token can pass the `Me` auth ping yet make `createDataset` throw
+   * "Internal Server Error", and re-login fixes it. Drives the re-auth hint. */
+  let panelErrorReauth = $state(false)
+
+  /** Set the panel error from a caught exception, flagging the re-auth hint
+   * when OpenNeuro rejected an authenticated request. Use in every share
+   * catch so the hint is offered consistently. */
+  function setPanelError(err: unknown): void {
+    panelError = err instanceof Error ? err.message : String(err)
+    panelErrorReauth = err instanceof OpenNeuroApiError && err.serverRejected
+  }
   let preflightWarning = $state<string | null>(null)
   let preflightToken = 0
   let preflightDebounce: ReturnType<typeof setTimeout> | null = null
@@ -252,7 +266,7 @@
     try {
       await backend.startSignIn()
     } catch (err) {
-      panelError = err instanceof Error ? err.message : String(err)
+      setPanelError(err)
     }
   }
 
@@ -260,6 +274,7 @@
     if (pastedJwt.trim() === '') return
     signInBusy = true
     panelError = null
+    panelErrorReauth = false
     try {
       const next = await backend.completeSignIn(pastedJwt)
       pastedJwt = ''
@@ -271,7 +286,7 @@
       // would silently overwrite the existing link record.
       onRequestLinkRefresh?.()
     } catch (err) {
-      panelError = err instanceof Error ? err.message : String(err)
+      setPanelError(err)
     } finally {
       signInBusy = false
     }
@@ -279,12 +294,13 @@
 
   async function signOut(): Promise<void> {
     panelError = null
+    panelErrorReauth = false
     try {
       await backend.signOut()
       onStatusChanged({ kind: 'signed-out' })
       onLinkChanged(null)
     } catch (err) {
-      panelError = err instanceof Error ? err.message : String(err)
+      setPanelError(err)
     }
   }
 
@@ -292,6 +308,7 @@
     if (!canStartUpload()) return
     uploadBusy = true
     panelError = null
+    panelErrorReauth = false
     uploadProgress = null
     const ctrl = new AbortController()
     activeController = ctrl
@@ -343,7 +360,7 @@
       onLinkChanged(result.link)
     } catch (err) {
       if (!ctrl.signal.aborted) {
-        panelError = err instanceof Error ? err.message : String(err)
+        setPanelError(err)
       }
     } finally {
       uploadBusy = false
@@ -426,6 +443,7 @@
     if (backend.pushUpdate === undefined || backend.diff === undefined) return
     pushBusy = true
     panelError = null
+    panelErrorReauth = false
     uploadProgress = null
     const ctrl = new AbortController()
     activeController = ctrl
@@ -452,7 +470,7 @@
       diffPlan = { modified: [], added: [], deleted: [], unchanged: [] }
     } catch (err) {
       if (!ctrl.signal.aborted) {
-        panelError = err instanceof Error ? err.message : String(err)
+        setPanelError(err)
       }
     } finally {
       pushBusy = false
@@ -494,10 +512,11 @@
       return
     }
     panelError = null
+    panelErrorReauth = false
     try {
       await invoke<void>('open_external_url', { url: link.remoteUrl })
     } catch (err) {
-      panelError = err instanceof Error ? err.message : String(err)
+      setPanelError(err)
     }
   }
 
@@ -932,6 +951,9 @@
 
   {#if panelError !== null}
     <p class="error" role="alert">{panelError}</p>
+    {#if panelErrorReauth}
+      <p class="error-hint">{$_('share.reauthHint')}</p>
+    {/if}
   {/if}
 </section>
 
@@ -1091,6 +1113,11 @@
     padding: 0.4rem 0.6rem;
     margin: 0;
     font-size: 0.85rem;
+  }
+  .error-hint {
+    margin: 0.4rem 0 0 0;
+    font-size: 0.82rem;
+    color: var(--fg-faint);
   }
   .warning {
     color: rgb(160, 110, 30);

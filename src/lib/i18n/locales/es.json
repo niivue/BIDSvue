@@ -47,6 +47,10 @@
     "cancelClone": "Cancelar clonación",
     "cancelling": "Cancelando…",
     "authNote": "Las clonaciones que piden contraseña no se completarán (sin terminal). Usa un asistente de credenciales para HTTPS. SSH usa el ssh-agent y ~/.ssh/ del sistema — BIDSvue no almacena ni genera claves SSH.",
+    "symlinkEmulatedTitle": "Este disco no almacena accesos directos portables",
+    "symlinkEmulatedBody": "Los archivos de datos grandes se guardan como enlaces simbólicos. En este disco macOS solo puede imitarlos, así que el conjunto de datos funcionará en este Mac, pero esos archivos aparecerán como pequeños archivos de texto ilegibles en Windows o Linux. Los discos exFAT y FAT tienen esta limitación. Puedes continuar o elegir otra carpeta.",
+    "symlinkUnsupportedTitle": "Este disco no almacena accesos directos",
+    "symlinkUnsupportedBody": "Los archivos de datos grandes se guardan como enlaces simbólicos, que este disco no admite. El conjunto de datos no funcionaría, ni siquiera en este equipo. Elige otra carpeta para continuar.",
     "error": "Error de clonación: {detail}"
   },
   "importWizard": {
@@ -404,7 +408,8 @@
     "ebrainsDatasetNamePlaceholder": "p. ej. AgingBrain v1",
     "diffError": "No se pudo calcular el diff: {detail}",
     "refreshDiff": "Reintentar diff",
-    "notImplementedDetail": "{reason}"
+    "notImplementedDetail": "{reason}",
+    "reauthHint": "OpenNeuro rechazó la operación. Tu sesión puede estar caducada — cierra sesión y vuelve a entrar, luego reinténtalo."
   },
   "preview": {
     "label": "Vista previa del archivo",
@@ -582,7 +587,7 @@
     "optionOriginal": "original",
     "running": "Desfacializando…",
     "error": "Falló la desfacialización: {detail}",
-    "disabledTooltip": "No hay ninguna herramienta de desfacialización disponible en esta máquina. El sidecar de desfacialización niimath se envía para macOS arm64, Linux x86_64 y Windows x86_64, y el modelo WebGPU mindgrab necesita `shader-f16` más un buffer de almacenamiento máximo de ~1.4 GB (abre Ayuda > Acerca de BIDSvue para el informe WebGPU por verificación).",
+    "disabledTooltip": "No hay ninguna herramienta de desfacialización disponible en esta máquina. El sidecar de desfacialización niimath se envía para macOS arm64, Linux x86_64 y Windows x86_64; el sidecar de extracción cerebral mindgrab (brainchop) se envía para macOS arm64.",
     "batch": {
       "title": "Desfacializar escaneos por lote",
       "toolHeading": "Desfacializador",
@@ -746,10 +751,7 @@
     "reportHint": "Abre GitHub Issues con el informe de diagnóstico prellenado. No se incluyen rutas de conjuntos de datos.",
     "copied": "¡Copiado!",
     "copyFailed": "Error al copiar",
-    "close": "Cerrar",
-    "webgpuHeading": "Capacidad WebGPU",
-    "webgpuOk": "OK",
-    "webgpuFail": "FALLO"
+    "close": "Cerrar"
   },
   "preferences": {
     "title": "Preferencias",

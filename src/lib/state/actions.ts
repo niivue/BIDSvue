@@ -19,8 +19,6 @@ import {
 import { parseProgressLine } from '$lib/datalad/progressParser'
 import type { DataladStreamLine } from '$lib/datalad/run'
 import { isDefaceScanFile } from '$lib/deface/batch'
-import type { runMindgrab as runMindgrabFunction } from '$lib/deface/mindgrab/runMindgrab'
-import type { tauriMindgrabExecutor as tauriMindgrabExecutorValue } from '$lib/deface/mindgrab/tauriExecutor'
 import {
   type RevertDefaceResult,
   type RunDefaceResult,
@@ -29,7 +27,7 @@ import {
 } from '$lib/deface/runDeface'
 import { jsonSidecarPath } from '$lib/deface/sourcedataPath'
 import { tauriDefaceExecutor } from '$lib/deface/tauriExecutor'
-import { type DefaceToolId, findTool } from '$lib/deface/tools'
+import { type DefaceToolId, findTool, isMindgrabTool } from '$lib/deface/tools'
 import {
   type EventsApplyReport,
   EventsStaleError,
@@ -174,9 +172,6 @@ import { appView } from './view.svelte'
  * BIDS 1.10+ also accepts README.md. First match wins.
  */
 const README_BASENAMES = ['README', 'README.md'] as const
-
-type RunMindgrabFn = typeof runMindgrabFunction
-type TauriMindgrabExecutor = typeof tauriMindgrabExecutorValue
 
 /**
  * Resolve the path of the dataset's README, if any. Returns null when the
@@ -2732,32 +2727,9 @@ function assertNotUnfetchedPointer(targetPath: string, action: string): void {
  * `finally` so a mid-run failure can't leave the explorer pointing at
  * a stale snapshot.
  */
-export type DefaceResult =
-  | (RunDefaceResult & { kind: 'sidecar' })
-  | { kind: 'webgpu'; operationId: string; sourcedataPath: string }
+export type DefaceResult = RunDefaceResult
 
 type DefaceTool = ReturnType<typeof findTool>
-type MindgrabRunnerCache = {
-  runner: {
-    runMindgrab: RunMindgrabFn
-    tauriMindgrabExecutor: TauriMindgrabExecutor
-  } | null
-}
-
-async function loadMindgrabRunner(
-  cache?: MindgrabRunnerCache,
-): Promise<NonNullable<MindgrabRunnerCache['runner']>> {
-  if (cache?.runner !== null && cache?.runner !== undefined) {
-    return cache.runner
-  }
-  const runner = {
-    runMindgrab: (await import('$lib/deface/mindgrab/runMindgrab')).runMindgrab,
-    tauriMindgrabExecutor: (await import('$lib/deface/mindgrab/tauriExecutor'))
-      .tauriMindgrabExecutor,
-  }
-  if (cache !== undefined) cache.runner = runner
-  return runner
-}
 
 async function runDefaceToolOnce(opts: {
   datasetRoot: string
@@ -2765,44 +2737,38 @@ async function runDefaceToolOnce(opts: {
   targetPath: string
   tool: DefaceTool
   assertFresh: () => Promise<void>
-  mindgrabCache?: MindgrabRunnerCache
 }): Promise<DefaceResult> {
   const { datasetRoot, statePaths, targetPath, tool, assertFresh } = opts
-  // Day-1 Goal 1.3: the 4D NIfTI guard lives inside `runDeface` /
-  // `runMindgrab` (co-located with the dependency) so direct callers
-  // can't bypass it. We pass `tauriPostPassFs` as `partialReadFs` so
-  // the production-orchestration path probes; bun:test callers that
-  // build their own `runDeface` opts omit the hook and skip the
-  // probe.
-  if (tool.kind === 'sidecar') {
-    const r = await runDeface({
-      datasetRoot,
-      statePaths,
-      targetPath,
-      toolId: tool.id,
-      executor: tauriDefaceExecutor,
-      fs: tauriMutateFs,
-      assertFresh,
-      partialReadFs: tauriPostPassFs,
-    })
-    return { ...r, kind: 'sidecar' as const }
+  // Day-1 Goal 1.3: the 4D NIfTI guard lives inside `runDeface`
+  // (co-located with the dependency) so direct callers can't bypass it.
+  // We pass `tauriPostPassFs` as `partialReadFs` so the production path
+  // probes; bun:test callers that build their own `runDeface` opts omit
+  // the hook and skip the probe.
+  //
+  // Every deface tool flows through `runDeface`; only the EXECUTOR differs.
+  // allineate → native niimath sidecar. mindgrab → the native
+  // `brainchop-mindgrab` sidecar, or (in a `VITE_BIDSVUE_MINDGRAB_BACKEND=
+  // wasm` build) the in-WebView WebGL2 `@brainchop/mindgrab` module. Vite
+  // inlines the env literal, so the wasm executor + package are dead-coded
+  // out of a native build entirely.
+  let executor = tauriDefaceExecutor
+  if (
+    import.meta.env.VITE_BIDSVUE_MINDGRAB_BACKEND === 'wasm' &&
+    isMindgrabTool(tool.id)
+  ) {
+    executor = (await import('$lib/deface/mindgrabWasmExecutor'))
+      .wasmMindgrabExecutor
   }
-
-  const runner = await loadMindgrabRunner(opts.mindgrabCache)
-  const r = await runner.runMindgrab({
+  return runDeface({
     datasetRoot,
     statePaths,
     targetPath,
     toolId: tool.id,
-    dilationMm: tool.dilationMm,
-    robustfov: tool.robustfov,
-    weightsResource: tool.weightsResource,
-    executor: runner.tauriMindgrabExecutor,
+    executor,
     fs: tauriMutateFs,
     assertFresh,
     partialReadFs: tauriPostPassFs,
   })
-  return { kind: 'webgpu' as const, ...r }
 }
 
 export async function defaceFile(
@@ -3093,8 +3059,6 @@ export async function defaceFilesBatch(
     cancelled: false,
   }
   try {
-    const mindgrabCache: MindgrabRunnerCache = { runner: null }
-
     iterationOutcome = await iterateAbortableSequence(
       uniqueTargets,
       opts.signal,
@@ -3128,7 +3092,6 @@ export async function defaceFilesBatch(
             targetPath,
             tool,
             assertFresh,
-            mindgrabCache,
           })
           okPaths.push(targetPath)
         } catch (err) {

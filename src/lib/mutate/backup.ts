@@ -47,6 +47,7 @@ import {
   toPosixSeparators,
 } from '$lib/util/paths'
 import {
+  existsWithRustFallback,
   readFileWithSymlinkResolve,
   renameWithRustFallback,
   resolveSymlinkIfPresent,
@@ -55,7 +56,6 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import {
   copyFile as tauriCopyFile,
-  exists as tauriExists,
   mkdir as tauriMkdir,
   readDir as tauriReadDir,
   readTextFile as tauriReadTextFile,
@@ -191,7 +191,13 @@ export const tauriMutateFs: MutateFs = {
   // hatch calls `std::fs::rename(src, dest)` raw, so the symlink at
   // dest is unlinked-and-replaced atomically without ever touching
   // the annex blob behind it. See [readTextFile.ts](../util/readTextFile.ts).
-  exists: async (path) => tauriExists(await resolveSymlinkIfPresent(path)),
+  // Symlink-resolve first (annex pointers), then the dotfile-safe exists
+  // (`.bidsignore` at nested BIDS roots throws "forbidden path" through raw
+  // plugin-fs). `existsWithRustFallback` re-throws a genuine unreadable
+  // error rather than reporting "absent", so `_doAtomicWrite` never skips
+  // its backup on a target it couldn't actually stat.
+  exists: async (path) =>
+    existsWithRustFallback(await resolveSymlinkIfPresent(path)),
   mkdir: (path, options) => tauriMkdir(path, options),
   readDir: async (path) => {
     const entries = await tauriReadDir(path)

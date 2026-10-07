@@ -12,19 +12,14 @@ const SAMPLE: AppInfo = {
     bidsSchema: '1.2.3',
     dcm2niix: 'dev branch (commit d5f2fbb)',
     niimath:
-      'niimath sidecar (BSD) — allineate deface + mindgrab dilation on macOS arm64, Linux x86_64, and Windows x86_64',
-    mindgrab: 'brainchop::tinygrad',
+      'niimath sidecar (BSD) — allineate deface on macOS arm64, Linux x86_64, and Windows x86_64',
+    mindgrab: 'brainchop-mindgrab (native MeshNet, macOS arm64)',
     dataladNative: '1.5.0 (bidsvue-annex 0.1.20260606, gix 0.84)',
   },
   externalTools: [
     { name: 'heudiconv', available: true, version: '1.3.2' },
     { name: 'dcm2bids', available: true, version: '3.2.0' },
   ],
-  webgpu: {
-    ok: true,
-    report:
-      '[OK] navigator.gpu present\n[OK] requestAdapter() returned an adapter\n[OK] shader-f16 feature available\n\nAdapter info:\n  vendor:       apple\n  architecture: apple-7',
-  },
 }
 
 describe('buildDiagnosticReport', () => {
@@ -40,7 +35,7 @@ describe('buildDiagnosticReport', () => {
     expect(report).toContain('BIDS validator: 2.4.1 schema 1.2.3')
     expect(report).toContain('dev branch (commit d5f2fbb)')
     expect(report).toContain(
-      'niimath sidecar (BSD) — allineate deface + mindgrab dilation on macOS arm64, Linux x86_64, and Windows x86_64',
+      'niimath sidecar (BSD) — allineate deface on macOS arm64, Linux x86_64, and Windows x86_64',
     )
   })
 
@@ -62,11 +57,13 @@ describe('buildDiagnosticReport', () => {
   })
 
   test('renders the bundled mindgrab description under Bundled tools', () => {
-    // mindgrab is the WebGPU brain-mask model (M11). It belongs in the
-    // Bundled-tools list so users filing an issue can see whether the
-    // WebGPU deface path is shipped in their build.
+    // mindgrab is the native brainchop brain-extraction sidecar. It
+    // belongs in the Bundled-tools list so users filing an issue can see
+    // whether the mindgrab deface path is shipped in their build.
     const report = buildDiagnosticReport(SAMPLE)
-    expect(report).toContain('- mindgrab: brainchop::tinygrad')
+    expect(report).toContain(
+      '- mindgrab: brainchop-mindgrab (native MeshNet, macOS arm64)',
+    )
   })
 
   test('renders the native DataLad backend identity under the DataLad label', () => {
@@ -99,30 +96,6 @@ describe('buildDiagnosticReport', () => {
 
   test('ends with a trailing newline for clean paste', () => {
     expect(buildDiagnosticReport(SAMPLE).endsWith('\n')).toBe(true)
-  })
-
-  test('renders the WebGPU capability section verbatim', () => {
-    const report = buildDiagnosticReport(SAMPLE)
-    // Heading carries the PASS/FAIL signal so the body doesn't
-    // duplicate the About-dialog badge (audit round-13 polish).
-    expect(report).toContain('### WebGPU capability — PASS')
-    expect(report).toContain('[OK] navigator.gpu present')
-    expect(report).toContain('Adapter info:')
-    expect(report).toContain('  vendor:       apple')
-  })
-
-  test('WebGPU FAIL state is reported via the heading', () => {
-    const failed: AppInfo = {
-      ...SAMPLE,
-      webgpu: {
-        ok: false,
-        report:
-          '[FAIL] navigator.gpu present\n     WebGPU is not exposed by this WebView build.',
-      },
-    }
-    const report = buildDiagnosticReport(failed)
-    expect(report).toContain('### WebGPU capability — FAIL')
-    expect(report).toContain('[FAIL] navigator.gpu present')
   })
 
   test('does NOT leak dataset paths or user state', () => {
