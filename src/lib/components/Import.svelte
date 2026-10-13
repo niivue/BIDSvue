@@ -33,6 +33,16 @@
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { importDicoms, importMeg, importMneBids } from '$lib/state/actions'
   import { appView } from '$lib/state/view.svelte'
+  import { BIDSVUE_TOOL_ID } from '$lib/neuroflow/contract'
+  import {
+    appendProvenance,
+    mintPathToken,
+    writeHandoff,
+  } from '$lib/neuroflow/session'
+  import {
+    NEUROFLOW_BIDS_DIR_NAME,
+    NEUROFLOW_STAGING_NAME,
+  } from '$lib/neuroflow/relocate'
   import { formatDurationMs } from '$lib/util/duration'
   import { basename } from '$lib/util/paths'
 
@@ -231,6 +241,36 @@
   // post-pass failures or auto-open also failed, the inline warning
   // panel renders instead so the user sees everything in context.
   let partialFailureModalOpen = $state(false)
+
+  // ---- NeuroFlow launch context ------------------------------------------
+  //
+  // Non-null only when BIDSvue was launched as a NeuroFlow "ingest
+  // stage" tool (see `$lib/neuroflow/session`). Captured from
+  // `appView.neuroflowPrefill` in onMount; consumed both to prefill the
+  // source/destination and, on a successful import, to write the
+  // `neuroflow.handoff.json` + append the session provenance record.
+  let neuroflow = $state<{
+    sessionDir: string
+    outputDir: string
+    step?: string
+  } | null>(null)
+  /**
+   * Set by a NeuroFlow prefill that asked for auto-run. The import starts
+   * from the effect below once `canRun` turns true, which waits for the
+   * selected importer's async availability probe; calling `run()` straight
+   * after the prefill returned early on `!canRun` and left the user to
+   * click Run.
+   */
+  let neuroflowAutoRunPending = $state(false)
+
+  $effect(() => {
+    if (!neuroflowAutoRunPending || !canRun) return
+    neuroflowAutoRunPending = false
+    void run()
+  })
+
+  /** Surfaced when the handoff/provenance write fails after a NeuroFlow import. */
+  let neuroflowError = $state<string | null>(null)
 
   // ---- derived ------------------------------------------------------------
 
@@ -683,10 +723,101 @@
           detection = { ...detection, [cfg.id]: result }
         })
       }
+
+      // NeuroFlow prefill: when launched as the ingest-stage tool, the
+      // boot path stashed the resolved DICOM source + output dir from
+      // the session context.json. Pre-populate the source/destination
+      // (minting picker-equivalent tokens for both, since there is no
+      // native picker round-trip under NeuroFlow) and, when the launch
+      // requested it, auto-run the import. The prefill is consumed once
+      // (cleared from appView) so manually reopening the wizard later
+      // doesn't re-trigger it.
+      const prefill = appView.neuroflowPrefill
+      if (prefill !== null) {
+        appView.neuroflowPrefill = null
+        await applyNeuroflowPrefill(prefill)
+      }
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err)
     }
   })
+
+  /**
+   * Prefill the wizard from a NeuroFlow launch context and optionally
+   * auto-run. Mints a token bound to `srcDir` and one bound to
+   * `outputDir`, which becomes the destination's PARENT (the import flow
+   * composes `<parent>/<name>` and widens scope for descendants of the
+   * parent token). The import runs into `<outputDir>/bidsvue-import`;
+   * `importDicoms` then moves the BIDS root it produced to
+   * `<outputDir>/bids`, the `bids_dir` path BIDSvue's NeuroFlow tool
+   * document declares. Importers that nest the root under a
+   * StudyDescription locator (dcm2niix-reproin, heudiconv reproin) would
+   * otherwise leave it at `<outputDir>/<study>/<protocol>`, where the
+   * runtime does not look.
+   */
+  async function applyNeuroflowPrefill(prefill: {
+    srcDir: string
+    outputDir: string
+    sessionDir: string
+    step?: string
+    autoRun: boolean
+  }): Promise<void> {
+    neuroflow = {
+      sessionDir: prefill.sessionDir,
+      outputDir: prefill.outputDir,
+      step: prefill.step,
+    }
+    if (!prefill.outputDir.startsWith('/') || basename(prefill.outputDir) === '') {
+      runState = 'error'
+      runError = `NeuroFlow: outputDir "${prefill.outputDir}" must be an absolute directory path.`
+      return
+    }
+    try {
+      const src = await mintPathToken(prefill.srcDir)
+      const dst = await mintPathToken(prefill.outputDir)
+      setSrcPath(src.path, src.token)
+      parentDir = dst.path
+      parentDirToken = dst.token
+      datasetName = NEUROFLOW_STAGING_NAME
+    } catch (err) {
+      runState = 'error'
+      runError = `NeuroFlow: couldn't authorize the launch paths: ${err instanceof Error ? err.message : String(err)}`
+      return
+    }
+    if (prefill.autoRun) neuroflowAutoRunPending = true
+  }
+
+  /**
+   * After a successful NeuroFlow-driven import, write the handoff file
+   * the runtime harvests and append one provenance record. Best-effort
+   * relative to the import itself (the BIDS tree is already on disk);
+   * failures surface in `neuroflowError` rather than discarding the
+   * import result.
+   */
+  async function finishNeuroflowHandoff(
+    bidsDir: string,
+    producedNiftiCount: number,
+  ): Promise<void> {
+    if (neuroflow === null || selectedToolId === null) return
+    const tool = findImportTool(selectedToolId)
+    try {
+      await writeHandoff(neuroflow.outputDir, {
+        tool: tool.id,
+        step: neuroflow.step,
+        bids_dir: bidsDir,
+        producedNiftiCount,
+      })
+      await appendProvenance(neuroflow.sessionDir, {
+        step: neuroflow.step,
+        tool: BIDSVUE_TOOL_ID,
+        action: 'import',
+        outputs: { bids_dir: bidsDir },
+      })
+    } catch (err) {
+      neuroflowError = `NeuroFlow handoff failed: ${err instanceof Error ? err.message : String(err)}`
+      console.warn('[neuroflow] handoff/provenance write failed:', err)
+    }
+  }
 
   // ---- handlers ----------------------------------------------------------
 
@@ -1148,6 +1279,10 @@
           typeof shiftDatesRaw === 'boolean' ? shiftDatesRaw : undefined,
         description: buildDescriptionPayload(),
         toolId: selectedToolId,
+        finalRoot:
+          neuroflow === null
+            ? undefined
+            : `${parentDir.replace(/[/\\]+$/, '')}/${NEUROFLOW_BIDS_DIR_NAME}`,
       })
       runOutput = { stdout: result.stdout, stderr: result.stderr }
       lastDurationMs = result.durationMs
@@ -1172,6 +1307,14 @@
       ]
       autoOpenError = result.autoOpenError
       partialFailureWarning = result.partialFailureWarning
+      // NeuroFlow handoff: the import succeeded on disk and
+      // `importDicoms` has already moved the BIDS root to
+      // `<outputDir>/bids` (its only reported root), so write the
+      // provenance record before any auto-close. Runs only under a
+      // NeuroFlow launch.
+      if (neuroflow !== null) {
+        await finishNeuroflowHandoff(result.postPass.bidsRoots[0], result.filesCreated)
+      }
       runState = 'idle'
       // Two ways out of the wizard now that the run has finished:
       //   1. Clean success (no warnings, auto-open OK) — close
@@ -1185,16 +1328,19 @@
       // The else branch (post-pass failures OR auto-open failed)
       // leaves the wizard mounted with the inline warning panel — the
       // user needs to see WHICH session failed / WHY auto-open
-      // failed in context, not via a modal.
+      // failed in context, not via a modal. A NeuroFlow handoff error
+      // also keeps the wizard mounted so the failure stays visible.
       const partialOnly =
         partialFailureWarning !== null &&
         postPassFailures.length === 0 &&
         autoOpenError === null &&
-        result.autoOpenOk
+        result.autoOpenOk &&
+        neuroflowError === null
       if (
         postPassFailures.length === 0 &&
         partialFailureWarning === null &&
-        result.autoOpenOk
+        result.autoOpenOk &&
+        neuroflowError === null
       ) {
         appView.closeImportWizard()
       } else if (partialOnly) {
@@ -1704,9 +1850,12 @@
       </section>
     {/if}
 
-    {#if !partialFailureModalOpen && (postPassFailures.length > 0 || autoOpenError !== null || partialFailureWarning !== null)}
+    {#if !partialFailureModalOpen && (postPassFailures.length > 0 || autoOpenError !== null || partialFailureWarning !== null || neuroflowError !== null)}
       <section class="block output-block warning-block" role="alert">
         <h2>{$_('importWizard.warningHeading')}</h2>
+        {#if neuroflowError !== null}
+          <p class="warning-summary">{neuroflowError}</p>
+        {/if}
         {#if partialFailureWarning !== null}
           <p class="warning-summary">
             {$_('importWizard.partialConversion')}
