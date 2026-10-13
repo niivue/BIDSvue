@@ -10,7 +10,8 @@
 // and heudiconv's reproin heuristic nest it under a StudyDescription-derived
 // locator (`<dest>/<study>/<protocol>/`). So under NeuroFlow the import runs
 // into a staging folder inside the output directory, and the single BIDS
-// root it produced is then moved to `<outputDir>/bids`.
+// root it produced is then moved to `<outputDir>/bids` before the dataset is
+// trusted and auto-opened.
 
 import type { MutateFs } from '$lib/mutate/backup'
 import { dirname } from '$lib/util/paths'

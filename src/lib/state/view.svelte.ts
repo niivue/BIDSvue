@@ -10,8 +10,37 @@
 // No persistence: closing/reopening the app drops the user back at
 // Launch or Explorer (per datasetStore), never the wizard.
 
+/**
+ * Prefill payload handed to the import wizard when BIDSvue is launched
+ * as a NeuroFlow "ingest stage" tool. Set by the boot path
+ * (`+layout.svelte`) from the session `context.json`; consumed by
+ * `Import.svelte` on mount to pre-populate the source + destination and
+ * (when `autoRun`) kick the import without a manual Run click.
+ */
+export interface NeuroflowImportPrefill {
+  /** Source DICOM directory (`context.inputs.dicom_dir`). */
+  srcDir: string
+  /** Import destination (`context.outputDir` == `$NEUROFLOW_OUTPUT_DIR`). */
+  outputDir: string
+  /** Absolute `NEUROFLOW_SESSION` directory (for the provenance append). */
+  sessionDir: string
+  /** Workflow step id, threaded into the handoff + provenance records. */
+  step?: string
+  /** Drive the import automatically once the wizard mounts + prefills. */
+  autoRun: boolean
+}
+
 class AppView {
   importWizardOpen = $state(false)
+  /**
+   * When set, the import wizard prefills its source/destination from a
+   * NeuroFlow launch context and (if `autoRun`) runs the import, then
+   * writes the NeuroFlow handoff + provenance on success. `null` in
+   * every non-NeuroFlow launch, so the wizard behaves exactly as before.
+   * Cleared by the wizard once it has consumed the prefill so re-opening
+   * the wizard manually doesn't re-trigger the NeuroFlow flow.
+   */
+  neuroflowPrefill = $state<NeuroflowImportPrefill | null>(null)
   /**
    * True while the cohort Dashboard window is shown over Explorer.
    * No persistence — closing the app drops back to Explorer next
@@ -51,6 +80,16 @@ class AppView {
   mergeOpen = $state(false)
 
   openImportWizard(): void {
+    this.importWizardOpen = true
+  }
+
+  /**
+   * Open the import wizard prefilled (and optionally auto-run) from a
+   * NeuroFlow launch context. Used only by the boot path when
+   * `NEUROFLOW_SESSION` is set.
+   */
+  openImportWizardForNeuroflow(prefill: NeuroflowImportPrefill): void {
+    this.neuroflowPrefill = prefill
     this.importWizardOpen = true
   }
 

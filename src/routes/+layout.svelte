@@ -69,6 +69,10 @@
   } from '$lib/state/persistence'
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { selectionStore } from '$lib/state/selection.svelte'
+  import {
+    getNeuroflowContext,
+    getNeuroflowSessionDir,
+  } from '$lib/neuroflow/session'
 
   let { children } = $props()
   /**
@@ -306,6 +310,41 @@
       if (testOpen !== null) {
         autoSaveArmed = true
         await openDataset(testOpen.path, { token: testOpen.token })
+        return
+      }
+
+      // NeuroFlow ingest-stage launch: when `NEUROFLOW_SESSION` is set
+      // the runtime has handed us a `context.json` with the resolved
+      // source DICOM dir + output dir. Instead of the launch screen,
+      // open the import wizard prefilled from that context and auto-run
+      // the import; on success the wizard writes the NeuroFlow handoff +
+      // provenance (see `$lib/neuroflow/session`). The command returns
+      // null outside NeuroFlow (the env var is unset), so this whole
+      // branch is skipped in every normal launch and the boot continues
+      // to the auto-open-last logic below. Mirrors the
+      // BIDSVUE_TEST_OPEN_DATASET precedent above.
+      const nfContext = await getNeuroflowContext().catch((err) => {
+        console.warn('[neuroflow] context unavailable:', err)
+        return null
+      })
+      const nfSessionDir = await getNeuroflowSessionDir()
+      if (
+        nfContext !== null &&
+        typeof nfContext.inputs?.dicom_dir === 'string' &&
+        nfContext.inputs.dicom_dir !== '' &&
+        typeof nfContext.outputDir === 'string' &&
+        nfContext.outputDir !== '' &&
+        typeof nfSessionDir === 'string' &&
+        nfSessionDir !== ''
+      ) {
+        autoSaveArmed = true
+        appView.openImportWizardForNeuroflow({
+          srcDir: nfContext.inputs.dicom_dir,
+          outputDir: nfContext.outputDir,
+          sessionDir: nfSessionDir,
+          step: nfContext.step,
+          autoRun: true,
+        })
         return
       }
 

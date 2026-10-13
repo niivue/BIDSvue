@@ -1,13 +1,13 @@
 // NeuroFlow session contract — the parts that do not depend on a host.
 //
-// After an import run as a NeuroFlow step, BIDSvue writes two records:
+// The window (`$lib/neuroflow/session`, through Rust commands) and the
+// headless ingest (`scripts/neuroflow-ingest.ts`, through node:fs) both
+// write the same two records after an import:
 //
 //   - `<outputDir>/neuroflow.handoff.json`, the runtime's harvest signal
 //   - one line of `<sessionDir>/provenance.jsonl`
 //
-// The headless ingest (`scripts/neuroflow-ingest.ts`) writes them through
-// node:fs; this module builds their bodies with no host dependency, so they
-// are unit-tested and any other host can write the same records.
+// This module builds those bodies so the two hosts cannot drift.
 
 /** File name of the handoff record, inside the step's output directory. */
 export const HANDOFF_FILE = 'neuroflow.handoff.json'

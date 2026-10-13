@@ -103,6 +103,7 @@ import {
 } from '$lib/mutate/pendingDatalad'
 import { undoOperation } from '$lib/mutate/undo'
 import { type ComputedHistory, computeHistory } from '$lib/mutate/undoStack'
+import { relocateImportRoot } from '$lib/neuroflow/relocate'
 import { applyPlan } from '$lib/rename/applyPlan'
 import { computePlan } from '$lib/rename/computePlan'
 import {
@@ -3928,6 +3929,14 @@ export async function importDicoms(opts: {
     authors?: ReadonlyArray<string>
   }
   toolId: ImportToolId
+  /**
+   * NeuroFlow ingest only: move the single BIDS root the import produced
+   * to this absolute path (`<outputDir>/bids`) before it is trusted and
+   * auto-opened, so it sits where the step's tool document declares
+   * `bids_dir`. Must be a descendant of the folder `destDirParentToken`
+   * is bound to. See `$lib/neuroflow/relocate`.
+   */
+  finalRoot?: string
 }): Promise<ImportDicomsResult> {
   // Capture the scan generation at entry. If the user opens a
   // different dataset during the (potentially multi-minute) import,
@@ -3944,6 +3953,10 @@ export async function importDicoms(opts: {
   // History/Undo can't see it (reversible-mutation invariant). Rebinding
   // `opts` keeps `destDirParentToken` intact for the scope/trust widening.
   const destDir = normalizeSeparators(opts.destDir)
+  const finalRoot =
+    opts.finalRoot === undefined
+      ? undefined
+      : normalizeSeparators(opts.finalRoot)
   // Dataset-scoped lease on the destination root (round-17 P1.3). Two
   // imports to the same destDir conflict; concurrent imports to
   // different roots are independent. Also blocks any single-file or
@@ -3975,6 +3988,9 @@ export async function importDicoms(opts: {
     // produced NIfTIs.
     await widenScopeFor([
       { path: destDir, token: opts.destDirParentToken },
+      finalRoot !== undefined
+        ? { path: finalRoot, token: opts.destDirParentToken }
+        : null,
       { path: opts.srcDir, token: opts.srcDirToken, kind: 'fs-only' },
       opts.petMetadataPath !== undefined && opts.petMetadataPath !== ''
         ? {
@@ -3990,7 +4006,7 @@ export async function importDicoms(opts: {
     // so the orchestrator stays self-contained (bun:test can pass a
     // literal). Cached after first call.
     const bidsVersion = await getBidsVersion()
-    const result = await runImport({
+    const imported = await runImport({
       statePaths,
       srcDir: opts.srcDir,
       destDir,
@@ -4015,6 +4031,25 @@ export async function importDicoms(opts: {
       fs: tauriMutateFs,
       postPassFs: tauriPostPassFs,
     })
+    // NeuroFlow: put the produced root where the step declared bids_dir,
+    // before trust + auto-open so the opened dataset is the final one.
+    const result =
+      finalRoot === undefined
+        ? imported
+        : {
+            ...imported,
+            postPass: {
+              ...imported.postPass,
+              bidsRoots: [
+                await relocateImportRoot({
+                  fs: tauriMutateFs,
+                  stagingDir: destDir,
+                  roots: imported.postPass.bidsRoots,
+                  finalRoot,
+                }),
+              ],
+            },
+          }
     // Best-effort auto-open of the freshly-created dataset. The import
     // itself succeeded on disk by the time we get here; if openDataset
     // throws (e.g. scanner or validator hiccup on the freshly-written
@@ -4064,7 +4099,9 @@ export async function importDicoms(opts: {
     // only if the auto-open target was successfully trusted.
     const trust = await persistTrustedRootsForImport(
       'importDicoms',
-      [autoOpenTarget, destDir, ...discoveredRoots],
+      finalRoot === undefined
+        ? [autoOpenTarget, destDir, ...discoveredRoots]
+        : [autoOpenTarget],
       opts.destDirParentToken,
       autoOpenTarget,
     )
