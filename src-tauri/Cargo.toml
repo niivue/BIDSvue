@@ -4,10 +4,12 @@ version = "0.1.20260715"
 description = "Cross-platform desktop UI for creating, inspecting, and modifying BIDS datasets."
 authors = ["BIDSvue contributors"]
 edition = "2021"
-# Bumped from 1.77 to 1.85 to allow `gix 0.84` + `md-5 0.10`, both
-# required by the native DataLad implementation (datalad_plan.md
-# M-DL1). The installed toolchain on dev / CI is well above 1.85.
-rust-version = "1.85"
+# 1.88: the oldest Rust the locked dependencies build on (`darling 0.23`,
+# `time 0.3.47`, `plist 1.9`, `serde_with 3.19` all declare 1.88). Was 1.85
+# for `gix 0.84` + `md-5 0.10` (datalad_plan.md M-DL1), but newer
+# dependencies had already moved past it. The datalad-rs submodule keeps its
+# own pin. CI builds on latest stable, so check a bump with `cargo +1.88 check`.
+rust-version = "1.88"
 license = "BSD-2-Clause"
 
 [lib]
