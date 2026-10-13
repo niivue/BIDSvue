@@ -1,6 +1,6 @@
-// node:fs-backed PostPassFs adapter, for running the post-pass outside
-// Tauri. Every bun:test suite in postpass/ uses it. The window uses
-// `tauriPostPassFs`.
+// node:fs-backed PostPassFs adapter, used by the headless NeuroFlow
+// ingest (`scripts/neuroflow-ingest.ts`) and by every bun:test suite in
+// postpass/. The window uses `tauriPostPassFs`.
 
 import { createReadStream, promises as nodeFs } from 'node:fs'
 import { createGunzip } from 'node:zlib'

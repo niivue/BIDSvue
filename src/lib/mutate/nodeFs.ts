@@ -1,9 +1,10 @@
 // node:fs implementation of `MutateFs`.
 //
-// Runs the mutation and import code under Bun with no Tauri host: the
-// bun:test suites drive it against a temp directory. The window keeps
-// using `tauriMutateFs` in `backup.ts`, whose writes route through Rust
-// for fsync and scope checks.
+// The headless NeuroFlow ingest (`scripts/neuroflow-ingest.ts`) runs the
+// import orchestrator under Bun with no Tauri host, and the bun:test
+// suites drive the same code against a temp directory; both use this
+// adapter. The window keeps using `tauriMutateFs` in `backup.ts`, whose
+// writes route through Rust for fsync and scope checks.
 //
 // Durability differences from the Tauri adapter: `appendLogLine` and
 // `writeTextAtomicAppData` are plain appends/writes (no fsync), and the
@@ -28,9 +29,9 @@ import type { MutateFs } from './backup'
 
 export const nodeMutateFs: MutateFs = {
   async exists(path) {
-    // `stat` rather than reading the file, which for a multi-gigabyte
-    // NIfTI would load it all. Like plugin-fs, a dangling symlink reads
-    // as absent.
+    // `stat` rather than reading the file: the headless ingest asks this
+    // about multi-gigabyte NIfTIs. Like plugin-fs, a dangling symlink
+    // reads as absent.
     try {
       await nodeStat(path)
       return true
