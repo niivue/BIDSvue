@@ -2590,6 +2590,205 @@ fn into_pathbuf(file_path: FilePath) -> Result<PathBuf, String> {
     file_path.into_path().map_err(|e| format!("file path: {e}"))
 }
 
+// ---- NeuroFlow integration --------------------------------------------
+//
+// When BIDSvue is launched as the "ingest stage" tool of a NeuroFlow
+// workflow, the runtime sets `NEUROFLOW_SESSION` to the absolute path of
+// the session directory and drops a `context.json` there describing the
+// step's resolved inputs + output directory (see
+// `docs/neuroflow-session-contract.md` in the NeuroFlow repo). These
+// commands are the Rust side of the contract: read the launch context,
+// mint a picker-equivalent token for a context-supplied path so the
+// renderer can drive the existing token-gated import flow, write the
+// per-step handoff file, and append to the session provenance log.
+//
+// All of these no-op / return null when `NEUROFLOW_SESSION` is unset, so
+// production launches outside NeuroFlow behave exactly as before.
+
+/// Return the absolute `NEUROFLOW_SESSION` directory iff the env var is
+/// set to a non-empty value. Central so every NeuroFlow command shares
+/// the same "are we under NeuroFlow?" gate.
+fn neuroflow_session_dir() -> Option<PathBuf> {
+    match std::env::var("NEUROFLOW_SESSION") {
+        Ok(s) if !s.is_empty() => Some(PathBuf::from(s)),
+        _ => None,
+    }
+}
+
+/// Read `<NEUROFLOW_SESSION>/context.json` and return its raw contents as
+/// a string. Returns `Ok(None)` when `NEUROFLOW_SESSION` is unset (the
+/// production case — BIDSvue is not running under NeuroFlow) or when the
+/// context file does not exist yet. The renderer JSON-parses the result;
+/// returning the raw bytes keeps the schema in TS where the rest of the
+/// contract shape lives.
+///
+/// Documented Rust exception per ARCHITECTURE.md §3: OS integration
+/// (reading a launch-context file outside the dataset fs:scope) that the
+/// renderer cannot do through plugin-fs, which is scoped to app-data +
+/// opened datasets only.
+#[tauri::command]
+fn neuroflow_context() -> Result<Option<String>, String> {
+    let Some(session) = neuroflow_session_dir() else {
+        return Ok(None);
+    };
+    let context_path = session.join("context.json");
+    match std::fs::read_to_string(&context_path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!(
+            "neuroflow_context: read({}) failed: {e}",
+            context_path.display()
+        )),
+    }
+}
+
+/// Return the absolute `NEUROFLOW_SESSION` directory as a string, or
+/// `None` when the env var is unset (BIDSvue not running under
+/// NeuroFlow). The renderer needs this path to target the session's
+/// `provenance.jsonl`; `neuroflow_append_provenance` independently
+/// re-validates the supplied path equals this env value.
+#[tauri::command]
+fn neuroflow_session_path() -> Option<String> {
+    neuroflow_session_dir().and_then(|p| p.to_str().map(str::to_string))
+}
+
+/// Mint a trusted-picker token bound to a NeuroFlow-supplied absolute
+/// path. Gated on `NEUROFLOW_SESSION` being set: a renderer that is NOT
+/// running under NeuroFlow cannot use this to fabricate a token for an
+/// arbitrary path. The token has the same shape + TTL as the ones
+/// `pick_dataset_directory` / `pick_file` produce, so the existing
+/// token-gated import flow (`importDicoms`) accepts a context-prefilled
+/// source/destination without a native picker round-trip.
+///
+/// The mint is scoped to descendants of `path` (mirrors the picker),
+/// which is what the import flow needs: srcDir is widened directly, and
+/// the destDir-parent token authorizes the composed `<parent>/<name>`
+/// destination underneath it.
+#[tauri::command]
+fn neuroflow_mint_path_token(
+    state: tauri::State<'_, TrustStore>,
+    path: String,
+) -> Result<PickedPath, String> {
+    if neuroflow_session_dir().is_none() {
+        return Err(
+            "neuroflow_mint_path_token: not running under NeuroFlow (NEUROFLOW_SESSION unset)"
+                .to_string(),
+        );
+    }
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.is_absolute() {
+        return Err(format!(
+            "neuroflow_mint_path_token: path must be absolute, got: {path}"
+        ));
+    }
+    let token = state.mint_token(path_buf)?;
+    Ok(PickedPath { path, token })
+}
+
+/// Write `<output_dir>/neuroflow.handoff.json` with the renderer-composed
+/// JSON body. `output_dir` is the step's `$NEUROFLOW_OUTPUT_DIR` (== the
+/// import destination). Gated on `NEUROFLOW_SESSION` being set so this
+/// can only fire under a NeuroFlow launch. The write is a plain
+/// create/truncate — the handoff file is the runtime's harvest signal,
+/// written once after a successful import.
+#[tauri::command]
+fn neuroflow_write_handoff(output_dir: String, json: String) -> Result<(), String> {
+    if neuroflow_session_dir().is_none() {
+        return Err(
+            "neuroflow_write_handoff: not running under NeuroFlow (NEUROFLOW_SESSION unset)"
+                .to_string(),
+        );
+    }
+    let dir = PathBuf::from(&output_dir);
+    if !dir.is_absolute() {
+        return Err(format!(
+            "neuroflow_write_handoff: outputDir must be absolute, got: {output_dir}"
+        ));
+    }
+    if json.contains('\0') {
+        return Err("neuroflow_write_handoff: json must not contain NUL bytes".to_string());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        format!(
+            "neuroflow_write_handoff: create_dir_all({}) failed: {e}",
+            dir.display()
+        )
+    })?;
+    let path = dir.join("neuroflow.handoff.json");
+    std::fs::write(&path, json.as_bytes()).map_err(|e| {
+        format!(
+            "neuroflow_write_handoff: write({}) failed: {e}",
+            path.display()
+        )
+    })
+}
+
+/// Append one JSONL record to `<session_dir>/provenance.jsonl`. Mirrors
+/// the durable-append semantics of `append_log_line` (append + fsync,
+/// `O_NOFOLLOW` on Unix to fail closed on a symlink swap) but targets the
+/// NeuroFlow session's append-only audit trail rather than a per-dataset
+/// operations.log. Gated on `NEUROFLOW_SESSION` being set, and the
+/// `session_dir` must equal the env-supplied session path so a renderer
+/// can't redirect the append elsewhere. `line` must be a single record
+/// (the command adds the trailing newline).
+#[tauri::command]
+fn neuroflow_append_provenance(session_dir: String, line: String) -> Result<(), String> {
+    let Some(session) = neuroflow_session_dir() else {
+        return Err(
+            "neuroflow_append_provenance: not running under NeuroFlow (NEUROFLOW_SESSION unset)"
+                .to_string(),
+        );
+    };
+    let supplied = PathBuf::from(&session_dir);
+    if supplied != session {
+        return Err(format!(
+            "neuroflow_append_provenance: sessionDir {} does not match NEUROFLOW_SESSION {}",
+            supplied.display(),
+            session.display()
+        ));
+    }
+    if line.contains('\n') || line.contains('\r') || line.contains('\0') {
+        return Err(
+            "neuroflow_append_provenance: line must be a single non-NUL JSONL record".to_string(),
+        );
+    }
+    std::fs::create_dir_all(&session).map_err(|e| {
+        format!(
+            "neuroflow_append_provenance: create_dir_all({}) failed: {e}",
+            session.display()
+        )
+    })?;
+    let path = session.join("provenance.jsonl");
+    let mut open_opts = std::fs::OpenOptions::new();
+    open_opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open_opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = open_opts.open(&path).map_err(|e| {
+        format!(
+            "neuroflow_append_provenance: open({}) failed: {e}",
+            path.display()
+        )
+    })?;
+    file.write_all(line.as_bytes())
+        .and_then(|_| file.write_all(b"\n"))
+        .map_err(|e| {
+            format!(
+                "neuroflow_append_provenance: write({}) failed: {e}",
+                path.display()
+            )
+        })?;
+    file.sync_all().map_err(|e| {
+        format!(
+            "neuroflow_append_provenance: sync({}) failed: {e}",
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -4221,6 +4420,11 @@ pub fn run() {
             ai::spawn::run_ai_prompt,
             cancel_ai_op,
             ai::bridge::ai_write_resolve,
+            neuroflow_context,
+            neuroflow_session_path,
+            neuroflow_mint_path_token,
+            neuroflow_write_handoff,
+            neuroflow_append_provenance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
