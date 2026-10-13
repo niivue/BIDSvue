@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import {
   PROVENANCE_TSV_NAME,
   loadProvenance,
@@ -24,7 +24,7 @@ describe('loadProvenance', () => {
   })
 
   test('returns [] when the file is absent', async () => {
-    expect(await loadProvenance(root, nodeFsPostPassAdapter)).toEqual([])
+    expect(await loadProvenance(root, nodePostPassFs)).toEqual([])
   })
 
   test('parses header + rows from a real-shape TSV', async () => {
@@ -35,7 +35,7 @@ describe('loadProvenance', () => {
       '',
     ].join('\n')
     await writeFile(join(root, PROVENANCE_TSV_NAME), body)
-    const rows = await loadProvenance(root, nodeFsPostPassAdapter)
+    const rows = await loadProvenance(root, nodePostPassFs)
     expect(rows.length).toBe(2)
     expect(rows[0]).toEqual({
       StudyInstanceUID: '1.2.3',
@@ -62,7 +62,7 @@ describe('loadProvenance', () => {
       '1.2.3\t6\tanat-T2w\tanat-T2w\tStudy\tsub-01/anat/sub-01_T2w',
     ].join('\n')
     await writeFile(join(root, PROVENANCE_TSV_NAME), body)
-    const rows = await loadProvenance(root, nodeFsPostPassAdapter)
+    const rows = await loadProvenance(root, nodePostPassFs)
     expect(rows.length).toBe(1)
     expect(rows[0].ProtocolName).toBe('anat-T2w')
   })
@@ -73,7 +73,7 @@ describe('loadProvenance', () => {
       '1.2.3\tNaN\tanat-T1w\tanat-T1w\tStudy\tsub-01/anat/sub-01_T1w',
     ].join('\n')
     await writeFile(join(root, PROVENANCE_TSV_NAME), body)
-    const rows = await loadProvenance(root, nodeFsPostPassAdapter)
+    const rows = await loadProvenance(root, nodePostPassFs)
     expect(rows[0].SeriesNumber).toBe(0)
   })
 })

@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   cleanAuthors,
   hasDatasetDescriptionOverrides,
   parseAuthorsInput,
   planDescriptionRewrite,
 } from './datasetDescription'
+import { nodePostPassFs } from './nodeFs'
 
 const tempDirs: string[] = []
 function tmp(): string {
@@ -69,14 +69,12 @@ describe('planDescriptionRewrite', () => {
       join(root, 'dataset_description.json'),
       JSON.stringify({ Name: 'x', BIDSVersion: '1.11.1' }),
     )
-    expect(
-      await planDescriptionRewrite(root, nodeFsPostPassAdapter, {}),
-    ).toBeNull()
+    expect(await planDescriptionRewrite(root, nodePostPassFs, {})).toBeNull()
   })
 
   test('returns null when the file does not exist (never creates from license alone)', async () => {
     expect(
-      await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+      await planDescriptionRewrite(root, nodePostPassFs, {
         license: 'PD',
       }),
     ).toBeNull()
@@ -87,7 +85,7 @@ describe('planDescriptionRewrite', () => {
       join(root, 'dataset_description.json'),
       JSON.stringify({ Name: 'study', BIDSVersion: '1.11.1' }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'CC0',
     })
     expect(out).not.toBeNull()
@@ -106,7 +104,7 @@ describe('planDescriptionRewrite', () => {
         License: 'TODO: choose a license, e.g. PDDL (...)',
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'PDDL',
     })
     const parsed = JSON.parse(out?.content ?? '{}')
@@ -122,7 +120,7 @@ describe('planDescriptionRewrite', () => {
         Authors: ['TODO:', 'First1 Last1', 'First2 Last2', '...'],
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       authors: ['Ada Lovelace', '', 'Grace Hopper'],
     })
     const parsed = JSON.parse(out?.content ?? '{}')
@@ -141,7 +139,7 @@ describe('planDescriptionRewrite', () => {
         Acknowledgements: 'thanks',
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'PD',
       authors: ['New Author'],
     })
@@ -169,7 +167,7 @@ describe('planDescriptionRewrite', () => {
         Authors: ['First Author'],
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'CC0',
     })
     const parsed = JSON.parse(out?.content ?? '{}')
@@ -186,7 +184,7 @@ describe('planDescriptionRewrite', () => {
         License: 'CC0',
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       authors: ['New Author'],
     })
     const parsed = JSON.parse(out?.content ?? '{}')
@@ -203,7 +201,7 @@ describe('planDescriptionRewrite', () => {
         Authors: ['Existing'],
       }),
     )
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'PD',
       authors: ['', '   ', 'TODO:'],
     })
@@ -214,7 +212,7 @@ describe('planDescriptionRewrite', () => {
 
   test('rebuilds from {} on unparseable JSON', async () => {
     await writeFile(join(root, 'dataset_description.json'), 'not json')
-    const out = await planDescriptionRewrite(root, nodeFsPostPassAdapter, {
+    const out = await planDescriptionRewrite(root, nodePostPassFs, {
       license: 'PD',
       authors: ['Ada'],
     })

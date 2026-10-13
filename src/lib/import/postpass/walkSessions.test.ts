@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import { walkSessions } from './walkSessions'
 
 function makeRoot(): string {
@@ -16,7 +16,7 @@ describe('walkSessions', () => {
     try {
       await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
       await writeFile(join(root, 'dataset_description.json'), '{}')
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([`${root}/sub-01`])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -32,7 +32,7 @@ describe('walkSessions', () => {
       await mkdir(join(root, 'sub-01', 'ses-followup', 'anat'), {
         recursive: true,
       })
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([
         `${root}/sub-01/ses-baseline`,
         `${root}/sub-01/ses-followup`,
@@ -47,7 +47,7 @@ describe('walkSessions', () => {
     try {
       await mkdir(join(root, 'sub-01', 'ses-1', 'anat'), { recursive: true })
       await mkdir(join(root, 'sub-01', 'func'), { recursive: true })
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([`${root}/sub-01/ses-1`, `${root}/sub-01`])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -59,7 +59,7 @@ describe('walkSessions', () => {
     try {
       await mkdir(join(root, 'sub-02', 'anat'), { recursive: true })
       await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([`${root}/sub-01`, `${root}/sub-02`])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -73,7 +73,7 @@ describe('walkSessions', () => {
       await mkdir(join(root, 'derivatives'), { recursive: true })
       await mkdir(join(root, 'sourcedata'), { recursive: true })
       await mkdir(join(root, 'sub-01', 'anat'), { recursive: true })
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([`${root}/sub-01`])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -83,7 +83,7 @@ describe('walkSessions', () => {
   test('empty root returns empty list', async () => {
     const root = makeRoot()
     try {
-      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      const sessions = await walkSessions(root, nodePostPassFs)
       expect(sessions).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })

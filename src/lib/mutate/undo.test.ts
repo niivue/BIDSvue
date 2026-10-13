@@ -10,8 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { type OperationLogEntry, beginOperation } from './backup'
+import { nodeMutateFs as nodeFs } from './nodeFs'
 import { readOperationsLog } from './operationsLog'
-import { nodeMutateFs as nodeFs } from './testFs'
 import { undoOperation } from './undo'
 
 const tempRoots: string[] = []

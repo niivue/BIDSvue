@@ -4,11 +4,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { StemFileExistsError, moveStemFiles } from './moveStem'
+import { nodePostPassFs } from './nodeFs'
 
 const tempDirs: string[] = []
 
@@ -55,7 +55,7 @@ describe('moveStemFiles', () => {
       srcStem: join(root, 'src', 'a'),
       dstStem: join(root, 'dst', 'b'),
       ctx,
-      fs: nodeFsPostPassAdapter,
+      fs: nodePostPassFs,
       meta: { kind: 'test' },
     })
     await ctx.commit()
@@ -81,7 +81,7 @@ describe('moveStemFiles', () => {
       srcStem: join(root, 'src', 'missing'),
       dstStem: join(root, 'dst', 'whatever'),
       ctx,
-      fs: nodeFsPostPassAdapter,
+      fs: nodePostPassFs,
       meta: { kind: 'test' },
     })
     await ctx.commit()
@@ -111,7 +111,7 @@ describe('moveStemFiles', () => {
         srcStem: join(root, 'src', 'x'),
         dstStem: join(root, 'dst', 'y'),
         ctx,
-        fs: nodeFsPostPassAdapter,
+        fs: nodePostPassFs,
         meta: { kind: 'test' },
       }),
     ).rejects.toThrow(StemFileExistsError)
@@ -160,7 +160,7 @@ describe('moveStemFiles', () => {
         srcStem: join(root, 'src', 'a'),
         dstStem: join(root, 'dst', 'a'),
         ctx,
-        fs: nodeFsPostPassAdapter,
+        fs: nodePostPassFs,
         meta: { kind: 'test' },
       }),
     ).rejects.toThrow(/simulated EXDEV/)
@@ -196,7 +196,7 @@ describe('moveStemFiles', () => {
       srcStem: join(root, 'src', 'p'),
       dstStem: join(root, 'dst', 'q'),
       ctx,
-      fs: nodeFsPostPassAdapter,
+      fs: nodePostPassFs,
       exts: ['.tsv.gz', '.json'],
       meta: { kind: 'test' },
     })
@@ -228,7 +228,7 @@ describe('moveStemFiles', () => {
         srcStem: join(root, 'src', 'a'),
         dstStem: join(root, 'dst', 'a'),
         ctx,
-        fs: nodeFsPostPassAdapter,
+        fs: nodePostPassFs,
         meta: { kind: 'test' },
       })
       throw new Error('expected StemFileExistsError')

@@ -28,6 +28,7 @@
     "check-i18n": "bun run scripts/check-i18n.ts",
     "ensure-validator-artifacts": "bun run scripts/ensure-validator-artifacts.ts",
     "fetch-sidecars": "bun run scripts/fetch-sidecars.ts",
+    "neuroflow-ingest": "bun run scripts/neuroflow-ingest.ts",
     "test": "bun test",
     "check": "bun run ensure-validator-artifacts && bun run lint && bun run typecheck && bun run check-i18n && bun test && bun run build && bun run check:rust-fmt && bun run check:rust-test",
     "check:rust-fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",

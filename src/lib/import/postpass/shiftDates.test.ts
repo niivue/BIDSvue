@@ -4,9 +4,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import { runShiftDates } from './shiftDates'
 
 const tempDirs: string[] = []
@@ -74,7 +74,7 @@ describe('runShiftDates', () => {
     )
 
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.subjectsShifted).toBe(1)
@@ -113,7 +113,7 @@ describe('runShiftDates', () => {
       AcquisitionDateTime: '1925-01-01T09:00:00.000000',
     })
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(0)
     const t1w = JSON.parse(
@@ -135,9 +135,9 @@ describe('runShiftDates', () => {
       AcquisitionDateTime: '2024-05-01T09:00:00.000000',
     })
     const ctx = makeCtx(root)
-    await expect(
-      runShiftDates([root], ctx, nodeFsPostPassAdapter),
-    ).rejects.toThrow(/partially shifted/)
+    await expect(runShiftDates([root], ctx, nodePostPassFs)).rejects.toThrow(
+      /partially shifted/,
+    )
     await ctx.rollback()
   })
 
@@ -156,7 +156,7 @@ describe('runShiftDates', () => {
       },
     )
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(0) // offset 0 no-op, no throw
   })
@@ -168,7 +168,7 @@ describe('runShiftDates', () => {
       AcquisitionDateTime: '2023-09-14T10:13:34.000000',
     })
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(1)
     expect(result.warnings.length).toBe(1)
@@ -190,7 +190,7 @@ describe('runShiftDates', () => {
       },
     )
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(2)
     const a = JSON.parse(
@@ -220,7 +220,7 @@ describe('runShiftDates', () => {
       AcquisitionDateTime: '2023-09-14T11:00:00Z',
     })
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(1)
     const t1w = JSON.parse(
@@ -249,7 +249,7 @@ describe('runShiftDates', () => {
       'filename\tacq_time\nanat/sub-d_ses-1_T1w.nii.gz\t2023-09-14T10:25:20.255000\n',
     )
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(1)
     const t1w = JSON.parse(
@@ -273,7 +273,7 @@ describe('runShiftDates', () => {
       AcquisitionDate: '20230914', // no AcquisitionDateTime, no AcquisitionTime
     })
     const ctx = makeCtx(root)
-    const result = await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    const result = await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.subjectsShifted).toBe(1)
     const t1w = JSON.parse(
@@ -309,7 +309,7 @@ describe('runShiftDates', () => {
       'filename\tacq_time\nanat/x.nii.gz\t2023-09-16T08:00:00.000000\n',
     )
     const ctx = makeCtx(root)
-    await runShiftDates([root], ctx, nodeFsPostPassAdapter)
+    await runShiftDates([root], ctx, nodePostPassFs)
     await ctx.commit()
     const d = JSON.parse(
       await readFile(join(dv, 'sub-dv_ses-1_desc-x_T1w.json'), 'utf8'),
@@ -343,9 +343,9 @@ describe('runShiftDates', () => {
       },
     )
     const ctx = makeCtx(root)
-    await expect(
-      runShiftDates([root], ctx, nodeFsPostPassAdapter),
-    ).rejects.toThrow(/cannot safely shift/)
+    await expect(runShiftDates([root], ctx, nodePostPassFs)).rejects.toThrow(
+      /cannot safely shift/,
+    )
     await ctx.rollback()
   })
 
@@ -353,7 +353,7 @@ describe('runShiftDates', () => {
     const root = makeRoot('bidsvue-shift-dates-missingroot-')
     const ctx = makeCtx(root)
     await expect(
-      runShiftDates([join(root, 'does-not-exist')], ctx, nodeFsPostPassAdapter),
+      runShiftDates([join(root, 'does-not-exist')], ctx, nodePostPassFs),
     ).rejects.toThrow()
     await ctx.rollback()
   })
@@ -387,7 +387,7 @@ describe('runShiftDates', () => {
 
     const ctx = makeCtx(parent)
     // Scope to `mine` only — mirrors runPostPass passing discovered roots.
-    await runShiftDates([mine], ctx, nodeFsPostPassAdapter)
+    await runShiftDates([mine], ctx, nodePostPassFs)
     await ctx.commit()
 
     const a = JSON.parse(

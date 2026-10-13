@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { DataladIntentCommit } from '$lib/datalad/run'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { beginOperation } from './backup'
+import { nodeMutateFs } from './nodeFs'
 import { readOperationsLog } from './operationsLog'
 import type { PendingDataladRecord } from './pendingDatalad'
 import {
@@ -18,7 +19,6 @@ import {
   withDataladIntentTrailer,
   writePendingDataladRecord,
 } from './pendingDatalad'
-import { nodeMutateFs } from './testFs'
 
 const tempRoots: string[] = []
 

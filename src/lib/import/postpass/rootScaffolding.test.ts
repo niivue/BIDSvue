@@ -4,7 +4,7 @@ import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import {
   planDatasetDescriptionUpgrade,
   planParticipants,
@@ -59,7 +59,7 @@ describe('planParticipants', () => {
   test('emits a 4-column tsv + json when participants.tsv is absent (no demographics → n/a)', async () => {
     await mkdir(join(root, 'sub-01'), { recursive: true })
     await mkdir(join(root, 'sub-02'), { recursive: true })
-    const out = await planParticipants(root, nodeFsPostPassAdapter)
+    const out = await planParticipants(root, nodePostPassFs)
     expect(out.length).toBe(2)
     const tsv = out.find((e) => e.path.endsWith('participants.tsv'))
     // No provenance TSV present → age + sex default to `n/a`,
@@ -89,7 +89,7 @@ describe('planParticipants', () => {
       ].join('\n'),
     )
 
-    const out = await planParticipants(root, nodeFsPostPassAdapter)
+    const out = await planParticipants(root, nodePostPassFs)
     const tsv = out.find((e) => e.path.endsWith('participants.tsv'))
     expect(tsv?.content).toBe(
       'participant_id\tage\tsex\tgroup\n' +
@@ -100,7 +100,7 @@ describe('planParticipants', () => {
   })
 
   test('returns empty when root has no subjects', async () => {
-    expect(await planParticipants(root, nodeFsPostPassAdapter)).toEqual([])
+    expect(await planParticipants(root, nodePostPassFs)).toEqual([])
   })
 
   test('merges new subjects into an existing curated participants.tsv (additive only, curated columns preserved)', async () => {
@@ -114,7 +114,7 @@ describe('planParticipants', () => {
       join(root, 'participants.tsv'),
       'participant_id\tage\nsub-01\t42\nsub-02\t37\n',
     )
-    const out = await planParticipants(root, nodeFsPostPassAdapter)
+    const out = await planParticipants(root, nodePostPassFs)
     const tsv = out.find((e) => e.path.endsWith('participants.tsv'))
     expect(tsv).toBeDefined()
     // Existing rows preserved verbatim (header + curated `age` column);
@@ -130,7 +130,7 @@ describe('planParticipants', () => {
       join(root, 'participants.tsv'),
       'participant_id\tage\tsex\tgroup\nsub-01\tn/a\tn/a\tcontrol\n',
     )
-    const out = await planParticipants(root, nodeFsPostPassAdapter)
+    const out = await planParticipants(root, nodePostPassFs)
     // participants.json is still planned (if-absent), but participants.tsv is not re-written.
     expect(out.find((e) => e.path.endsWith('participants.tsv'))).toBeUndefined()
   })
@@ -159,7 +159,7 @@ describe('planTaskBoldJsons', () => {
       join(root, 'sub-01', 'func', 'sub-01_task-faces_acq-mb4_bold.nii.gz'),
       '',
     )
-    const out = await planTaskBoldJsons(root, nodeFsPostPassAdapter)
+    const out = await planTaskBoldJsons(root, nodePostPassFs)
     const paths = out.map((e) => e.path.split('/').pop()).sort()
     expect(paths).toEqual([
       'task-faces_acq-mb4_bold.json',
@@ -177,12 +177,12 @@ describe('planTaskBoldJsons', () => {
       'Generated using dcm2niix v1.0.20260513. Describe your dataset here.\n',
     )
     expect(
-      toPosix((await planReadmeMdCleanup(root, nodeFsPostPassAdapter)) ?? ''),
+      toPosix((await planReadmeMdCleanup(root, nodePostPassFs)) ?? ''),
     ).toBe(toPosix(join(root, 'README.md')))
   })
 
   test('planReadmeMdCleanup: returns null when README.md is absent', async () => {
-    expect(await planReadmeMdCleanup(root, nodeFsPostPassAdapter)).toBeNull()
+    expect(await planReadmeMdCleanup(root, nodePostPassFs)).toBeNull()
   })
 
   test('planReadmeMdCleanup: returns null for user-curated README.md content', async () => {
@@ -190,13 +190,13 @@ describe('planTaskBoldJsons', () => {
       join(root, 'README.md'),
       '# My Study\n\nA hand-written description that does NOT match the dcm2niix stub.\n',
     )
-    expect(await planReadmeMdCleanup(root, nodeFsPostPassAdapter)).toBeNull()
+    expect(await planReadmeMdCleanup(root, nodePostPassFs)).toBeNull()
   })
 
   test('planReadmeMdCleanup: returns null for files larger than 1 KB', async () => {
     const long = `Generated using dcm2niix... Describe your dataset here. ${'x'.repeat(1100)}`
     await writeFile(join(root, 'README.md'), long)
-    expect(await planReadmeMdCleanup(root, nodeFsPostPassAdapter)).toBeNull()
+    expect(await planReadmeMdCleanup(root, nodePostPassFs)).toBeNull()
   })
 
   test('skips bold files under derivatives/', async () => {
@@ -213,7 +213,7 @@ describe('planTaskBoldJsons', () => {
       ),
       '',
     )
-    expect(await planTaskBoldJsons(root, nodeFsPostPassAdapter)).toEqual([])
+    expect(await planTaskBoldJsons(root, nodePostPassFs)).toEqual([])
   })
 })
 
@@ -246,7 +246,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'rest', CogAtlasID: 'http://...' })}\n`,
     )
-    const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
+    const out = await planTaskBoldStubCleanup(root, nodePostPassFs)
     expect(out.map(toPosix)).toEqual([
       toPosix(join(root, 'task-rest_bold.json')),
     ])
@@ -258,7 +258,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'rest' })}\n`,
     )
-    const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
+    const out = await planTaskBoldStubCleanup(root, nodePostPassFs)
     expect(out.map(toPosix)).toEqual([
       toPosix(join(root, 'task-rest_bold.json')),
     ])
@@ -274,9 +274,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'rest' })}\n`,
     )
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('drops acq stubs with no bold image (physio-only series), keeps curated ones', async () => {
@@ -288,7 +286,7 @@ describe('planTaskBoldStubCleanup', () => {
     ] as const) {
       await writeFile(join(root, name), `${JSON.stringify(data)}\n`)
     }
-    const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
+    const out = await planTaskBoldStubCleanup(root, nodePostPassFs)
     expect(out.map(toPosix)).toEqual([
       toPosix(join(root, 'task-motor_acq-b_bold.json')),
     ])
@@ -296,11 +294,11 @@ describe('planTaskBoldStubCleanup', () => {
 
   test('keeps orphan-looking stub when a subject dir is unreadable', async () => {
     const fs = {
-      ...nodeFsPostPassAdapter,
+      ...nodePostPassFs,
       readDir: async (dir: string) => {
         if (toPosix(dir).endsWith('/sub-01'))
           throw new Error('permission denied')
-        return nodeFsPostPassAdapter.readDir(dir)
+        return nodePostPassFs.readDir(dir)
       },
     }
     await writeAcqRun('rest', 'a')
@@ -327,9 +325,7 @@ describe('planTaskBoldStubCleanup', () => {
         `${JSON.stringify({ TaskName: 'motor' })}\n`,
       )
     }
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('preserves user-curated sidecar with extra fields (e.g. RepetitionTime)', async () => {
@@ -338,9 +334,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'rest', RepetitionTime: 2.0 })}\n`,
     )
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('preserves stub when TaskName disagrees with the stem', async () => {
@@ -349,24 +343,18 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'faces' })}\n`,
     )
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('skips when the stub file is absent', async () => {
     await writeAcqRun('rest', 'dualecho')
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('skips malformed JSON without throwing', async () => {
     await writeAcqRun('rest', 'dualecho')
     await writeFile(join(root, 'task-rest_bold.json'), 'not json')
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 
   test('handles multiple tasks independently and returns sorted paths', async () => {
@@ -380,7 +368,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-faces_bold.json'),
       `${JSON.stringify({ TaskName: 'faces' })}\n`,
     )
-    const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
+    const out = await planTaskBoldStubCleanup(root, nodePostPassFs)
     expect(out.map(toPosix)).toEqual([
       toPosix(join(root, 'task-faces_bold.json')),
       toPosix(join(root, 'task-rest_bold.json')),
@@ -410,9 +398,7 @@ describe('planTaskBoldStubCleanup', () => {
       join(root, 'task-rest_bold.json'),
       `${JSON.stringify({ TaskName: 'rest' })}\n`,
     )
-    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
-      [],
-    )
+    expect(await planTaskBoldStubCleanup(root, nodePostPassFs)).toEqual([])
   })
 })
 
@@ -445,7 +431,7 @@ describe('planPerRunTaskNameBackfill', () => {
     await seedBold('sub-01/func', 'sub-01_task-rest_acq-mb2_run-1_bold', {
       RepetitionTime: 0.8,
     })
-    const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
+    const out = await planPerRunTaskNameBackfill(root, nodePostPassFs)
     expect(out.length).toBe(1)
     expect(toPosix(out[0]?.path ?? '')).toBe(
       toPosix(
@@ -463,7 +449,7 @@ describe('planPerRunTaskNameBackfill', () => {
       TaskName: 'rest',
       RepetitionTime: 0.8,
     })
-    const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
+    const out = await planPerRunTaskNameBackfill(root, nodePostPassFs)
     expect(out).toEqual([])
   })
 
@@ -471,7 +457,7 @@ describe('planPerRunTaskNameBackfill', () => {
     await seedBold('sub-01/func', 'sub-01_task-faces_run-1_bold', {
       TaskName: '',
     })
-    const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
+    const out = await planPerRunTaskNameBackfill(root, nodePostPassFs)
     expect(out.length).toBe(1)
     expect(JSON.parse(out[0]?.content ?? '{}').TaskName).toBe('faces')
   })
@@ -482,25 +468,19 @@ describe('planPerRunTaskNameBackfill', () => {
       'sub-01_task-rest_bold',
       { Something: 'else' },
     )
-    expect(
-      await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter),
-    ).toEqual([])
+    expect(await planPerRunTaskNameBackfill(root, nodePostPassFs)).toEqual([])
   })
 
   test('skips a bold whose sibling .json is missing', async () => {
     await seedBold('sub-01/func', 'sub-01_task-rest_bold', null)
-    expect(
-      await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter),
-    ).toEqual([])
+    expect(await planPerRunTaskNameBackfill(root, nodePostPassFs)).toEqual([])
   })
 
   test('skips when the sidecar is unparseable JSON', async () => {
     await mkdir(join(root, 'sub-01/func'), { recursive: true })
     await writeFile(join(root, 'sub-01/func/sub-01_task-rest_bold.nii.gz'), '')
     await writeFile(join(root, 'sub-01/func/sub-01_task-rest_bold.json'), '{')
-    expect(
-      await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter),
-    ).toEqual([])
+    expect(await planPerRunTaskNameBackfill(root, nodePostPassFs)).toEqual([])
   })
 
   test('does NOT rewrite a bold sidecar that lives under sourcedata/', async () => {
@@ -518,7 +498,7 @@ describe('planPerRunTaskNameBackfill', () => {
     await seedBold('sub-01/func', 'sub-01_task-rest_bold', {
       Something: 'else',
     })
-    const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
+    const out = await planPerRunTaskNameBackfill(root, nodePostPassFs)
     expect(out.length).toBe(1)
     expect(toPosix(out[0]?.path ?? '')).toBe(
       toPosix(join(root, 'sub-01/func', 'sub-01_task-rest_bold.json')),
@@ -535,9 +515,7 @@ describe('planPerRunTaskNameBackfill', () => {
         Something: 'else',
       })
     }
-    expect(
-      await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter),
-    ).toEqual([])
+    expect(await planPerRunTaskNameBackfill(root, nodePostPassFs)).toEqual([])
   })
 
   test('terminates on a symlink cycle (depth cap defeats the loop)', async () => {
@@ -555,7 +533,7 @@ describe('planPerRunTaskNameBackfill', () => {
     // (encountered via the symlink) is bounded by the depth cap,
     // so the walker terminates — without crashing or hanging.
     await seedBold('sub-01/func', 'sub-01_task-rest_bold', {})
-    const out = await planPerRunTaskNameBackfill(root, nodeFsPostPassAdapter)
+    const out = await planPerRunTaskNameBackfill(root, nodePostPassFs)
     // Exact count not asserted (depends on cap), only that we
     // returned at all (i.e. did not hang) and the legit bold's
     // sidecar appears at least once.
@@ -593,11 +571,7 @@ describe('planSuffixTaskNameBackfill', () => {
     await seedSidecar('sub-01/func', 'sub-01_task-rest_acq-mb2_sbref', {
       RepetitionTime: 0.8,
     })
-    const out = await planSuffixTaskNameBackfill(
-      root,
-      nodeFsPostPassAdapter,
-      '_sbref',
-    )
+    const out = await planSuffixTaskNameBackfill(root, nodePostPassFs, '_sbref')
     expect(out.length).toBe(1)
     const parsed = JSON.parse(out[0]?.content ?? '{}')
     expect(parsed.TaskName).toBe('rest')
@@ -613,7 +587,7 @@ describe('planSuffixTaskNameBackfill', () => {
     )
     const out = await planSuffixTaskNameBackfill(
       root,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
       '_physio',
     )
     expect(out.length).toBe(1)
@@ -625,18 +599,14 @@ describe('planSuffixTaskNameBackfill', () => {
       TaskName: 'rest',
     })
     expect(
-      await planSuffixTaskNameBackfill(root, nodeFsPostPassAdapter, '_sbref'),
+      await planSuffixTaskNameBackfill(root, nodePostPassFs, '_sbref'),
     ).toEqual([])
   })
 
   test('only touches the requested suffix', async () => {
     await seedSidecar('sub-01/func', 'sub-01_task-rest_sbref', {})
     await seedSidecar('sub-01/func', 'sub-01_task-rest_bold', {})
-    const out = await planSuffixTaskNameBackfill(
-      root,
-      nodeFsPostPassAdapter,
-      '_sbref',
-    )
+    const out = await planSuffixTaskNameBackfill(root, nodePostPassFs, '_sbref')
     expect(out.length).toBe(1)
     expect(out[0]?.path.endsWith('_sbref.json')).toBe(true)
   })
@@ -648,14 +618,14 @@ describe('planSuffixTaskNameBackfill', () => {
       {},
     )
     expect(
-      await planSuffixTaskNameBackfill(root, nodeFsPostPassAdapter, '_sbref'),
+      await planSuffixTaskNameBackfill(root, nodePostPassFs, '_sbref'),
     ).toEqual([])
   })
 
   test('skips a sidecar with no task- entity in its name', async () => {
     await seedSidecar('sub-01/anat', 'sub-01_acq-x_sbref', {})
     expect(
-      await planSuffixTaskNameBackfill(root, nodeFsPostPassAdapter, '_sbref'),
+      await planSuffixTaskNameBackfill(root, nodePostPassFs, '_sbref'),
     ).toEqual([])
   })
 })
@@ -683,10 +653,7 @@ describe('planDatasetDescriptionUpgrade', () => {
       ConversionSoftware: 'dcm2niix',
       ConversionSoftwareVersion: 'v1.0.20260520',
     })
-    const entry = await planDatasetDescriptionUpgrade(
-      root,
-      nodeFsPostPassAdapter,
-    )
+    const entry = await planDatasetDescriptionUpgrade(root, nodePostPassFs)
     expect(entry).not.toBeNull()
     expect(toPosix(entry?.path ?? '')).toBe(
       toPosix(join(root, 'dataset_description.json')),
@@ -714,10 +681,7 @@ describe('planDatasetDescriptionUpgrade', () => {
     await seedSidecar('sub-01/anat/sub-01_T1w.json', {
       ConversionSoftwareVersion: 'v1.0.20260520',
     })
-    const entry = await planDatasetDescriptionUpgrade(
-      root,
-      nodeFsPostPassAdapter,
-    )
+    const entry = await planDatasetDescriptionUpgrade(root, nodePostPassFs)
     expect(entry).not.toBeNull()
     const parsed = JSON.parse(entry?.content ?? '{}')
     expect(parsed.Name).toBe('TODO: name of the dataset')
@@ -735,10 +699,7 @@ describe('planDatasetDescriptionUpgrade', () => {
     await seedSidecar('sub-01/anat/sub-01_T1w.json', {
       ConversionSoftwareVersion: 'v1.0.20260520',
     })
-    const entry = await planDatasetDescriptionUpgrade(
-      root,
-      nodeFsPostPassAdapter,
-    )
+    const entry = await planDatasetDescriptionUpgrade(root, nodePostPassFs)
     expect(entry).not.toBeNull()
     const parsed = JSON.parse(entry?.content ?? '{}')
     // Curated fields preserved.
@@ -765,24 +726,17 @@ describe('planDatasetDescriptionUpgrade', () => {
         2,
       )}\n`,
     )
-    expect(
-      await planDatasetDescriptionUpgrade(root, nodeFsPostPassAdapter),
-    ).toBeNull()
+    expect(await planDatasetDescriptionUpgrade(root, nodePostPassFs)).toBeNull()
   })
 
   test('returns null on unparseable JSON (never silently rewrites broken file)', async () => {
     await writeFile(join(root, 'dataset_description.json'), '{ not: valid json')
-    expect(
-      await planDatasetDescriptionUpgrade(root, nodeFsPostPassAdapter),
-    ).toBeNull()
+    expect(await planDatasetDescriptionUpgrade(root, nodePostPassFs)).toBeNull()
   })
 
   test('omits GeneratedBy.Version when no dcm2niix sidecar carries one', async () => {
     // No subject tree at all → version discovery returns null.
-    const entry = await planDatasetDescriptionUpgrade(
-      root,
-      nodeFsPostPassAdapter,
-    )
+    const entry = await planDatasetDescriptionUpgrade(root, nodePostPassFs)
     expect(entry).not.toBeNull()
     const parsed = JSON.parse(entry?.content ?? '{}')
     expect(parsed.GeneratedBy[0]).toEqual({
@@ -798,10 +752,7 @@ describe('planDatasetDescriptionUpgrade', () => {
       ConversionSoftware: 'fmriprep',
       ConversionSoftwareVersion: '99.99.0',
     })
-    const entry = await planDatasetDescriptionUpgrade(
-      root,
-      nodeFsPostPassAdapter,
-    )
+    const entry = await planDatasetDescriptionUpgrade(root, nodePostPassFs)
     expect(entry).not.toBeNull()
     const parsed = JSON.parse(entry?.content ?? '{}')
     // fmriprep version was rejected (ConversionSoftware != "dcm2niix")

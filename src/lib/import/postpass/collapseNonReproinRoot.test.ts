@@ -4,10 +4,10 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { maybeCollapseNonReproinRoot } from './collapseNonReproinRoot'
+import { nodePostPassFs } from './nodeFs'
 import { PROVENANCE_TSV_NAME } from './provenance'
 
 const tempDirs: string[] = []
@@ -80,11 +80,7 @@ describe('maybeCollapseNonReproinRoot', () => {
       { opType: 'import', summary: 'collapse' },
       nodeMutateFs,
     )
-    const out = await maybeCollapseNonReproinRoot(
-      destDir,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await maybeCollapseNonReproinRoot(destDir, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.collapsed).toBe(true)
@@ -114,11 +110,7 @@ describe('maybeCollapseNonReproinRoot', () => {
       { opType: 'import', summary: 'collapse refuse' },
       nodeMutateFs,
     )
-    const out = await maybeCollapseNonReproinRoot(
-      destDir,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await maybeCollapseNonReproinRoot(destDir, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.collapsed).toBe(false)
@@ -148,11 +140,7 @@ describe('maybeCollapseNonReproinRoot', () => {
       { opType: 'import', summary: 'collapse siblings' },
       nodeMutateFs,
     )
-    const out = await maybeCollapseNonReproinRoot(
-      destDir,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await maybeCollapseNonReproinRoot(destDir, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.collapsed).toBe(false)
@@ -187,11 +175,7 @@ describe('maybeCollapseNonReproinRoot', () => {
       { opType: 'import', summary: 'collapse multi' },
       nodeMutateFs,
     )
-    const out = await maybeCollapseNonReproinRoot(
-      destDir,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await maybeCollapseNonReproinRoot(destDir, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.collapsed).toBe(false)

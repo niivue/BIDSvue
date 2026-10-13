@@ -4,11 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   isParentDerivativesEmpty,
   planDropDerivatives,
 } from './dropDerivatives'
+import { nodePostPassFs } from './nodeFs'
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'bidsvue-postpass-drop-'))
@@ -33,7 +33,7 @@ describe('planDropDerivatives', () => {
 
     const plan = await planDropDerivatives(
       [join(root, 'StudyA'), join(root, 'StudyB')],
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     expect(plan.paths.map(toPosix)).toEqual([
       toPosix(join(root, 'StudyA', 'derivatives', 'scanner')),
@@ -62,7 +62,7 @@ describe('planDropDerivatives', () => {
 
     const plan = await planDropDerivatives(
       [join(root, 'Study')],
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     expect(plan.paths.map(toPosix)).toEqual([
       toPosix(join(root, 'Study', 'derivatives', 'scanner')),
@@ -79,7 +79,7 @@ describe('planDropDerivatives', () => {
     })
     const plan = await planDropDerivatives(
       [join(root, 'StudyA')],
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     expect(plan.paths).toEqual([])
     expect(plan.emptyParentCandidates).toEqual([])
@@ -97,7 +97,7 @@ describe('planDropDerivatives', () => {
     await mkdir(join(studyB, 'derivatives', 'scanner'), { recursive: true })
     const plan = await planDropDerivatives(
       [studyA, studyB],
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
       new Set([studyA]),
     )
     expect(plan.paths.map(toPosix)).toEqual([
@@ -121,20 +121,14 @@ describe('isParentDerivativesEmpty', () => {
   test('true for an empty derivatives/ dir (scanner just got removed)', async () => {
     await mkdir(join(root, 'derivatives'), { recursive: true })
     expect(
-      await isParentDerivativesEmpty(
-        join(root, 'derivatives'),
-        nodeFsPostPassAdapter,
-      ),
+      await isParentDerivativesEmpty(join(root, 'derivatives'), nodePostPassFs),
     ).toBe(true)
   })
 
   test('false when curated siblings (fmriprep, mriqc, freesurfer) remain', async () => {
     await mkdir(join(root, 'derivatives', 'fmriprep'), { recursive: true })
     expect(
-      await isParentDerivativesEmpty(
-        join(root, 'derivatives'),
-        nodeFsPostPassAdapter,
-      ),
+      await isParentDerivativesEmpty(join(root, 'derivatives'), nodePostPassFs),
     ).toBe(false)
   })
 
@@ -142,7 +136,7 @@ describe('isParentDerivativesEmpty', () => {
     expect(
       await isParentDerivativesEmpty(
         join(root, 'no-such-derivatives'),
-        nodeFsPostPassAdapter,
+        nodePostPassFs,
       ),
     ).toBe(false)
   })
