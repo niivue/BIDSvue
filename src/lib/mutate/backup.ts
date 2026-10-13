@@ -35,7 +35,7 @@
 // for the cloud-share / read-only / conformance rationale.
 //
 // Filesystem-injectable for the same reason persistence.ts is:
-// bun:test runs against node:fs (`testFs.ts`), the real app runs
+// bun:test runs against node:fs (`nodeFs.ts`), the real app runs
 // against `@tauri-apps/plugin-fs`.
 
 import type { DatasetStatePaths } from '$lib/state/appPaths'

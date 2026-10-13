@@ -4,9 +4,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import { PHYSIO_INFIX_RE, runPhysioRescue } from './physioRescue'
 
 const tempDirs: string[] = []
@@ -101,7 +101,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // Each `_recording-*_physio` stem is one rescue (atomic at the
@@ -170,7 +170,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue sessionless' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // Per-stem (per-recording) count: 1 stem rescued.
@@ -212,7 +212,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue multi-ses' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(0)
@@ -259,7 +259,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'collision-tallies-skipped' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // Stem-atomic: a collision on EITHER companion blocks the whole
@@ -299,7 +299,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue nested' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // 1 stem (respiratory) rescued — per-recording, not per-file.
@@ -339,7 +339,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue collision' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // Stem-atomic: the curated .tsv.gz blocks the whole family — the
@@ -390,7 +390,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'physio rescue noop' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.rescued).toBe(0)
     expect(result.multiSessionSkipped).toBe(0)
@@ -406,14 +406,14 @@ describe('runPhysioRescue', () => {
     // Create derivatives/scanner/ but make the readDir throw.
     await mkdir(join(root, 'derivatives', 'scanner'), { recursive: true })
     const failingAdapter = {
-      ...nodeFsPostPassAdapter,
+      ...nodePostPassFs,
       readDir: async (path: string) => {
         if (path.endsWith('derivatives/scanner')) {
           throw new Error('simulated EACCES on derivatives/scanner')
         }
-        return nodeFsPostPassAdapter.readDir(path)
+        return nodePostPassFs.readDir(path)
       },
-    } as typeof nodeFsPostPassAdapter
+    } as typeof nodePostPassFs
     const ctx = beginOperation(
       root,
       sp,
@@ -465,7 +465,7 @@ describe('runPhysioRescue', () => {
     }) as typeof ctx.rename
 
     // The rescue must NOT throw — accumulate + continue.
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // Stem-atomic: the first `ctx.rename` call lives INSIDE
@@ -505,7 +505,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'sessionless ses- guard' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(0)
@@ -550,7 +550,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'lone tsv.gz physio' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(0)
@@ -597,7 +597,7 @@ describe('runPhysioRescue', () => {
       { opType: 'import', summary: 'lone json physio' },
       nodeMutateFs,
     )
-    const result = await runPhysioRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPhysioRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(0)

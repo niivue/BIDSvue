@@ -11,9 +11,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
 import type { OperationContext } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import {
   PartEntitiesIntegrityError,
   partFromImageType,
@@ -114,11 +114,7 @@ async function run(sessionDir: string): Promise<number> {
     { opType: 'import', summary: 'part-entities test' },
     nodeMutateFs,
   )
-  const result = await resolvePartEntities(
-    sessionDir,
-    ctx,
-    nodeFsPostPassAdapter,
-  )
+  const result = await resolvePartEntities(sessionDir, ctx, nodePostPassFs)
   await ctx.commit()
   return result.renamed
 }
@@ -392,7 +388,7 @@ describe('resolvePartEntities', () => {
     const ctx = injectCtx(real, {
       failRenameTo: (to) => to.includes('echo-2') && to.includes('_part-'),
     })
-    const result = await resolvePartEntities(root, ctx, nodeFsPostPassAdapter)
+    const result = await resolvePartEntities(root, ctx, nodePostPassFs)
     await real.commit()
 
     expect(result.renamed).toBe(2) // only echo-1
@@ -428,7 +424,7 @@ describe('resolvePartEntities', () => {
         to.includes('_part-phase_bold.') || to.includes('_task-rest_bold.'),
     })
     await expect(
-      resolvePartEntities(root, ctx, nodeFsPostPassAdapter),
+      resolvePartEntities(root, ctx, nodePostPassFs),
     ).rejects.toBeInstanceOf(PartEntitiesIntegrityError)
     await real.rollback(new Error('test')).catch(() => {})
   })
@@ -457,7 +453,7 @@ describe('resolvePartEntities', () => {
     })
 
     await expect(
-      resolvePartEntities(root, ctx, nodeFsPostPassAdapter),
+      resolvePartEntities(root, ctx, nodePostPassFs),
     ).rejects.toBeInstanceOf(PartEntitiesIntegrityError)
     await real.rollback(new Error('test')).catch(() => {})
   })
@@ -484,7 +480,7 @@ describe('resolvePartEntities', () => {
     const ctx = injectCtx(real, {
       failWriteTextPath: (p) => p.includes('_part-phase_bold.json'),
     })
-    const result = await resolvePartEntities(root, ctx, nodeFsPostPassAdapter)
+    const result = await resolvePartEntities(root, ctx, nodePostPassFs)
     await real.commit()
 
     expect(result.renamed).toBe(0)

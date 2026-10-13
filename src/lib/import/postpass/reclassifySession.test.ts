@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { buildSyntheticNiftiHeader } from './niftiHeader'
+import { nodePostPassFs } from './nodeFs'
 import {
   DEFAULT_MIN_VOLUMES,
   peDirLabel,
@@ -144,7 +144,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -201,7 +201,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -254,7 +254,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -299,7 +299,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -340,7 +340,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -377,7 +377,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -410,7 +410,7 @@ describe('reclassifySession', () => {
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -467,7 +467,7 @@ describe('reclassifySession sidecar-cleanup warnings (external audit 2026-06-20 
       ses,
       DEFAULT_MIN_VOLUMES,
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
 
@@ -505,7 +505,7 @@ describe('stripOrphanRuns', () => {
       { opType: 'import', summary: 'strip orphan run' },
       nodeMutateFs,
     )
-    const result = await stripOrphanRuns(ses, ctx, nodeFsPostPassAdapter)
+    const result = await stripOrphanRuns(ses, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.stripped).toBe(1)
@@ -534,7 +534,7 @@ describe('stripOrphanRuns', () => {
       { opType: 'import', summary: 'strip orphan run preserve operator' },
       nodeMutateFs,
     )
-    const result = await stripOrphanRuns(ses, ctx, nodeFsPostPassAdapter)
+    const result = await stripOrphanRuns(ses, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.stripped).toBe(0)
@@ -567,7 +567,7 @@ describe('stripOrphanRuns', () => {
       { opType: 'import', summary: 'strip orphan run disambiguating' },
       nodeMutateFs,
     )
-    const result = await stripOrphanRuns(ses, ctx, nodeFsPostPassAdapter)
+    const result = await stripOrphanRuns(ses, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.stripped).toBe(0)
@@ -596,7 +596,7 @@ describe('stripOrphanRuns', () => {
       { opType: 'import', summary: 'strip orphan ignores curated dirs' },
       nodeMutateFs,
     )
-    const result = await stripOrphanRuns(ses, ctx, nodeFsPostPassAdapter)
+    const result = await stripOrphanRuns(ses, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.stripped).toBe(0)

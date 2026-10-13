@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from '$lib/import/postpass/__testFs'
+import { nodePostPassFs } from '$lib/import/postpass/nodeFs'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { runPetPostPass } from './runPetPostPass'
 
@@ -66,7 +66,7 @@ describe('runPetPostPass', () => {
       { opType: 'import', summary: 'pet-postpass-test', details: {} },
       nodeMutateFs,
     )
-    const result = await runPetPostPass(root, ctx, nodeFsPostPassAdapter, {
+    const result = await runPetPostPass(root, ctx, nodePostPassFs, {
       metadata: { TimeZero: '09:28:23', ModeOfAdministration: 'BOLUS' },
     })
     await ctx.commit()
@@ -110,7 +110,7 @@ describe('runPetPostPass', () => {
       { opType: 'import', summary: 'pet-postpass-test', details: {} },
       nodeMutateFs,
     )
-    const result = await runPetPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPetPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sidecarsEnriched).toBe(3)
@@ -137,7 +137,7 @@ describe('runPetPostPass', () => {
       { opType: 'import', summary: 'pet-postpass-test', details: {} },
       nodeMutateFs,
     )
-    const result = await runPetPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPetPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sidecarsEnriched).toBe(1)
@@ -157,7 +157,7 @@ describe('runPetPostPass', () => {
       { opType: 'import', summary: 'pet-postpass-test', details: {} },
       nodeMutateFs,
     )
-    const result = await runPetPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPetPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sidecarsEnriched).toBe(0)
@@ -184,7 +184,7 @@ describe('runPetPostPass', () => {
       { opType: 'import', summary: 'pet-postpass-test', details: {} },
       nodeMutateFs,
     )
-    const result = await runPetPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPetPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sidecarsEnriched).toBe(1)

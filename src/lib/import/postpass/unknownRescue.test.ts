@@ -4,9 +4,9 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import { PROVENANCE_TSV_NAME } from './provenance'
 import {
   buildRunTemplate,
@@ -279,7 +279,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'unknown rescue' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(1)
@@ -335,7 +335,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'dwi rescue' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(1)
@@ -382,7 +382,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'derived move' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // It's neither rescued (raw) nor skipped (left in Unknown/) — it's moved.
@@ -431,7 +431,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'rescue with collision' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(1)
@@ -485,7 +485,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'symmetric rescue' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(2)
@@ -549,7 +549,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'SeriesNumber ordering' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(2)
@@ -589,7 +589,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'rescue without guess' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(0)
@@ -605,7 +605,7 @@ describe('runUnknownRescue', () => {
       { opType: 'import', summary: 'empty' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(result.rescued).toBe(0)
     expect(result.skipped).toBe(0)
@@ -645,11 +645,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'discard purge' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(purged).toBe(true)
@@ -676,11 +672,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'discard purge non-discard kept' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(purged).toBe(false)
@@ -705,11 +697,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'discard purge orphan kept' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(purged).toBe(false)
@@ -728,11 +716,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'discard purge no json' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(purged).toBe(false)
@@ -751,11 +735,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'discard purge malformed' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(purged).toBe(false)
@@ -770,11 +750,7 @@ describe('maybePurgeAllDiscardUnknown', () => {
       { opType: 'import', summary: 'no unknown dir' },
       nodeMutateFs,
     )
-    const purged = await maybePurgeAllDiscardUnknown(
-      root,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const purged = await maybePurgeAllDiscardUnknown(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(purged).toBe(false)
   })
@@ -1047,7 +1023,7 @@ describe('runUnknownRescue: session-first protocol rescue (upstream af7559a)', (
       { opType: 'import', summary: 'ses-first rescue' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(1)
@@ -1127,7 +1103,7 @@ describe('runUnknownRescue: session-first protocol rescue (upstream af7559a)', (
       { opType: 'import', summary: 'run normalization' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.rescued).toBe(1)
@@ -1250,7 +1226,7 @@ describe('runUnknownRescue: Unknown physio + BOLD walker constraints (audit 2026
       { opType: 'import', summary: 'physio narrow exts' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.physioRescued).toBe(1)
@@ -1317,7 +1293,7 @@ describe('runUnknownRescue: Unknown physio + BOLD walker constraints (audit 2026
       { opType: 'import', summary: 'walker constraints' },
       nodeMutateFs,
     )
-    const result = await runUnknownRescue(root, ctx, nodeFsPostPassAdapter)
+    const result = await runUnknownRescue(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.physioRescued).toBe(1)

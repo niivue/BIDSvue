@@ -5,9 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   COLLISION_RE,
   appendBidsignore,
@@ -19,6 +18,7 @@ import {
   runBidsguessCleanup,
 } from './bidsguessCleanup'
 import { buildSyntheticNiftiHeader } from './niftiHeader'
+import { nodePostPassFs } from './nodeFs'
 
 const tempDirs: string[] = []
 
@@ -81,7 +81,7 @@ describe('removeDiscardDir', () => {
       { opType: 'import', summary: 'discard removal' },
       nodeMutateFs,
     )
-    const removed = await removeDiscardDir(session, ctx, nodeFsPostPassAdapter)
+    const removed = await removeDiscardDir(session, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(removed).toBe(true)
@@ -99,7 +99,7 @@ describe('removeDiscardDir', () => {
       { opType: 'import', summary: 'no discard' },
       nodeMutateFs,
     )
-    const removed = await removeDiscardDir(session, ctx, nodeFsPostPassAdapter)
+    const removed = await removeDiscardDir(session, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(removed).toBe(false)
@@ -127,11 +127,7 @@ describe('demoteThreeDBoldToSbref', () => {
       { opType: 'import', summary: 'bold demote' },
       nodeMutateFs,
     )
-    const out = await demoteThreeDBoldToSbref(
-      session,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await demoteThreeDBoldToSbref(session, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.renames).toBe(1)
@@ -177,7 +173,7 @@ describe('demoteThreeDBoldToSbref', () => {
       nodeMutateFs,
     )
     await expect(
-      demoteThreeDBoldToSbref(session, ctx, nodeFsPostPassAdapter),
+      demoteThreeDBoldToSbref(session, ctx, nodePostPassFs),
     ).rejects.toThrow(/cannot demote/)
     await ctx.commit()
 
@@ -209,11 +205,7 @@ describe('demoteThreeDBoldToSbref', () => {
       { opType: 'import', summary: 'bold keep' },
       nodeMutateFs,
     )
-    const out = await demoteThreeDBoldToSbref(
-      session,
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await demoteThreeDBoldToSbref(session, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.renames).toBe(0)
@@ -236,7 +228,7 @@ describe('findSingleVolDwiPatterns', () => {
     const patterns = await findSingleVolDwiPatterns(
       session,
       root,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     expect(patterns.sort()).toEqual(
       [
@@ -260,7 +252,7 @@ describe('findSingleVolDwiPatterns', () => {
     const patterns = await findSingleVolDwiPatterns(
       session,
       root,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     expect(patterns).toEqual([])
   })
@@ -274,7 +266,7 @@ describe('findCollisionFiles', () => {
     await writeFile(join(dir, 'sub-01_magnitude1a.json'), '{}')
     await writeFile(join(dir, 'sub-01_T1w.json'), '{}') // not a collision
 
-    const hits = await findCollisionFiles(root, nodeFsPostPassAdapter)
+    const hits = await findCollisionFiles(root, nodePostPassFs)
     expect(hits).toEqual(['sub-01/fmap/sub-01_magnitude1a.json'])
   })
 })
@@ -287,14 +279,14 @@ describe('findUnknownLeftoverFiles', () => {
     await writeFile(join(dir, 'weird.nii.gz'), '')
     await writeFile(join(dir, 'weird.json'), '{}')
 
-    const hits = await findUnknownLeftoverFiles(root, nodeFsPostPassAdapter)
+    const hits = await findUnknownLeftoverFiles(root, nodePostPassFs)
     expect(hits.sort()).toEqual(
       ['Unknown/weird.json', 'Unknown/weird.nii.gz'].sort(),
     )
   })
   test('returns [] when Unknown/ is absent', async () => {
     const root = makeRoot('bidsvue-bidsguess-no-leftover-')
-    const hits = await findUnknownLeftoverFiles(root, nodeFsPostPassAdapter)
+    const hits = await findUnknownLeftoverFiles(root, nodePostPassFs)
     expect(hits).toEqual([])
   })
 })
@@ -313,7 +305,7 @@ describe('appendBidsignore', () => {
       root,
       ['Unknown/weird.json', 'Unknown/weird.json'],
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
     expect(added).toBe(1)
@@ -336,7 +328,7 @@ describe('appendBidsignore', () => {
       root,
       ['curated/*', 'Unknown/new.json'],
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
     expect(added).toBe(1) // curated/* dedup'd
@@ -359,7 +351,7 @@ describe('appendBidsignore', () => {
       root,
       ['pat1', 'pat2'],
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
     expect(added).toBe(0)
@@ -401,12 +393,7 @@ describe('runBidsguessCleanup', () => {
       { opType: 'import', summary: 'bidsguess orchestrator' },
       nodeMutateFs,
     )
-    const out = await runBidsguessCleanup(
-      root,
-      [session],
-      ctx,
-      nodeFsPostPassAdapter,
-    )
+    const out = await runBidsguessCleanup(root, [session], ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.discardsRemoved).toBe(1)

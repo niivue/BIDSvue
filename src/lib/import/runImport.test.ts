@@ -7,12 +7,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import { readOperationsLog } from '$lib/mutate/operationsLog'
-import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { toPosix } from '$lib/test-utils/posix'
 import { detectSeparator } from '$lib/util/paths'
-import { nodeFsPostPassAdapter } from './postpass/__testFs'
+import { nodePostPassFs } from './postpass/nodeFs'
 import {
   type ImportExecutor,
   buildDcm2bidsArgv,
@@ -451,7 +451,7 @@ describe('runImport', () => {
       toolId: 'dcm2niix-reproin',
       executor: makeStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // dcm2niix wrote into dest.
@@ -561,7 +561,7 @@ describe('runImport', () => {
       toolId: 'dcm2niix-reproin',
       executor,
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // The import landed on disk + the post-pass produced its usual
@@ -594,7 +594,7 @@ describe('runImport', () => {
       toolId: 'dcm2niix-reproin',
       executor: makeStubExecutor({ recordedArgv: [] }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
@@ -634,7 +634,7 @@ describe('runImport', () => {
         toolId: 'heudiconv',
         executor: makeStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/destDir already exists and is non-empty/)
   })
@@ -661,7 +661,7 @@ describe('runImport', () => {
       toolId: 'heudiconv',
       executor: makeStubExecutor({ recordedArgv: [] }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     }).catch((err) => {
       // Any error is fine EXCEPT the destDir-non-empty refusal we're testing
       // against (downstream stub/postpass may legitimately complain).
@@ -713,7 +713,7 @@ describe('runImport', () => {
         ],
       }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // The other dataset survived untouched.
@@ -781,7 +781,7 @@ describe('runImport', () => {
       toolId: 'dcm2niix-reproin',
       executor: makeStubExecutor({ recordedArgv: [] }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
     // Pre-existing siblings are untouched on disk.
     expect(await pathExists(join(dest, 'existing.txt'))).toBe(true)
@@ -866,7 +866,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor: colliderExecutor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/wrote into pre-existing destDir folder.*MyStudy/)
 
@@ -944,7 +944,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor: flakyExecutor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/wrote into pre-existing destDir folder.*MyStudy/)
   })
@@ -972,7 +972,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/produced no NIfTI files/)
 
@@ -1008,7 +1008,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/source not readable/)
 
@@ -1040,7 +1040,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/boom/)
 
@@ -1081,7 +1081,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/binary not found/)
 
@@ -1111,7 +1111,7 @@ describe('runImport', () => {
         // config: undefined -- intentional
         executor,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow()
     expect(existsSync(dest)).toBe(false)
@@ -1137,7 +1137,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor: makeStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/subject must contain only letters and digits/)
   })
@@ -1156,7 +1156,7 @@ describe('runImport', () => {
         toolId: 'dcm2niix-reproin',
         executor: makeStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/must not start with a dash/)
   })
@@ -1186,7 +1186,7 @@ describe('runImport', () => {
       toolId: 'heudiconv',
       executor: makeStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // Heudiconv argv reached the executor: `-f reproin`, `--files`, etc.
@@ -1241,7 +1241,7 @@ describe('runImport', () => {
       toolId: 'heudiconv',
       executor: makeStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // The custom heuristic landed in -f.
@@ -1277,7 +1277,7 @@ describe('runImport', () => {
       toolId: 'dcm2bids',
       executor: makeStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // dcm2bids argv: -d / -p / -c / -o / -s, never --auto_extract_entities
@@ -1361,7 +1361,7 @@ describe('runImport', () => {
         ],
       }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // Scaffolding lands at the NESTED root, not at destDir.
@@ -1453,7 +1453,7 @@ describe('runImport', () => {
       toolId: 'dcm2bids',
       executor,
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // BIDS layout intact.
@@ -1522,7 +1522,7 @@ describe('runImport', () => {
       toolId: 'dcm2bids',
       executor,
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     expect(await nodeMutateFs.exists(join(dest, 'tmp_dcm2bids'))).toBe(true)
@@ -1584,7 +1584,7 @@ describe('runImport', () => {
       toolId: 'dcm2bids',
       executor,
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     // The pre-existing files survived intact — the if-absent guard
@@ -1616,7 +1616,7 @@ describe('runImport', () => {
         toolId: 'dcm2bids',
         executor: makeStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/dcm2bids requires a config path/)
   })
@@ -1642,7 +1642,7 @@ describe('runImport', () => {
         toolId: 'dcm2bids',
         executor: makeStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/dcm2bids requires a subject/)
   })
@@ -1742,7 +1742,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
       toolId: 'pet2bids',
       executor: makePetStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
-      postPassFs: nodeFsPostPassAdapter,
+      postPassFs: nodePostPassFs,
     })
 
     expect(result.postPass.sessionCount).toBe(0)
@@ -1811,7 +1811,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
         toolId: 'pet2bids',
         executor: exec,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/enriched 0 PET sidecars/)
     expect(await pathExists(destDir)).toBe(false)
@@ -1871,7 +1871,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
         toolId: 'pet2bids',
         executor: exec,
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/contents were cleaned/)
 
@@ -1946,7 +1946,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
           },
         },
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/pet2bids post-pass failed on 1 sidecar/)
     expect(await pathExists(destDir)).toBe(false)
@@ -1988,7 +1988,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
           },
         },
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/PET metadata file .* is not valid JSON/)
 
@@ -2014,7 +2014,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
         toolId: 'pet2bids',
         executor: makePetStubExecutor({ recordedArgv: [] }),
         fs: nodeMutateFs,
-        postPassFs: nodeFsPostPassAdapter,
+        postPassFs: nodePostPassFs,
       }),
     ).rejects.toThrow(/pet2bids requires a subject/)
   })
