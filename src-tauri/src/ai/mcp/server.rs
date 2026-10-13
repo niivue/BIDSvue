@@ -83,27 +83,31 @@ pub const MAX_SESSION_EGRESS_BYTES: u64 = 64 * 1024 * 1024;
 /// read tools charge; writes are provider→dataset, not egress.
 pub fn charge_egress(ctx: &ServerContext, bytes: u64) -> Result<(), String> {
     use std::sync::atomic::Ordering;
-    // Audit P3: `fetch_update` makes the check-and-add a single atomic
-    // transaction (compare-exchange loop), so a future parallel-dispatch
-    // refactor can't slip between a load and an add. `checked_add` also
-    // refuses an overflowing charge. Returns Err iff the closure returns
-    // None (over cap or overflow).
-    ctx.egress
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
-            let next = cur.checked_add(bytes)?;
-            if next > MAX_SESSION_EGRESS_BYTES {
-                None
-            } else {
-                Some(next)
+    // Audit P3: a compare-exchange loop makes the check-and-add a single
+    // atomic transaction, so a future parallel-dispatch refactor can't slip
+    // between a load and an add. `checked_add` also refuses an overflowing
+    // charge, and a refused charge leaves the counter untouched. (This is
+    // what `fetch_update` did; newer Rust deprecates it for `try_update`,
+    // which our rust-version (1.85) doesn't have.)
+    let mut cur = ctx.egress.load(Ordering::SeqCst);
+    loop {
+        let next = match cur.checked_add(bytes) {
+            Some(next) if next <= MAX_SESSION_EGRESS_BYTES => next,
+            _ => {
+                return Err(format!(
+                    "session read-egress cap reached ({} MiB sent to the AI this session) — start a new AI session to read more",
+                    MAX_SESSION_EGRESS_BYTES / (1024 * 1024)
+                ))
             }
-        })
-        .map(|_| ())
-        .map_err(|_| {
-            format!(
-                "session read-egress cap reached ({} MiB sent to the AI this session) — start a new AI session to read more",
-                MAX_SESSION_EGRESS_BYTES / (1024 * 1024)
-            )
-        })
+        };
+        match ctx
+            .egress
+            .compare_exchange_weak(cur, next, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => return Ok(()),
+            Err(actual) => cur = actual,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
