@@ -34,6 +34,8 @@ bun run neuroflow-ingest -- --dicom /data/dicom --out /data/out --importer dcm2n
 
 It writes `<out>/bids` and `<out>/neuroflow.handoff.json`, and appends to `provenance.jsonl` when run in a session. Importers: dcm2niix-reproin (default), pet2bids, heudiconv, dcm2bids. dcm2niix comes from `--dcm2niix`, `$DCM2NIIX`, the bundled sidecar in `src-tauri/binaries`, or `PATH`. Run with `--help` for every flag. Exit codes: 0 done, 1 import failed, 2 usage error.
 
+`bun run neuroflow-ingest -- --check` runs no import: it checks that dcm2niix starts and prints one JSON line (`{"ready": true, "dcm2niix": …, "dcm2niixVersion": …, "problems": []}`), exiting 0 when ready and 1 when not. NeuroFlow's Environment panel runs it before offering the tool.
+
 ## More
 
 - [AGENTS.md](AGENTS.md) — working guide for AI coding (stack, build, domain rules)

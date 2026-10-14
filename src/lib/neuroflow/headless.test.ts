@@ -24,6 +24,7 @@ import {
   stepFromWorkflow,
 } from './headless'
 import {
+  checkIngestReady,
   createNodeImportExecutor,
   hostTargetTriple,
   resolveDcm2niix,
@@ -341,6 +342,32 @@ describe('node executor', () => {
     expect(
       resolveDcm2niix({ repoRoot: repo, triple: 'aarch64-apple-darwin' }),
     ).toBe(bundled)
+  })
+
+  test('--check is ready when dcm2niix prints its banner, whatever its status', () => {
+    const banner = () => ({
+      stdout:
+        "Chris Rorden's dcm2niiX version v1.0.20260724  Clang (64-bit MacOS)\nv1.0.20260724\n",
+      stderr: '',
+    })
+    expect(checkIngestReady('/opt/dcm2niix', banner)).toEqual({
+      ready: true,
+      dcm2niix: '/opt/dcm2niix',
+      dcm2niixVersion: 'v1.0.20260724',
+      problems: [],
+    })
+  })
+
+  test('--check reports a dcm2niix that cannot start or is not dcm2niix', () => {
+    const missing = checkIngestReady('dcm2niix', () => ({
+      error: new Error('spawnSync dcm2niix ENOENT'),
+    }))
+    expect(missing.ready).toBe(false)
+    expect(missing.problems[0]).toContain('ENOENT')
+    expect(missing.problems[0]).toContain('DCM2NIIX')
+    const impostor = checkIngestReady('/bin/true', () => ({ stdout: '' }))
+    expect(impostor.ready).toBe(false)
+    expect(impostor.problems[0]).toContain('version banner')
   })
 
   test('treats dcm2niix exit 8 as a partial success and other codes as failure', async () => {

@@ -33,6 +33,7 @@ import {
   stepFromWorkflow,
 } from '$lib/neuroflow/headless'
 import {
+  checkIngestReady,
   createNodeImportExecutor,
   resolveDcm2niix,
 } from '$lib/neuroflow/nodeExecutor'
@@ -43,6 +44,7 @@ const USAGE = `usage:
   bun run neuroflow-ingest -- --neuroflow-session <dir>
   bun run neuroflow-ingest -- --workflow <file.json> [--step <id>] --input dicom_dir=<dir> --out <dir>
   bun run neuroflow-ingest -- --dicom <dir> --out <dir>
+  bun run neuroflow-ingest -- --check [--dcm2niix <path>]
 
   --neuroflow-session <dir>  NeuroFlow session (default: $NEUROFLOW_SESSION)
   --workflow <file>          NeuroFlow workflow; its BIDSvue step supplies the settings
@@ -61,6 +63,8 @@ const USAGE = `usage:
   --dcm2niix <path>          dcm2niix to run (default: $DCM2NIIX, the bundled sidecar, then PATH)
   --state-dir <dir>          where the import's operations.log goes (default: the session work dir)
   --json                     print the result as JSON on stdout
+  --check                    only check that an import can run here (dcm2niix
+                             starts); prints one JSON line, exits 0 when ready
 `
 
 interface Flags {
@@ -72,11 +76,12 @@ interface Flags {
   dcm2niix?: string
   stateDir?: string
   json: boolean
+  check: boolean
   settings: Partial<IngestSettings>
 }
 
 function parseArgs(argv: string[]): Flags {
-  const flags: Flags = { inputs: {}, json: false, settings: {} }
+  const flags: Flags = { inputs: {}, json: false, check: false, settings: {} }
   const value = (i: number, name: string): string => {
     const v = argv[i + 1]
     if (v === undefined || v.startsWith('--'))
@@ -151,6 +156,9 @@ function parseArgs(argv: string[]): Flags {
       case '--json':
         flags.json = true
         break
+      case '--check':
+        flags.check = true
+        break
       default:
         throw new IngestUsageError(`unknown argument "${arg}"`)
     }
@@ -190,6 +198,18 @@ function bidsVersion(): string {
 
 async function main(): Promise<number> {
   const flags = parseArgs(process.argv.slice(2))
+  if (flags.check) {
+    // The preflight NeuroFlow's Environment panel runs (the tool document's
+    // app-cli probe): no session, no import, one JSON line.
+    const readiness = checkIngestReady(
+      resolveDcm2niix({
+        explicit: flags.dcm2niix ?? process.env.DCM2NIIX,
+        repoRoot,
+      }),
+    )
+    process.stdout.write(`${JSON.stringify(readiness)}\n`)
+    return readiness.ready ? 0 : 1
+  }
   const sessionDir =
     flags.workflow === undefined && flags.inputs.dicom_dir === undefined
       ? (flags.sessionDir ?? process.env.NEUROFLOW_SESSION)

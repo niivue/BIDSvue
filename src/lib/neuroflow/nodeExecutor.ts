@@ -15,7 +15,7 @@
 // untrusted. Here the caller is the person running the CLI, so the argv
 // `runImport` builds is used as is.
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import {
   lstat,
@@ -75,6 +75,56 @@ export function resolveDcm2niix(opts: {
     if (existsSync(bundled)) return bundled
   }
   return 'dcm2niix'
+}
+
+/** What `neuroflow-ingest --check` reports: can this host run an import? */
+export interface IngestReadiness {
+  ready: boolean
+  dcm2niix: string
+  /** e.g. `v1.0.20260724`; null when dcm2niix did not run. */
+  dcm2niixVersion: string | null
+  problems: string[]
+}
+
+export type RunSync = (
+  cmd: string,
+  args: string[],
+) => { error?: Error; stdout?: string | null; stderr?: string | null }
+
+const runSync: RunSync = (cmd, args) =>
+  spawnSync(cmd, args, { encoding: 'utf8', timeout: 30_000 })
+
+/**
+ * Start `dcm2niix -v` and read its banner. Every importer needs dcm2niix, so
+ * this is the dependency a preflight must see before a run. The banner, not
+ * the exit status, decides: some builds exit non-zero after printing it.
+ */
+export function checkIngestReady(
+  dcm2niix: string,
+  run: RunSync = runSync,
+): IngestReadiness {
+  const r = run(dcm2niix, ['-v'])
+  const text = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
+  if (r.error !== undefined || !/dcm2niix/i.test(text)) {
+    const why =
+      r.error !== undefined
+        ? r.error.message
+        : 'it did not print a dcm2niix version banner'
+    return {
+      ready: false,
+      dcm2niix,
+      dcm2niixVersion: null,
+      problems: [
+        `dcm2niix (${dcm2niix}) is not usable: ${why}; stage BIDSvue's sidecar under src-tauri/binaries, set DCM2NIIX, or put dcm2niix on PATH`,
+      ],
+    }
+  }
+  return {
+    ready: true,
+    dcm2niix,
+    dcm2niixVersion: /v\d+\.\d+\.\d+/.exec(text)?.[0] ?? null,
+    problems: [],
+  }
 }
 
 export interface NodeImportExecutorOptions {
