@@ -7,10 +7,13 @@
 // writes route through Rust for fsync and scope checks.
 //
 // Durability differences from the Tauri adapter: `appendLogLine` and
-// `writeTextAtomicAppData` are plain appends/writes (no fsync), and the
-// no-replace renames are modelled with link+unlink.
+// `writeTextAtomicAppData` are plain appends/writes (no fsync). The
+// no-replace rename is modelled with link+unlink and falls back to a plain
+// rename where a volume has no hard links (exFAT, SMB); finalizing a new
+// file uses an exclusive copy, which works everywhere.
 
 import {
+  constants,
   appendFile,
   chmod,
   copyFile,
@@ -110,9 +113,11 @@ export const nodeMutateFs: MutateFs = {
   },
   async finalizeNewFileNoReplace(src, dst) {
     // node has no no-replace rename on POSIX. Model the production
-    // contract with link+unlink: link throws EEXIST if dst exists; on
-    // success src is removed so callers never record an orphan temp.
-    await link(src, dst)
+    // contract with an exclusive copy, then remove src: COPYFILE_EXCL
+    // throws EEXIST if dst exists, and on success src is removed so
+    // callers never record an orphan temp. Not link(): exFAT and SMB
+    // volumes have no hard links.
+    await copyFile(src, dst, constants.COPYFILE_EXCL)
     try {
       await rm(src, { force: false })
     } catch (err) {

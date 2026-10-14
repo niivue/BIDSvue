@@ -18,10 +18,10 @@ import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import {
   HEADLESS_AGENT,
   IngestUsageError,
+  isHeuristicFile,
   launchFromContext,
   resolveSettings,
   runHeadlessIngest,
-  stepFromWorkflow,
 } from './headless'
 import {
   checkIngestReady,
@@ -149,44 +149,13 @@ describe('launchFromContext', () => {
   })
 })
 
-describe('stepFromWorkflow', () => {
-  const workflow = {
-    neuroflow: '0.1.0',
-    kind: 'workflow',
-    id: 'x/ingest-qa',
-    inputs: { dicom_dir: { type: 'neuro:dicom-folder' } },
-    steps: {
-      ingest: {
-        tool: 'neuroflow.gallery.tools/bidsvue',
-        inputs: {
-          dicom_dir: { ref: 'inputs.dicom_dir' },
-          subject: { constant: '07' },
-        },
-      },
-      qa: {
-        tool: 'x/qa',
-        inputs: { bids_dir: { ref: 'steps.ingest.outputs.bids_dir' } },
-      },
-    },
-  }
-
-  test('finds the only BIDSvue step and resolves its bindings', () => {
-    expect(stepFromWorkflow(workflow, { dicom_dir: '/data/dicom' })).toEqual({
-      step: 'ingest',
-      inputs: { dicom_dir: '/data/dicom', subject: '07' },
-    })
-  })
-
-  test('refuses a step fed by another step', () => {
-    expect(() => stepFromWorkflow(workflow, {}, 'qa')).toThrow(
-      'steps.ingest.outputs.bids_dir',
-    )
-  })
-
-  test('refuses documents that are not workflows', () => {
-    expect(() => stepFromWorkflow({ kind: 'tool' }, {})).toThrow(
-      'not a NeuroFlow workflow',
-    )
+describe('isHeuristicFile', () => {
+  test('built-in names are not files; paths are', () => {
+    expect(isHeuristicFile(undefined)).toBe(false)
+    expect(isHeuristicFile('reproin')).toBe(false)
+    expect(isHeuristicFile('convertall')).toBe(false)
+    expect(isHeuristicFile('/lab/heuristics/study.py')).toBe(true)
+    expect(isHeuristicFile('C:\\lab\\study.py')).toBe(true)
   })
 })
 
@@ -273,12 +242,12 @@ describe('runHeadlessIngest', () => {
     expect(handoff.warnings).toContain('dcm2niix exited with code 8')
   })
 
-  test('refuses before converting when <out>/bids exists', async () => {
-    const s = session()
-    mkdirSync(join(s.out, 'bids'), { recursive: true })
-    const argv: string[][] = []
-    await expect(
-      runHeadlessIngest(
+  for (const leftover of ['bids', 'bidsvue-import']) {
+    test(`refuses before converting when <out>/${leftover} exists`, async () => {
+      const s = session()
+      mkdirSync(join(s.out, leftover), { recursive: true })
+      const argv: string[][] = []
+      const run = runHeadlessIngest(
         {
           dicomDir: s.dicom,
           outputDir: s.out,
@@ -291,9 +260,35 @@ describe('runHeadlessIngest', () => {
           postPassFs: nodePostPassFs,
           bidsVersion: '1.10.0',
         },
-      ),
-    ).rejects.toThrow('already exists')
-    expect(argv).toHaveLength(0)
+      )
+      await expect(run).rejects.toThrow(`${leftover} already exists`)
+      // A runtime failure (exit 1), not a usage error (exit 2).
+      await expect(run).rejects.not.toBeInstanceOf(IngestUsageError)
+      expect(argv).toHaveLength(0)
+    })
+  }
+
+  test('accepts UNC and drive-letter output directories', async () => {
+    // fs.exists says yes, so the run stops right after the path checks.
+    const fs = { ...nodeMutateFs, exists: async () => true }
+    for (const outputDir of ['\\\\server\\share\\out', 'D:\\out']) {
+      await expect(
+        runHeadlessIngest(
+          {
+            dicomDir: '\\\\server\\share\\dicom',
+            outputDir,
+            stateDir: '/s',
+            settings: resolveSettings({}),
+          },
+          {
+            executor: stubConverter([]),
+            fs,
+            postPassFs: nodePostPassFs,
+            bidsVersion: '1.10.0',
+          },
+        ),
+      ).rejects.toThrow('already exists')
+    }
   })
 
   test('requires an absolute output directory', async () => {
@@ -327,6 +322,13 @@ describe('node executor', () => {
     const repo = makeTmp()
     expect(resolveDcm2niix({ explicit: '/opt/dcm2niix', repoRoot: repo })).toBe(
       '/opt/dcm2niix',
+    )
+    // A relative path becomes absolute (it is a symlink target); a bare name stays.
+    expect(resolveDcm2niix({ explicit: 'bin/dcm2niix', repoRoot: repo })).toBe(
+      join(process.cwd(), 'bin', 'dcm2niix'),
+    )
+    expect(resolveDcm2niix({ explicit: 'dcm2niix', repoRoot: repo })).toBe(
+      'dcm2niix',
     )
     expect(
       resolveDcm2niix({ repoRoot: repo, triple: 'aarch64-apple-darwin' }),

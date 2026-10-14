@@ -25,20 +25,21 @@ import {
   symlink,
   unlink,
 } from 'node:fs/promises'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, resolve as resolvePath } from 'node:path'
+import partialExit from '$lib/import/dcm2niixPartialExit.json'
 import type { ImportExecutor, ResolvedBinary } from '$lib/import/runImport'
 import type { ImportToolId } from '$lib/import/tools'
 
 /** Exit codes dcm2niix uses for a conversion that wrote usable output. */
-const PARTIAL_OK: Partial<Record<ImportToolId, ReadonlyArray<number>>> = {
-  'dcm2niix-reproin': [8, 10],
-  pet2bids: [8, 10],
-}
+const PARTIAL_OK: Partial<Record<ImportToolId, ReadonlyArray<number>>> =
+  Object.fromEntries(
+    partialExit.tools.map((t) => [
+      t,
+      Object.keys(partialExit.codes).map(Number),
+    ]),
+  )
 
-const PARTIAL_KIND: Record<number, string> = {
-  8: 'some series failed (kEXIT_SOME_OK_SOME_BAD)',
-  10: 'incomplete volumes in one or more series (kEXIT_INCOMPLETE_VOLUMES_FOUND)',
-}
+const PARTIAL_KIND: Record<number, string> = partialExit.codes
 
 /** Rust target triple for the running host, as the sidecar files are named. */
 export function hostTargetTriple(
@@ -62,7 +63,13 @@ export function resolveDcm2niix(opts: {
   repoRoot: string
   triple?: string | null
 }): string {
-  if (opts.explicit !== undefined && opts.explicit !== '') return opts.explicit
+  if (opts.explicit !== undefined && opts.explicit !== '') {
+    // A path (not a bare PATH name) is made absolute: it becomes the target
+    // of the shim symlink, where a relative target would dangle.
+    return /[/\\]/.test(opts.explicit)
+      ? resolvePath(opts.explicit)
+      : opts.explicit
+  }
   const triple = opts.triple === undefined ? hostTargetTriple() : opts.triple
   if (triple !== null) {
     const ext = triple.endsWith('windows-msvc') ? '.exe' : ''

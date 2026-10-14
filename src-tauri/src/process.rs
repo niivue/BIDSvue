@@ -171,7 +171,9 @@ pub async fn run_import_process(
 /// still a hard failure.
 ///
 /// Mirrors `_run_dcm2niix`'s `PARTIAL_OK = (8, 10)` handling in
-/// `dcm2niix/tools/reproinx.py`.
+/// `dcm2niix/tools/reproinx.py`. The table lives in
+/// `src/lib/import/dcm2niixPartialExit.json`, shared with the headless
+/// ingest (`src/lib/neuroflow/nodeExecutor.ts`).
 fn require_success_with_partial_ok(
     exit: CommandExit,
     tool_id: &str,
@@ -179,10 +181,6 @@ fn require_success_with_partial_ok(
     if exit.cancelled {
         return Err(format!("{}: cancelled by user", exit.label));
     }
-    let partial_ok_codes: &[i32] = match tool_id {
-        "dcm2niix-reproin" | "pet2bids" => &[8, 10],
-        _ => &[],
-    };
     let code = exit.code;
     if code == Some(0) {
         return Ok(ProcessOutput {
@@ -192,13 +190,8 @@ fn require_success_with_partial_ok(
         });
     }
     if let Some(c) = code {
-        if partial_ok_codes.contains(&c) {
+        if let Some(kind) = partial_ok_kind(tool_id, c) {
             let tail = exit.stderr.trim();
-            let kind = match c {
-                8 => "some series failed (kEXIT_SOME_OK_SOME_BAD)",
-                10 => "incomplete volumes in one or more series (kEXIT_INCOMPLETE_VOLUMES_FOUND)",
-                _ => "partial conversion",
-            };
             let warning = if tail.is_empty() {
                 format!(
                     "{} exited with code {c} ({kind}); continuing with post-pass against what landed on disk.",
@@ -225,6 +218,28 @@ fn require_success_with_partial_ok(
         code.map(|c| c.to_string()).unwrap_or_else(|| "null".into()),
         if tail.is_empty() { "<no stderr>" } else { tail }
     ))
+}
+
+/// The shared partial-success table, parsed once.
+fn partial_exit_table() -> &'static serde_json::Value {
+    static TABLE: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../src/lib/import/dcm2niixPartialExit.json"
+        ))
+        .expect("dcm2niixPartialExit.json is valid JSON")
+    })
+}
+
+/// The explanation for `code` when `tool_id` treats it as a partial
+/// success, or `None` when it is a failure.
+fn partial_ok_kind(tool_id: &str, code: i32) -> Option<&'static str> {
+    let table = partial_exit_table();
+    let tools = table.get("tools")?.as_array()?;
+    if !tools.iter().any(|t| t.as_str() == Some(tool_id)) {
+        return None;
+    }
+    table.get("codes")?.get(code.to_string())?.as_str()
 }
 
 /// Probe importer availability with fixed version args.
@@ -1686,6 +1701,19 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| v.to_string()).collect()
+    }
+
+    #[test]
+    fn partial_ok_kind_reads_the_shared_table() {
+        assert!(partial_ok_kind("dcm2niix-reproin", 8)
+            .unwrap()
+            .contains("kEXIT_SOME_OK_SOME_BAD"));
+        assert!(partial_ok_kind("pet2bids", 10)
+            .unwrap()
+            .contains("kEXIT_INCOMPLETE_VOLUMES_FOUND"));
+        assert_eq!(partial_ok_kind("dcm2niix-reproin", 1), None);
+        assert_eq!(partial_ok_kind("heudiconv", 8), None);
+        assert_eq!(partial_ok_kind("dcm2bids", 10), None);
     }
 
     /// Like `strings`, but maps any POSIX absolute-path literal (`/tmp/...`)

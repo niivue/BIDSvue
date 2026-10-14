@@ -5,18 +5,23 @@
 // on node:fs and a directly spawned dcm2niix instead of the Tauri host. Two ways in:
 //
 //   As a NeuroFlow step (what the runtime and its MCP server call):
-//     bun run neuroflow-ingest -- --neuroflow-session "$NEUROFLOW_SESSION"
+//     bun run neuroflow-ingest --neuroflow-session "$NEUROFLOW_SESSION"
 //   reads <session>/context.json (inputs.dicom_dir, outputDir, step) and
 //   writes <outputDir>/bids, <outputDir>/neuroflow.handoff.json and a line
 //   of <session>/provenance.jsonl.
 //
-//   Standalone, from a workflow document's ingest step:
-//     bun run neuroflow-ingest -- --workflow wf.json --input dicom_dir=/data/dicom --out /data/out
+//   Standalone:
+//     bun run neuroflow-ingest --dicom /data/dicom --out /data/out
+//
+// The package script runs `svelte-kit sync` first, so `$lib` resolves in a
+// fresh clone. There is no undo (see `$lib/neuroflow/headless`): the import's
+// state goes to a temp directory that is deleted on exit.
 //
 // Exit codes: 0 imported (warnings, e.g. a dcm2niix partial conversion, go
-// to stderr and the handoff); 1 the import failed; 2 bad arguments.
+// to stderr and the handoff); 1 the import failed, or its output already
+// exists; 2 bad arguments.
 
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,10 +32,10 @@ import {
   HEADLESS_IMPORTERS,
   type IngestSettings,
   IngestUsageError,
+  isHeuristicFile,
   launchFromContext,
   resolveSettings,
   runHeadlessIngest,
-  stepFromWorkflow,
 } from '$lib/neuroflow/headless'
 import {
   checkIngestReady,
@@ -41,16 +46,12 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const USAGE = `usage:
-  bun run neuroflow-ingest -- --neuroflow-session <dir>
-  bun run neuroflow-ingest -- --workflow <file.json> [--step <id>] --input dicom_dir=<dir> --out <dir>
-  bun run neuroflow-ingest -- --dicom <dir> --out <dir>
-  bun run neuroflow-ingest -- --check [--dcm2niix <path>]
+  bun run neuroflow-ingest --neuroflow-session <dir>
+  bun run neuroflow-ingest --dicom <dir> --out <dir>
+  bun run neuroflow-ingest --check [--dcm2niix <path>]
 
   --neuroflow-session <dir>  NeuroFlow session (default: $NEUROFLOW_SESSION)
-  --workflow <file>          NeuroFlow workflow; its BIDSvue step supplies the settings
-  --step <id>                the workflow step to run (default: its only BIDSvue step)
-  --input <name>=<value>     a workflow input (repeatable)
-  --dicom <dir>              DICOM folder (same as --input dicom_dir=<dir>)
+  --dicom <dir>              DICOM folder (without a session)
   --out <dir>                output folder; the dataset lands in <dir>/bids
   --importer <id>            ${HEADLESS_IMPORTERS.join(' | ')} (default dcm2niix-reproin)
   --subject <label>          BIDS subject label (default: from PatientID)
@@ -58,10 +59,12 @@ const USAGE = `usage:
   --anonymize                strip dates too (dcm2niix -ba y)
   --shift-dates              shift acquisition dates to 1925-01-01
   --save-derivatives         keep dcm2niix's derivatives/ subtree
-  --heuristic <name|file>    heudiconv heuristic (default reproin)
-  --config <file>            dcm2bids config
+  --heuristic <name|file>    heudiconv heuristic (default reproin); a .py file
+                             is Python that heudiconv runs
+  --config <file>            dcm2bids config (JSON)
+  --allow-heuristic-file     let a session's inputs.heuristic name a .py file
+                             (off by default: context.json would choose code to run)
   --dcm2niix <path>          dcm2niix to run (default: $DCM2NIIX, the bundled sidecar, then PATH)
-  --state-dir <dir>          where the import's operations.log goes (default: the session work dir)
   --json                     print the result as JSON on stdout
   --check                    only check that an import can run here (dcm2niix
                              starts); prints one JSON line, exits 0 when ready
@@ -69,19 +72,22 @@ const USAGE = `usage:
 
 interface Flags {
   sessionDir?: string
-  workflow?: string
-  step?: string
-  inputs: Record<string, string>
+  dicom?: string
   out?: string
   dcm2niix?: string
-  stateDir?: string
   json: boolean
   check: boolean
+  allowHeuristicFile: boolean
   settings: Partial<IngestSettings>
 }
 
 function parseArgs(argv: string[]): Flags {
-  const flags: Flags = { inputs: {}, json: false, check: false, settings: {} }
+  const flags: Flags = {
+    json: false,
+    check: false,
+    allowHeuristicFile: false,
+    settings: {},
+  }
   const value = (i: number, name: string): string => {
     const v = argv[i + 1]
     if (v === undefined || v.startsWith('--'))
@@ -101,24 +107,8 @@ function parseArgs(argv: string[]): Flags {
       case '--neuroflow-session':
         flags.sessionDir = value(i++, arg)
         break
-      case '--workflow':
-        flags.workflow = value(i++, arg)
-        break
-      case '--step':
-        flags.step = value(i++, arg)
-        break
-      case '--input': {
-        const pair = value(i++, arg)
-        const eq = pair.indexOf('=')
-        if (eq <= 0)
-          throw new IngestUsageError(
-            `--input expects name=value, got "${pair}"`,
-          )
-        flags.inputs[pair.slice(0, eq)] = pair.slice(eq + 1)
-        break
-      }
       case '--dicom':
-        flags.inputs.dicom_dir = value(i++, arg)
+        flags.dicom = value(i++, arg)
         break
       case '--out':
         flags.out = value(i++, arg)
@@ -150,8 +140,8 @@ function parseArgs(argv: string[]): Flags {
       case '--dcm2niix':
         flags.dcm2niix = value(i++, arg)
         break
-      case '--state-dir':
-        flags.stateDir = value(i++, arg)
+      case '--allow-heuristic-file':
+        flags.allowHeuristicFile = true
         break
       case '--json':
         flags.json = true
@@ -164,24 +154,6 @@ function parseArgs(argv: string[]): Flags {
     }
   }
   return flags
-}
-
-function readJson(path: string, what: string): unknown {
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch (err) {
-    throw new IngestUsageError(
-      `cannot read ${what} ${path}: ${(err as Error).message}`,
-    )
-  }
-  try {
-    return JSON.parse(raw)
-  } catch (err) {
-    throw new IngestUsageError(
-      `${path} is not valid JSON: ${(err as Error).message}`,
-    )
-  }
 }
 
 function bidsVersion(): string {
@@ -211,7 +183,7 @@ async function main(): Promise<number> {
     return readiness.ready ? 0 : 1
   }
   const sessionDir =
-    flags.workflow === undefined && flags.inputs.dicom_dir === undefined
+    flags.dicom === undefined
       ? (flags.sessionDir ?? process.env.NEUROFLOW_SESSION)
       : flags.sessionDir
 
@@ -219,13 +191,12 @@ async function main(): Promise<number> {
   let outputDir: string
   let step: string | undefined
   let tool: string | undefined
-  let workDir: string | undefined
-  let inputs: Record<string, unknown>
+  let inputs: Record<string, unknown> = {}
 
   if (sessionDir !== undefined && sessionDir !== '') {
-    if (flags.workflow !== undefined) {
+    if (flags.dicom !== undefined) {
       throw new IngestUsageError(
-        'use either --neuroflow-session or --workflow, not both',
+        'use either --neuroflow-session or --dicom, not both',
       )
     }
     const contextPath = join(sessionDir, CONTEXT_FILE)
@@ -242,40 +213,46 @@ async function main(): Promise<number> {
     outputDir = flags.out ?? launch.outputDir
     step = launch.step ?? process.env.NEUROFLOW_STEP
     tool = launch.tool
-    workDir = launch.workDir ?? process.env.NEUROFLOW_WORK_DIR
     inputs = launch.inputs
-  } else {
-    if (flags.workflow !== undefined) {
-      const resolved = stepFromWorkflow(
-        readJson(flags.workflow, 'workflow'),
-        flags.inputs,
-        flags.step,
-      )
-      step = resolved.step
-      inputs = resolved.inputs
-    } else {
-      inputs = { ...flags.inputs }
-    }
-    const dicom = inputs.dicom_dir
-    if (typeof dicom !== 'string' || dicom === '') {
+    // heudiconv runs a heuristic file as Python. A session's inputs come
+    // from a workflow document, so a file there needs the caller's consent.
+    if (
+      flags.settings.heuristic === undefined &&
+      typeof inputs.heuristic === 'string' &&
+      isHeuristicFile(inputs.heuristic) &&
+      !flags.allowHeuristicFile
+    ) {
       throw new IngestUsageError(
-        'no DICOM folder: pass --dicom <dir> or --input dicom_dir=<dir>',
+        `inputs.heuristic is a file (${inputs.heuristic}), which heudiconv runs as Python; pass --allow-heuristic-file to accept it`,
+      )
+    }
+  } else {
+    if (flags.dicom === undefined || flags.dicom === '') {
+      throw new IngestUsageError(
+        'no input: pass --neuroflow-session <dir> (or set NEUROFLOW_SESSION), or --dicom <dir>',
       )
     }
     if (flags.out === undefined)
       throw new IngestUsageError(
         '--out <dir> is required without a NeuroFlow session',
       )
-    dicomDir = dicom
+    dicomDir = flags.dicom
     outputDir = flags.out
   }
 
   const settings = resolveSettings(inputs, flags.settings)
-  const stateDir =
-    flags.stateDir ??
-    (workDir !== undefined
-      ? join(workDir, 'bidsvue-state')
-      : mkdtempSync(join(tmpdir(), 'bidsvue-ingest-')))
+  // Throwaway: the import's operations.log, backups and the dcm2niix shim.
+  // There is no undo, so nothing here outlives the run.
+  const stateDir = mkdtempSync(join(tmpdir(), 'bidsvue-ingest-'))
+  for (const [signal, code] of [
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const) {
+    process.once(signal, () => {
+      rmSync(stateDir, { recursive: true, force: true })
+      process.exit(code)
+    })
+  }
   const dcm2niix = resolveDcm2niix({
     explicit: flags.dcm2niix ?? process.env.DCM2NIIX,
     repoRoot,
@@ -289,30 +266,35 @@ async function main(): Promise<number> {
   )
   log(`dcm2niix: ${dcm2niix}`)
 
-  const result = await runHeadlessIngest(
-    {
-      dicomDir: resolve(dicomDir),
-      outputDir: resolve(outputDir),
-      sessionDir:
-        sessionDir === undefined || sessionDir === ''
-          ? undefined
-          : resolve(sessionDir),
-      step,
-      tool,
-      stateDir: resolve(stateDir),
-      settings,
-    },
-    {
-      executor: createNodeImportExecutor({
-        dcm2niix,
-        shimDir: join(resolve(stateDir), 'bin'),
-        onOutput: (chunk) => process.stderr.write(chunk),
-      }),
-      fs: nodeMutateFs,
-      postPassFs: nodePostPassFs,
-      bidsVersion: bidsVersion(),
-    },
-  )
+  let result: Awaited<ReturnType<typeof runHeadlessIngest>>
+  try {
+    result = await runHeadlessIngest(
+      {
+        dicomDir: resolve(dicomDir),
+        outputDir: resolve(outputDir),
+        sessionDir:
+          sessionDir === undefined || sessionDir === ''
+            ? undefined
+            : resolve(sessionDir),
+        step,
+        tool,
+        stateDir,
+        settings,
+      },
+      {
+        executor: createNodeImportExecutor({
+          dcm2niix,
+          shimDir: join(stateDir, 'bin'),
+          onOutput: (chunk) => process.stderr.write(chunk),
+        }),
+        fs: nodeMutateFs,
+        postPassFs: nodePostPassFs,
+        bidsVersion: bidsVersion(),
+      },
+    )
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
 
   for (const warning of result.warnings) log(`warning: ${warning}`)
   log(

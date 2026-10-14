@@ -4,11 +4,17 @@
 // `scripts/neuroflow-ingest.ts` is the command line; this module holds the
 // parts worth testing without a converter:
 //
-//   - where the settings come from: a session `context.json`, or one step
-//     of a NeuroFlow workflow document run standalone, plus flags;
+//   - where the settings come from: a session `context.json` or flags;
 //   - the run itself: `runImport` into `<outputDir>/bidsvue-import`, the
 //     BIDS root moved to `<outputDir>/bids`, then the handoff file and one
 //     provenance line the session contract asks for.
+//
+// There is no undo. The window records an import in the dataset's
+// operations.log so it can be reverted; the headless run is a one-shot step
+// whose output directory belongs to the NeuroFlow session, so the caller
+// gives `runImport` a throwaway state directory and deletes it afterwards.
+// The relocation, handoff and provenance writes are not journaled either;
+// to redo a step, delete its output directory and run it again.
 //
 // Every host dependency (process runner, file system) is injected.
 
@@ -41,12 +47,6 @@ export const HEADLESS_IMPORTERS = [
 
 export type HeadlessImporter = (typeof HEADLESS_IMPORTERS)[number]
 
-/** Tool ids whose workflow steps this ingest can stand in for. */
-export const INGEST_TOOL_IDS: ReadonlyArray<string> = [
-  BIDSVUE_TOOL_ID,
-  `${BIDSVUE_TOOL_ID}-ingest`,
-]
-
 /** Agent stamped on records the headless ingest writes. */
 export const HEADLESS_AGENT = 'bidsvue-ingest@neuroflow-aware'
 
@@ -74,8 +74,17 @@ const INPUT_KEYS = {
   config: 'config',
 } as const satisfies Record<keyof IngestSettings, string>
 
+/** Bad arguments or inputs: the CLI prints usage and exits 2. */
 export class IngestUsageError extends Error {
   override name = 'IngestUsageError'
+}
+
+/**
+ * A heudiconv heuristic given as a file is Python that heudiconv runs. True
+ * for anything but a built-in heuristic name (`reproin`, ...).
+ */
+export function isHeuristicFile(heuristic: string | undefined): boolean {
+  return heuristic !== undefined && !/^[A-Za-z0-9_]+$/.test(heuristic)
 }
 
 /**
@@ -159,73 +168,6 @@ export function launchFromContext(context: NeuroflowContext): SessionLaunch {
   }
 }
 
-/** A workflow step's input binding (NeuroFlow 0.1). */
-type Binding = { ref: string } | { constant: unknown }
-
-/**
- * Resolve the ingest step of a NeuroFlow workflow document for a standalone
- * run. `stepId` picks the step; without it the workflow must have exactly
- * one BIDSvue step. Bindings to workflow inputs come from `workflowInputs`;
- * a binding to another step's output cannot be resolved outside the runtime.
- */
-export function stepFromWorkflow(
-  workflow: unknown,
-  workflowInputs: Readonly<Record<string, unknown>>,
-  stepId?: string,
-): { step: string; inputs: Record<string, unknown> } {
-  if (
-    typeof workflow !== 'object' ||
-    workflow === null ||
-    (workflow as { kind?: unknown }).kind !== 'workflow'
-  ) {
-    throw new IngestUsageError(
-      'not a NeuroFlow workflow document (kind "workflow")',
-    )
-  }
-  const steps = (workflow as { steps?: unknown }).steps
-  if (typeof steps !== 'object' || steps === null) {
-    throw new IngestUsageError('the workflow has no steps')
-  }
-  const entries = Object.entries(
-    steps as Record<string, { tool?: unknown; inputs?: unknown }>,
-  )
-  let id = stepId
-  if (id === undefined) {
-    const ingest = entries.filter(
-      ([, s]) => typeof s.tool === 'string' && INGEST_TOOL_IDS.includes(s.tool),
-    )
-    if (ingest.length !== 1) {
-      throw new IngestUsageError(
-        ingest.length === 0
-          ? 'the workflow has no BIDSvue step; name one with --step'
-          : `the workflow has ${ingest.length} BIDSvue steps (${ingest.map(([k]) => k).join(', ')}); pick one with --step`,
-      )
-    }
-    id = ingest[0][0]
-  }
-  const step = (steps as Record<string, { inputs?: unknown }>)[id]
-  if (step === undefined)
-    throw new IngestUsageError(`the workflow has no step "${id}"`)
-  const bindings = (step.inputs ?? {}) as Record<string, Binding>
-  const inputs: Record<string, unknown> = {}
-  for (const [name, binding] of Object.entries(bindings)) {
-    if ('constant' in binding) {
-      inputs[name] = binding.constant
-    } else if (
-      typeof binding.ref === 'string' &&
-      binding.ref.startsWith('inputs.')
-    ) {
-      const key = binding.ref.slice('inputs.'.length)
-      if (key in workflowInputs) inputs[name] = workflowInputs[key]
-    } else {
-      throw new IngestUsageError(
-        `step "${id}" input "${name}" comes from ${String((binding as { ref?: unknown }).ref)}; only workflow inputs and constants resolve outside the NeuroFlow runtime`,
-      )
-    }
-  }
-  return { step: id, inputs }
-}
-
 export interface HeadlessIngestRequest {
   dicomDir: string
   /** Absolute; the BIDS dataset lands at `<outputDir>/bids`. */
@@ -235,7 +177,10 @@ export interface HeadlessIngestRequest {
   step?: string
   /** Tool id recorded in provenance (the session's `tool`). */
   tool?: string
-  /** Where the import's operations.log and backups go. */
+  /**
+   * Scratch for the import's operations.log and backups. Nothing here is
+   * needed after the run (there is no undo); the caller deletes it.
+   */
   stateDir: string
   settings: IngestSettings
 }
@@ -259,7 +204,11 @@ export interface HeadlessIngestResult {
   warnings: string[]
 }
 
-/** Run one ingest. Rejects before converting if `<outputDir>/bids` exists. */
+/**
+ * Run one ingest. Rejects before converting if `<outputDir>/bids` or the
+ * staging folder `<outputDir>/bidsvue-import` exists: a failed earlier run
+ * can leave staging behind, and a rerun must not build on it.
+ */
 export async function runHeadlessIngest(
   req: HeadlessIngestRequest,
   deps: HeadlessIngestDeps,
@@ -279,10 +228,12 @@ export async function runHeadlessIngest(
   }
   const stagingDir = `${outputDir}/${NEUROFLOW_STAGING_NAME}`
   const finalRoot = `${outputDir}/${NEUROFLOW_BIDS_DIR_NAME}`
-  if (await fs.exists(finalRoot)) {
-    throw new IngestUsageError(
-      `${finalRoot} already exists; refusing to overwrite it`,
-    )
+  for (const existing of [finalRoot, stagingDir]) {
+    if (await fs.exists(existing)) {
+      throw new Error(
+        `${existing} already exists (from an earlier run?); delete it or choose another output directory`,
+      )
+    }
   }
   await fs.mkdir(outputDir, { recursive: true })
 
@@ -363,6 +314,7 @@ export async function runHeadlessIngest(
   }
 }
 
+/** POSIX, drive-letter (`C:\`) and UNC (`\\server\share`) absolute paths. */
 function isAbsolute(p: string): boolean {
-  return p.startsWith('/') || /^[A-Za-z]:[/\\]/.test(p)
+  return p.startsWith('/') || p.startsWith('\\\\') || /^[A-Za-z]:[/\\]/.test(p)
 }
