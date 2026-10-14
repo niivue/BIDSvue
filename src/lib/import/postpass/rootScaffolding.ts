@@ -685,10 +685,13 @@ export async function planReadmeMdCleanup(
   return readmeMd
 }
 
+const TASK_STUB_NAME_RE = /^task-[A-Za-z0-9]+(_acq-[A-Za-z0-9]+)?_bold\.json$/
+
 /**
  * Plan deletion of dcm2niix's generic `task-<X>_bold.json` stub when
  * the post-pass has produced `task-<X>_acq-<Y>_bold.json` variants for
- * the same task at the same BIDS root. Without this, the validator
+ * the same task at the same BIDS root, and of any root task stub with
+ * no matching `_bold` image (SIDECAR_WITHOUT_DATAFILE). Without this, the validator
  * emits `MULTIPLE_INHERITABLE_FILES` (e.g. `task-rest_bold.json`
  * AND `task-rest_acq-dualecho_bold.json` are both candidate
  * inheritable sidecars for the acq-dualecho runs).
@@ -698,7 +701,7 @@ export async function planReadmeMdCleanup(
  * `TaskName` equals the expected task). Any other content — including
  * a user-curated sidecar with extra fields like `RepetitionTime` —
  * is left untouched. Mirrors `_is_dcm2niix_task_stub` + the deletion
- * loop in `_emit_task_bold_jsons` (reproinx.py:845-860).
+ * loop in `_emit_task_bold_jsons` (reproinx.py).
  *
  * Returns the absolute paths to delete. The orchestrator routes them
  * through `ctx.delete` so each removal is audited and undoable.
@@ -708,31 +711,36 @@ export async function planTaskBoldStubCleanup(
   fs: PostPassFs,
 ): Promise<string[]> {
   const stems = new Set<string>()
-  await collectBoldStems(root, fs, stems, 0)
+  // An unreadable dir hides live bold files; absence then proves nothing.
+  const inventoryComplete = await collectBoldStems(root, fs, stems, 0)
   const tasksWithAcqVariants = new Set<string>()
   for (const stem of stems) {
     const acqIdx = stem.indexOf('_acq-')
     if (acqIdx === -1) continue
     tasksWithAcqVariants.add(stem.slice(0, acqIdx))
   }
+  // dcm2niix also writes a stub for func series that yield no _bold image
+  // (PhysioLog, SBRef_PMU), so delete any stub whose stem has no bold data.
   const out: string[] = []
-  for (const taskOnly of Array.from(tasksWithAcqVariants).sort()) {
-    const stubPath = `${root}/${taskOnly}_bold.json`
-    if (!(await fs.exists(stubPath))) continue
-    let text: string
-    try {
-      text = await fs.readTextFile(stubPath)
-    } catch {
-      continue
-    }
+  const names = (await fs.readDir(root))
+    // Only task-X[_acq-Y] stems are tracked; leave other entities alone.
+    .filter((e) => e.isFile && TASK_STUB_NAME_RE.test(e.name))
+    .map((e) => e.name)
+    .sort()
+  for (const name of names) {
+    const stem = name.slice(0, -'_bold.json'.length)
+    if (stems.has(stem) && !tasksWithAcqVariants.has(stem)) continue
+    if (!stems.has(stem) && !inventoryComplete) continue
+    const stubPath = `${root}/${name}`
     let parsed: unknown
     try {
-      parsed = JSON.parse(text)
+      parsed = JSON.parse(await fs.readTextFile(stubPath))
     } catch {
       continue
     }
-    const taskName = taskOnly.slice('task-'.length)
-    if (isDcm2niixTaskStub(parsed, taskName)) {
+    if (
+      isDcm2niixTaskStub(parsed, stem.split('_acq-')[0].slice('task-'.length))
+    ) {
       out.push(stubPath)
     }
   }
@@ -806,22 +814,27 @@ async function walkBoldNiftis(
   fs: PostPassFs,
   visit: (path: string, basename: string) => void,
   depth = 0,
-): Promise<void> {
-  if (depth > POST_PASS_MAX_DEPTH) return
+): Promise<boolean> {
+  if (depth > POST_PASS_MAX_DEPTH) return false
   let entries: Awaited<ReturnType<PostPassFs['readDir']>>
   try {
     entries = await fs.readDir(dir)
   } catch {
-    return
+    return false
   }
+  let complete = true
   for (const e of entries) {
-    if (e.isFile && BOLD_NII_RE.test(e.name)) {
+    // !isDirectory, not isFile: DataLad annexed images are symlinks.
+    if (!e.isDirectory && BOLD_NII_RE.test(e.name)) {
       visit(`${dir}/${e.name}`, e.name)
     }
     if (e.isDirectory && !POST_PASS_SKIP_DIRS.has(e.name)) {
-      await walkBoldNiftis(`${dir}/${e.name}`, fs, visit, depth + 1)
+      if (!(await walkBoldNiftis(`${dir}/${e.name}`, fs, visit, depth + 1))) {
+        complete = false
+      }
     }
   }
+  return complete
 }
 
 async function collectBoldNiftis(
@@ -838,8 +851,8 @@ async function collectBoldStems(
   fs: PostPassFs,
   out: Set<string>,
   depth: number,
-): Promise<void> {
-  await walkBoldNiftis(
+): Promise<boolean> {
+  return walkBoldNiftis(
     dir,
     fs,
     (_path, basename) => {

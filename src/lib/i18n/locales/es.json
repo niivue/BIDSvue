@@ -108,6 +108,7 @@
     "postPassFailures": "{n, plural, one {# sesión necesitó} other {# sesiones necesitaron}} atención después de la importación. Los DICOMs se convirtieron, pero las sesiones listadas fallaron durante la fase posterior a la importación (agregación de scans.tsv o emparejamiento de fmap). El conjunto de datos está en disco; aún puedes abrirlo desde la pantalla de inicio.",
     "autoOpenFailed": "La importación finalizó, pero la apertura automática del nuevo conjunto de datos falló: {detail}. Puedes abrirlo desde la pantalla de inicio.",
     "partialConversion": "dcm2niix convirtió la mayoría de las series, pero omitió una o más (normalmente un localizador con orientaciones de corte incompatibles, o una serie con volúmenes incompletos). El postproceso se ejecutó sobre lo que quedó en disco; los detalles a continuación muestran qué series se omitieron.",
+    "invalidProtocols": "{n, plural, one {# serie se guardó} other {# series se guardaron}} en Unknown/ y quedó oculta(s) por .bidsignore, normalmente porque el ProtocolName no es ReproIn válido (sin un token tipo-sufijo como func-bold). Cambie el nombre del protocolo en el escáner (por ejemplo, func-bold_task-motor_acq-x_dir-PA); cada línea de abajo indica el motivo y el SeriesInstanceUID.",
     "partialConversionAcknowledge": "Abrir conjunto de datos",
     "error": {
       "nameSeparators": "El nombre del conjunto de datos no puede contener barras.",
@@ -798,6 +799,9 @@
     "validatorSilentHint": "Vista > Mensajes del validador > Silencio está activado. Cambia a Solo errores o Errores y advertencias para ver los contadores aquí.",
     "nextError": "Siguiente error",
     "nextErrorHint": "Mostrar el siguiente archivo con un error del validador",
+    "validatorCopyHint": "Copiar todos los mensajes del validador al portapapeles como Markdown",
+    "validatorCopied": "Copiado",
+    "validatorCopyFailed": "Error al copiar",
     "validatorSkipped": "{n, plural, one {# no obtenido omitido} other {# no obtenidos omitidos}}",
     "validatorSkippedTitle": "Archivos excluidos de la validación porque su contenido no se ha obtenido. Obténlos con DataLad para incluirlos.",
     "validatorSkippedFetchHint": "Haz clic para obtener cada archivo del ámbito del validador no obtenido con DataLad ({bytes}).",

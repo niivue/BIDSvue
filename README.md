@@ -36,7 +36,7 @@ BIDSvue is a wrapper for several popular tools and technologies.
 - [bids-validator-rs](https://github.com/rordenlab/bids-validator-rs) — a Rust implementation of the [bids-validator](https://github.com/bids-standard/bids-validator)
 - DataLad / git-annex distributed datasets — fetched and saved via the native in-binary [datalad-rs](https://github.com/rordenlab/datalad-rs) engine (`gix`-based, vendored as a submodule and compiled in), so no external [datalad](https://github.com/datalad/datalad) / git-annex install is required
 - [Dcm2Bids](https://github.com/UNFmontreal/Dcm2Bids) from the Python environment for DICOM to BIDS
-- [dcm2niix](https://github.com/rordenlab/dcm2niix/tree/master) for DICOM → BIDS conversion ([reproin](https://github.com/ReproNim/reproin/) and non-reproin DICOMs, including JPEG2000-encoded series via OpenJPEG and JPEG-LS-encoded PET frames via CharLS — v1.0.20261006 dev build)
+- [dcm2niix](https://github.com/rordenlab/dcm2niix/tree/master) for DICOM → BIDS conversion ([reproin](https://github.com/ReproNim/reproin/) and non-reproin DICOMs, including JPEG2000-encoded series via OpenJPEG and JPEG-LS-encoded PET frames via CharLS — v1.0.20261011 dev build)
 - [ezbids](https://github.com/brainlife/ezbids) for MEG to BIDS conversion
 - [heudiconv](https://github.com/nipy/heudiconv) from the Python environment for DICOM to BIDS
 - [mindgrab brainchop model](https://github.com/neuroneural/brainchop) backs MeshNet defacing (`mindgrab`/`mindgrab8`) — a native macOS arm64 sidecar by default, or an in-WebView WebGL2 build (`VITE_BIDSVUE_MINDGRAB_BACKEND=wasm`) on other platforms

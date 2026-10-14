@@ -42,6 +42,18 @@ describe('walkSessions', () => {
     }
   })
 
+  test('session-less datatype dir beside ses-* also emits the sub dir', async () => {
+    const root = makeRoot()
+    try {
+      await mkdir(join(root, 'sub-01', 'ses-1', 'anat'), { recursive: true })
+      await mkdir(join(root, 'sub-01', 'func'), { recursive: true })
+      const sessions = await walkSessions(root, nodeFsPostPassAdapter)
+      expect(sessions).toEqual([`${root}/sub-01/ses-1`, `${root}/sub-01`])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('multiple subjects emit in lexical order', async () => {
     const root = makeRoot()
     try {

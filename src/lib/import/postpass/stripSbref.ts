@@ -1,5 +1,5 @@
 // Port of `_strip_sbref_gradients` in dcm2niix/tools/reproinx.py
-// (synced to the v1.0.20260819 working tree).
+// (upstream commit `41d1cdc`, v1.0.20260819).
 //
 // A single-band reference (`*_sbref`) belongs to a diffusion acquisition,
 // so dcm2niix writes `.bval`/`.bvec` gradient companions next to it. BIDS

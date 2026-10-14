@@ -20,6 +20,8 @@ import {
   buildPet2bidsArgv,
   buildReproinArgv,
   dcm2niixAnonymizeFlag,
+  importWizardExit,
+  reproinInvalidProtocols,
   runImport,
 } from './runImport'
 
@@ -215,6 +217,44 @@ describe('buildReproinArgv', () => {
     expect(argv).toContain('-bi')
     expect(argv).toContain('M123')
     expect(argv).not.toContain('-bv')
+  })
+})
+
+describe('reproinInvalidProtocols', () => {
+  test('extracts dcm2niix invalid-ProtocolName warnings, drops the prefix', () => {
+    const stdout = [
+      'Convert 100 DICOM as /x/Unknown/5_PA_func (96x96x60x100)',
+      'Warning: ReproIn: invalid ProtocolName, saved to Unknown/: SeriesNumber=5 SeriesInstanceUID=1.2.3 ProtocolName="PA_func-bold"',
+      'Warning: ReproIn: PatientID has no alphanumerics (use -bi), saved to Unknown/: SeriesNumber=6 SeriesInstanceUID=1.2.4',
+      'Warning: something else',
+    ].join('\r\n')
+    expect(reproinInvalidProtocols(stdout)).toEqual([
+      'ReproIn: invalid ProtocolName, saved to Unknown/: SeriesNumber=5 SeriesInstanceUID=1.2.3 ProtocolName="PA_func-bold"',
+      'ReproIn: PatientID has no alphanumerics (use -bi), saved to Unknown/: SeriesNumber=6 SeriesInstanceUID=1.2.4',
+    ])
+  })
+})
+
+describe('importWizardExit', () => {
+  const clean = {
+    postPassFailures: 0,
+    invalidProtocols: 0,
+    partialFailure: false,
+    autoOpenOk: true,
+  }
+  test('clean run closes; partial-only acknowledges', () => {
+    expect(importWizardExit(clean)).toBe('close')
+    expect(importWizardExit({ ...clean, partialFailure: true })).toBe('ack')
+  })
+  test('Unknown/ warnings keep the wizard open, also with partial failure', () => {
+    expect(importWizardExit({ ...clean, invalidProtocols: 2 })).toBe('stay')
+    expect(
+      importWizardExit({ ...clean, invalidProtocols: 1, partialFailure: true }),
+    ).toBe('stay')
+  })
+  test('post-pass failure or failed auto-open stays', () => {
+    expect(importWizardExit({ ...clean, postPassFailures: 1 })).toBe('stay')
+    expect(importWizardExit({ ...clean, autoOpenOk: false })).toBe('stay')
   })
 })
 

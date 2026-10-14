@@ -59,7 +59,7 @@ import {
   moveStemFiles,
 } from './moveStem'
 import { parseNiftiHeader } from './niftiHeader'
-import { resolvePartEntities } from './partEntities'
+import { resolvePartEntities, writeSessionPhaseUnits } from './partEntities'
 import {
   DEFAULT_MIN_VOLUMES,
   reclassifySession,
@@ -79,7 +79,7 @@ const NIFTI1_HEADER_SIZE = 348
  * e.g. `_FAa.nii.gz` and slip past the `.bidsignore` sweep.
  */
 const COLLISION_RE =
-  /_(?:magnitude\d|phasediff|phase\d|fieldmap|bold|sbref|T1w|T2w|FLAIR|PDw|T2starw|UNIT1|inplaneT[12]|MEGRE|MESE|VFA|IRT1|MP2RAGE|MPM|MTS|MTR|dwi|epi|m0scan|asl|aslcontext|cbv|defacemask|FA|ADC|colFA|expADC|trace|S0map|TENSOR|svs|mrsi|unloc|mrsref)[a-z](?:\.json|\.nii(?:\.gz)?|\.bvec|\.bval|\.tsv)$/
+  /_(?:magnitude\d|phasediff|phase\d|fieldmap|bold|sbref|T1w|T2w|FLAIR|PDw|T2starw|UNIT1|inplaneT[12]|MEGRE|MESE|VFA|IRT1|MP2RAGE|MPM|MTS|MTR|dwi|epi|m0scan|asl|aslcontext|cbv|noRF|defacemask|FA|ADC|colFA|expADC|trace|S0map|TENSOR|svs|mrsi|unloc|mrsref)[a-z](?:\.json|\.nii(?:\.gz)?|\.bvec|\.bval|\.tsv)$/
 
 const BIDSIGNORE_HEADER =
   '# reproinx: files dcm2niix could not place cleanly in BIDS'
@@ -238,6 +238,14 @@ export async function runBidsguessCleanup(
       recordWarning(
         sessionDir,
         `resolvePartEntities: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    try {
+      await writeSessionPhaseUnits(sessionDir, ctx, fs)
+    } catch (err) {
+      recordWarning(
+        sessionDir,
+        `writeSessionPhaseUnits: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
     try {

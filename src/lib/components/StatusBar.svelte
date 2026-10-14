@@ -3,6 +3,7 @@
   import { _ } from 'svelte-i18n'
   import { getValidatorScopeUnfetchedPointers } from '$lib/bids/pointer'
   import { formatBytes } from '$lib/util/fileFormat'
+  import { relativeToParent, stripTrailingSeparators } from '$lib/util/paths'
   import {
     closeDataset,
     fetchPointers,
@@ -20,6 +21,7 @@
   } from '$lib/state/dataset.svelte'
   import { aggregateCapabilityForDataset } from '$lib/state/datasetCapability.svelte'
   import { diagnosticsStore } from '$lib/state/diagnostics.svelte'
+  import { formatIssueGroupsAsMarkdown } from '$lib/state/diagnosticsHelpers'
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { loadAppInfo } from '$lib/about/appInfo'
   import { buildDiagnosticReport } from '$lib/about/diagnosticReport'
@@ -91,7 +93,41 @@
     }
     copyErrorState = 'idle'
   })
+  // Whole-dataset validator report for pasting into issues / AI chats.
+  let issuesCopyState = $state<'idle' | 'copied' | 'failed'>('idle')
+  let issuesCopiedTimer: ReturnType<typeof setTimeout> | null = null
+  const issuesCopyLabel = $derived(
+    issuesCopyState === 'copied'
+      ? $_('status.validatorCopied')
+      : issuesCopyState === 'failed'
+        ? $_('status.validatorCopyFailed')
+        : $_('status.validatorCopyHint'),
+  )
+  async function copyValidatorIssues(): Promise<void> {
+    const root = datasetStore.dataset?.root
+    if (root === undefined) return
+    const md = formatIssueGroupsAsMarkdown(
+      diagnosticsStore.groupedIssuesUnderRoot(root),
+      {
+        showPathHeadings: true,
+        basename: (p) => relativeToParent(stripTrailingSeparators(root), p) ?? '/',
+      },
+    )
+    try {
+      await navigator.clipboard.writeText(md)
+      issuesCopyState = 'copied'
+    } catch (err) {
+      issuesCopyState = 'failed'
+      console.warn('[statusbar] copy validator issues failed:', err)
+    }
+    if (issuesCopiedTimer !== null) clearTimeout(issuesCopiedTimer)
+    issuesCopiedTimer = setTimeout(() => {
+      issuesCopyState = 'idle'
+      issuesCopiedTimer = null
+    }, 1500)
+  }
   onDestroy(() => {
+    if (issuesCopiedTimer !== null) clearTimeout(issuesCopiedTimer)
     if (copyErrorTimer !== null) {
       clearTimeout(copyErrorTimer)
       copyErrorTimer = null
@@ -556,6 +592,43 @@
           {/if}
         {/if}
       </span>
+      {#if diagnosticsStore.errorCount + diagnosticsStore.warningCount > 0}
+        <button
+          type="button"
+          class="copy-issues"
+          class:copy-failed={issuesCopyState === 'failed'}
+          title={issuesCopyLabel}
+          aria-label={issuesCopyLabel}
+          onclick={copyValidatorIssues}
+        >
+          <!-- clipboard / check (Lucide) -->
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            {#if issuesCopyState === 'copied'}
+              <path d="M20 6 9 17l-5-5" />
+            {:else if issuesCopyState === 'failed'}
+              <path d="M18 6 6 18M6 6l12 12" />
+            {:else}
+              <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+              <path
+                d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+              />
+            {/if}
+          </svg>
+        </button>
+        <span class="sr-live" aria-live="polite"
+          >{issuesCopyState === 'idle' ? '' : issuesCopyLabel}</span
+        >
+      {/if}
       {#if diagnosticsStore.errorCount > 0}
         <button
           type="button"
@@ -928,6 +1001,38 @@
     background: rgba(196, 56, 56, 0.18);
   }
 
+  .copy-issues {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+
+  .copy-issues:hover {
+    color: var(--fg-base);
+  }
+
+  .copy-issues.copy-failed {
+    color: #c43838;
+  }
+
+  .sr-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .copy-issues:focus-visible,
   .next-error:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;

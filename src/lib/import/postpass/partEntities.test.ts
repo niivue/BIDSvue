@@ -19,6 +19,7 @@ import {
   partFromImageType,
   partOf,
   resolvePartEntities,
+  writeSessionPhaseUnits,
 } from './partEntities'
 
 /**
@@ -168,6 +169,56 @@ describe('partOf / partFromImageType', () => {
 })
 
 describe('resolvePartEntities', () => {
+  test('repeated mag+phase acquisitions pair by AcquisitionTime into run-NN', async () => {
+    const root = makeRoot()
+    const mk = (stem: string, kind: string, t: string) =>
+      writeSeries(root, `sub-01_task-rest_${stem}`, {
+        Manufacturer: 'Siemens',
+        AcquisitionTime: t,
+        ImageType: ['ORIGINAL', kind],
+      })
+    await mk('bold', 'MAGNITUDE', '17:17:50')
+    await mk('bolda', 'PHASE', '17:07:19')
+    await mk('boldb', 'PHASE', '17:17:50')
+    await mk('boldc', 'MAGNITUDE', '17:07:19')
+    expect(await run(root)).toBe(4)
+    for (const [r, t] of [
+      ['01', '17:07:19'],
+      ['02', '17:17:50'],
+    ]) {
+      const read = (part: string) =>
+        JSON.parse(
+          readFileSync(
+            join(
+              root,
+              'func',
+              `sub-01_task-rest_run-${r}_part-${part}_bold.json`,
+            ),
+            'utf8',
+          ),
+        )
+      expect(read('mag').AcquisitionTime).toBe(t)
+      expect(read('phase').Units).toBe('arbitrary')
+    }
+    expect(await run(root)).toBe(0)
+  })
+
+  test('writeSessionPhaseUnits adds Units to a Siemens anat part-phase', async () => {
+    const root = makeRoot()
+    await mkdir(join(root, 'anat'), { recursive: true })
+    const jp = join(root, 'anat', 'sub-01_part-phase_T2starw.json')
+    await writeFile(jp, JSON.stringify({ Manufacturer: 'Siemens' }))
+    const ctx = beginOperation(
+      root,
+      makeStatePaths(),
+      { opType: 'import', summary: 'phase units test' },
+      nodeMutateFs,
+    )
+    await writeSessionPhaseUnits(root, ctx, nodeFsPostPassAdapter)
+    await ctx.commit()
+    expect(JSON.parse(readFileSync(jp, 'utf8')).Units).toBe('arbitrary')
+  })
+
   test('renames a mag+phase bold pair to _part-<x>_bold', async () => {
     const root = makeRoot()
     await writeSeries(root, 'sub-01_task-rest_bold', {
@@ -204,6 +255,26 @@ describe('resolvePartEntities', () => {
       'sub-01_task-rest_part-mag_sbref.nii.gz',
       'sub-01_task-rest_part-phase_sbref.json',
       'sub-01_task-rest_part-phase_sbref.nii.gz',
+    ])
+  })
+
+  test('noRF magnitude/phase collision resolves to _part-<mag|phase>_noRF', async () => {
+    const root = makeRoot()
+    await writeSeries(root, 'sub-01_task-rest_noRF', {
+      ImageType: ['ORIGINAL', 'PHASE'],
+      BidsGuess: ['func', '_task-rest_part-phase_noRF'],
+    })
+    await writeSeries(root, 'sub-01_task-rest_noRFa', {
+      ImageType: ['ORIGINAL', 'MAGNITUDE'],
+      BidsGuess: ['func', '_task-rest_noRF'],
+    })
+    const renamed = await run(root)
+    expect(renamed).toBe(2)
+    expect(funcNames(root)).toEqual([
+      'sub-01_task-rest_part-mag_noRF.json',
+      'sub-01_task-rest_part-mag_noRF.nii.gz',
+      'sub-01_task-rest_part-phase_noRF.json',
+      'sub-01_task-rest_part-phase_noRF.nii.gz',
     ])
   })
 

@@ -889,10 +889,11 @@ export async function runPostPass(
         // `task-<X>_bold.json` per task. When the post-pass adds
         // `task-<X>_acq-<Y>_bold.json` siblings, the validator emits
         // MULTIPLE_INHERITABLE_FILES unless the generic stub is
-        // removed. Only deletes when contents match the dcm2niix
+        // removed; stubs with no `_bold` image (physio-only series) go
+        // too. Only deletes when contents match the dcm2niix
         // shape (subset of {TaskName, CogAtlasID} with the expected
         // TaskName); user-curated sidecars are preserved. Mirrors
-        // reproinx.py:845-860.
+        // `_emit_task_bold_jsons` (reproinx.py).
         const taskStubPaths = await planTaskBoldStubCleanup(root, fs)
         for (const path of taskStubPaths) {
           await ctx.delete(path, {

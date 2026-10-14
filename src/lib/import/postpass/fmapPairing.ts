@@ -86,9 +86,10 @@ export function b0Identifier(groupPrefix: string): string {
  * each sbref to share its bold sibling's selection so a two-compatible-fmap
  * closest-in-time tie can never diverge the pair.
  */
-function isTargetForFmaps(datatype: string, _stem: string): boolean {
+function isTargetForFmaps(datatype: string, stem: string): boolean {
   if (datatype === 'fmap') return false
-  return true
+  // RF-off noise: nothing imaged, so no distortion to correct (upstream 9b27fac).
+  return !stem.endsWith('_noRF')
 }
 
 // ----- key info ------------------------------------------------------------
@@ -158,6 +159,31 @@ const MATCHING_PARAMETERS: ReadonlyArray<'ImagingVolume' | 'Shims'> = [
   'Shims',
 ]
 
+/**
+ * True for >=2 `_epi` fmaps that all share one known PhaseEncodingDirection.
+ * Such a "pair" (e.g. a FOV rotated 180 deg instead of a reversed PE) has
+ * identical distortion, so TOPUP/SDCFlows cannot estimate a field from it.
+ * Mirrors `_is_same_polarity_epi_group` in reproinx.py.
+ */
+async function isSamePolarityEpiGroup(
+  fmapDir: string,
+  members: ReadonlyArray<string>,
+  fs: PostPassFs,
+): Promise<boolean> {
+  const epis = members.filter((s) => s.endsWith('_epi'))
+  if (epis.length < 2) return false
+  const dirs = new Set<unknown>()
+  for (const stem of epis) {
+    try {
+      const data = JSON.parse(await fs.readTextFile(`${fmapDir}/${stem}.json`))
+      dirs.add(data?.PhaseEncodingDirection)
+    } catch {
+      return false
+    }
+  }
+  return dirs.size === 1 && typeof [...dirs][0] === 'string'
+}
+
 // ----- top-level planner ---------------------------------------------------
 
 /**
@@ -179,6 +205,14 @@ export async function planB0FieldEdits(
   if (fmapJsons.length === 0) return []
 
   const groups = findFmapGroups(fmapJsons)
+  for (const [prefix, members] of groups) {
+    if (await isSamePolarityEpiGroup(fmapDir, members, fs)) {
+      console.warn(
+        `[fmapPairing] ${prefix}: all _epi share one PhaseEncodingDirection; not usable as a fieldmap, left unlinked`,
+      )
+      groups.delete(prefix)
+    }
+  }
   if (groups.size === 0) return []
 
   // Cache fmap-side key info: every group's representative (first member)

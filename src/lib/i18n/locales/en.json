@@ -108,6 +108,7 @@
     "postPassFailures": "{n, plural, one {# session needed} other {# sessions needed}} attention after the import. The DICOMs were converted, but the listed sessions failed during the post-import pass (scans.tsv aggregation or fmap pairing). The dataset is on disk; you can still open it from the Launch screen.",
     "autoOpenFailed": "The import finished, but opening the new dataset automatically failed: {detail}. You can open it from the Launch screen.",
     "partialConversion": "dcm2niix converted most series but skipped one or more (typically a localizer with mismatched slice orientations, or a series with incomplete volumes). The post-pass ran against what landed on disk; the details below show which series were skipped.",
+    "invalidProtocols": "{n, plural, one {# series was} other {# series were}} saved to Unknown/ and hidden by .bidsignore, usually because the ProtocolName is not valid ReproIn (no datatype-suffix token such as func-bold). Rename the protocol at the scanner (e.g. func-bold_task-motor_acq-x_dir-PA); each line below gives the reason and the SeriesInstanceUID.",
     "partialConversionAcknowledge": "Continue to dataset",
     "error": {
       "nameSeparators": "Dataset name cannot contain slashes.",
@@ -798,6 +799,9 @@
     "validatorSilentHint": "View > Validator messages > Silent is enabled. Switch to Errors only or Errors and Warnings to see counts here.",
     "nextError": "Next error",
     "nextErrorHint": "Reveal the next file with a validator error",
+    "validatorCopyHint": "Copy all validator messages to the clipboard as Markdown",
+    "validatorCopied": "Copied",
+    "validatorCopyFailed": "Copy failed",
     "validatorSkipped": "{n, plural, one {# un-fetched skipped} other {# un-fetched skipped}}",
     "validatorSkippedTitle": "Files excluded from validation because their content hasn't been fetched. Fetch them with DataLad to include them.",
     "validatorSkippedFetchHint": "Click to fetch every un-fetched validator-scope file with DataLad ({bytes}).",

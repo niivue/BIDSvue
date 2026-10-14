@@ -45,7 +45,7 @@ macOS arm64 is released locally (notarized DMG); `x86_64` macOS is permanently o
 | Windows signing (Authenticode) | M | Needs a CI-capable signing service (Azure Trusted Signing / DigiCert KeyLocker / SSL.com eSigner) or a self-hosted runner with the token. A FIDO2 login key is NOT a code-signing credential. Ship unsigned until resolved. |
 | Linux signing / packaging breadth | M | AppImage + `.deb` build today; add `.rpm`; document `webkit2gtk-4.1` in install instructions. |
 | Windows MSI (after NSIS) | M | NSIS ships first; MSI for managed institutional deployment. |
-| `dcm2niix` version parity across platforms | S | AppVeyor dev `dcm2niix` (`20260622`) lags the local macOS binary (`20261006`); decide whether platforms must match. |
+| `dcm2niix` version parity across platforms | S | AppVeyor dev `dcm2niix` (`20260622`) lags the local macOS binary (`20261011`); decide whether platforms must match. |
 | `dcm2bids` re-bundle per platform | M | PATH-resolved today (`pip install dcm2bids`). To bundle, revert the unbundle commit + add Linux/Windows Nuitka builders. |
 
 ### Cohort Dashboard — remaining phases

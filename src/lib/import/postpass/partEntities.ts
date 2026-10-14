@@ -8,7 +8,7 @@
 // that collide onto ONE `-f %H` stem; dcm2niix appends `a`/`b` collision
 // letters (and can mislabel a phase SBRef as `_bold`), all of which are
 // unusable in BIDS. This pass renames the family to
-// `..._part-<mag|phase|real|imag>_<bold|sbref>`:
+// `..._part-<mag|phase|real|imag>_<bold|sbref|noRF>`:
 //
 //   - `part` comes from dcm2niix's explicit `_part-` in BidsGuess (the C
 //     side sets it from CSA `isHasPhase` even when public ImageType is
@@ -49,6 +49,7 @@ import {
   StemFamilyIntegrityError,
   moveStemFiles,
 } from './moveStem'
+import { insertRunEntity } from './unknownRescue'
 
 export interface PartEntitiesResult {
   /** Number of file stems renamed to carry a `_part-<x>` entity. */
@@ -111,9 +112,16 @@ export function partOf(data: Record<string, unknown>): string | null {
   return partFromImageType(data)
 }
 
+// Func suffixes that take a `part` entity. noRF: Siemens RF-off noise volumes
+// split from a magnitude+phase BOLD collide just like the BOLD (`_noRF`/`_noRFa`).
+const PART_FUNC_SUFFIXES: readonly string[] = ['bold', 'sbref', 'noRF']
+
+const isPartFuncToken = (token: string): boolean =>
+  PART_FUNC_SUFFIXES.some((s) => token.startsWith(s))
+
 /**
- * `bold`/`sbref`, preferring BidsGuess[1]'s trailing token (a phase SBRef
- * can collide into a `_bold`-named file), else the filename token minus
+ * `bold`/`sbref`/`noRF`, preferring BidsGuess[1]'s trailing token (a phase
+ * SBRef can collide into a `_bold`-named file), else the filename token minus
  * its collision letter. Null when neither yields a func suffix.
  */
 function funcSuffix(
@@ -123,11 +131,9 @@ function funcSuffix(
   const g = data.BidsGuess
   if (Array.isArray(g) && g.length === 2 && typeof g[1] === 'string') {
     const last = g[1].slice(g[1].lastIndexOf('_') + 1)
-    if (last === 'bold' || last === 'sbref') return last
+    if (PART_FUNC_SUFFIXES.includes(last)) return last
   }
-  if (token.startsWith('sbref')) return 'sbref'
-  if (token.startsWith('bold')) return 'bold'
-  return null
+  return PART_FUNC_SUFFIXES.find((s) => token.startsWith(s)) ?? null
 }
 
 /**
@@ -190,6 +196,34 @@ async function writePhaseUnits(
   })
 }
 
+type PartMember = { stem: string; part: string; time: string }
+
+/**
+ * Stem → run token (`''` when none is needed). A protocol repeated as several
+ * mag/phase acquisitions gets `run-01`.. in AcquisitionTime order (magnitude
+ * and phase of one acquisition share it). `null` when members cannot be
+ * paired. Mirrors `_part_runs` in reproinx.py.
+ */
+function partRuns(
+  prefix: string,
+  members: PartMember[],
+): Map<string, string> | null {
+  const out = new Map<string, string>()
+  if (new Set(members.map((m) => m.part)).size === members.length) {
+    for (const m of members) out.set(m.stem, '')
+    return out
+  }
+  const times = [...new Set(members.map((m) => m.time))].sort()
+  if (times.includes('') || prefix.includes('_run-')) return null
+  for (const t of times) {
+    const parts = members.filter((m) => m.time === t).map((m) => m.part)
+    if (new Set(parts).size !== parts.length) return null
+  }
+  for (const m of members)
+    out.set(m.stem, `run-${String(times.indexOf(m.time) + 1).padStart(2, '0')}`)
+  return out
+}
+
 /**
  * Resolve func `part-` entities under `<sessionDir>/func/`. Returns the
  * number of stems renamed. No-op when there is no `func/` dir or no
@@ -225,14 +259,14 @@ export async function resolvePartEntities(
 
   // Group by (prefix, suffix). A member whose part or suffix is
   // unclassifiable taints its whole prefix so no group there fires.
-  const groups = new Map<string, Array<{ stem: string; part: string }>>()
+  const groups = new Map<string, PartMember[]>()
   const unresolvedPrefixes = new Set<string>()
   for (const name of jsonNames) {
     const stem = name.slice(0, -'.json'.length)
     const cut = stem.lastIndexOf('_')
     const token = cut >= 0 ? stem.slice(cut + 1) : ''
     const entities = cut >= 0 ? stem.slice(0, cut) : stem
-    if (!(token.startsWith('bold') || token.startsWith('sbref'))) continue
+    if (!isPartFuncToken(token)) continue
     const prefix = entities.replace(/_part-[A-Za-z0-9]+$/, '')
     let data: unknown = null
     try {
@@ -251,9 +285,11 @@ export async function resolvePartEntities(
     // separator (a filename stem can never contain NUL; a space could in
     // theory, so do not split on one).
     const key = `${prefix}\u0000${suffix}`
+    const time = isRecord(data) ? String(data.AcquisitionTime ?? '') : ''
+    const member = { stem, part, time }
     const bucket = groups.get(key)
-    if (bucket === undefined) groups.set(key, [{ stem, part }])
-    else bucket.push({ stem, part })
+    if (bucket === undefined) groups.set(key, [member])
+    else bucket.push(member)
   }
 
   // Orphan-base guard: a func NIfTI DATA file (`*_bold*` / `*_sbref*`,
@@ -272,7 +308,7 @@ export async function resolvePartEntities(
     if (jsonStems.has(dataStem)) continue // has a sidecar → already handled above
     const cut = dataStem.lastIndexOf('_')
     const token = cut >= 0 ? dataStem.slice(cut + 1) : ''
-    if (!(token.startsWith('bold') || token.startsWith('sbref'))) continue
+    if (!isPartFuncToken(token)) continue
     const entities = cut >= 0 ? dataStem.slice(0, cut) : dataStem
     unresolvedPrefixes.add(entities.replace(/_part-[A-Za-z0-9]+$/, ''))
   }
@@ -294,11 +330,26 @@ export async function resolvePartEntities(
 
     // Preflight the whole group against the full BIDS family before any
     // move, so a collision aborts the group cleanly.
+    const runOf = partRuns(prefix, members)
+    if (runOf === null) {
+      console.warn(
+        `[partEntities] skipping ${prefix}_${suffix} — cannot pair parts by AcquisitionTime`,
+      )
+      continue
+    }
+    const targets = members.map(({ stem, part }) => {
+      const name = `${prefix}_part-${part}_${suffix}`
+      const run = runOf.get(stem)
+      return {
+        stem,
+        part,
+        dst: run ? insertRunEntity(`_${name}`, run).slice(1) : name,
+      }
+    })
     const plan: Array<{ stem: string; dst: string }> = []
     const dsts = new Set<string>()
     let conflict = false
-    for (const { stem, part } of members) {
-      const dst = `${prefix}_part-${part}_${suffix}`
+    for (const { stem, dst } of targets) {
       if (dst === stem) continue
       if (
         dsts.has(dst) ||
@@ -338,13 +389,9 @@ export async function resolvePartEntities(
       // Phase Units in the same boundary. Collected for the group whether or
       // not a move happened (empty plan on a rerun) so an already-canonical
       // phase file still gets/keeps its Units — idempotent.
-      if (members.some((m) => m.part === 'phase')) {
-        await writePhaseUnits(
-          `${funcDir}/${prefix}_part-phase_${suffix}.json`,
-          sessionDir,
-          ctx,
-          fs,
-        )
+      for (const { dst, part } of targets) {
+        if (part === 'phase')
+          await writePhaseUnits(`${funcDir}/${dst}.json`, sessionDir, ctx, fs)
       }
     } catch (err) {
       // Compensate: reverse this group's applied moves so the family is not
@@ -389,4 +436,30 @@ export async function resolvePartEntities(
   }
 
   return { renamed }
+}
+
+/**
+ * BIDS requires Units on part-phase data in any datatype (e.g. a rescued anat
+ * T2starw for QSM). Sweeps `<sessionDir>/<datatype>/*_part-phase_*.json`;
+ * Siemens-only, never overwrites. Mirrors `_siemens_phase_units` in reproinx.py.
+ */
+export async function writeSessionPhaseUnits(
+  sessionDir: string,
+  ctx: OperationContext,
+  fs: PostPassFs,
+): Promise<void> {
+  for (const dir of await fs.readDir(sessionDir)) {
+    if (!dir.isDirectory) continue
+    const dtDir = `${sessionDir}/${dir.name}`
+    // One unreadable datatype dir must not starve the rest (Python's glob skips it).
+    const entries = await fs.readDir(dtDir).catch(() => [])
+    for (const e of entries) {
+      if (
+        e.isFile &&
+        e.name.includes('_part-phase_') &&
+        e.name.endsWith('.json')
+      )
+        await writePhaseUnits(`${dtDir}/${e.name}`, sessionDir, ctx, fs)
+    }
+  }
 }

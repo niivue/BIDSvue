@@ -293,6 +293,35 @@ export interface RunImportResult {
  */
 export type Dcm2niixAnonymizeMode = 'y' | 'o'
 
+/**
+ * dcm2niix `-f %H` warns once per series it writes to `Unknown/` (invalid
+ * ProtocolName, or a PatientID with no alphanumerics). Returns those
+ * lines, minus the `Warning: ` prefix, so the wizard can list them.
+ */
+export function reproinInvalidProtocols(stdout: string): string[] {
+  return stdout
+    .split(/\r?\n/)
+    .filter((l) => /ReproIn: .*saved to Unknown\//.test(l))
+    .map((l) => l.replace(/^Warning:\s*/, ''))
+}
+
+/**
+ * Wizard exit after a finished run: `close` on a clean run, `ack` (modal,
+ * then close) when dcm2niix's partial-failure warning is the only issue,
+ * else `stay` so the inline panel shows post-pass failures, the auto-open
+ * error, or series saved to `Unknown/` (hidden by .bidsignore otherwise).
+ */
+export function importWizardExit(r: {
+  postPassFailures: number
+  invalidProtocols: number
+  partialFailure: boolean
+  autoOpenOk: boolean
+}): 'close' | 'ack' | 'stay' {
+  if (r.postPassFailures > 0 || r.invalidProtocols > 0 || !r.autoOpenOk)
+    return 'stay'
+  return r.partialFailure ? 'ack' : 'close'
+}
+
 export function dcm2niixAnonymizeFlag(
   anonymize: boolean,
 ): Dcm2niixAnonymizeMode {

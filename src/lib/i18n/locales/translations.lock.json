@@ -1391,6 +1391,10 @@
     "humanReviewed": false,
     "sourceHash": "36dfb126e3e5efff0504d458843cd17925c6c9b7a47a67ea656676d55e86afa2"
   },
+  "es.importWizard.invalidProtocols": {
+    "humanReviewed": false,
+    "sourceHash": "cca0d74457ac70b4335105b82628a9ed4d567092385d22cbcd0795d1ceb67fad"
+  },
   "es.importWizard.licenseHint": {
     "humanReviewed": false,
     "sourceHash": "0095bad27e6404aa8a8b899944eec7ba34e38a7c45141470bbcb2592a0d3a343"
@@ -3018,6 +3022,18 @@
   "es.status.validating": {
     "humanReviewed": false,
     "sourceHash": "cd51f8c88998b58cb76ac7e276b1bc6aa17dbdf6cb7228448d9ad71e1d11ccd7"
+  },
+  "es.status.validatorCopied": {
+    "humanReviewed": false,
+    "sourceHash": "8d525e5f158b9afe05f3122af363ac67763bdc4e1395b46597b320c289766ce3"
+  },
+  "es.status.validatorCopyFailed": {
+    "humanReviewed": false,
+    "sourceHash": "5b50e7a693fee952b9ed0e7c240bf4cba69b1dbf02af718145b297e4110591f3"
+  },
+  "es.status.validatorCopyHint": {
+    "humanReviewed": false,
+    "sourceHash": "da438c6d5f9ed5d766b5795adf24931b8ac2004cd663ad8ed6f3d28cc9c8c46c"
   },
   "es.status.validatorErrors": {
     "humanReviewed": false,
@@ -4703,6 +4719,10 @@
     "humanReviewed": false,
     "sourceHash": "36dfb126e3e5efff0504d458843cd17925c6c9b7a47a67ea656676d55e86afa2"
   },
+  "pt.importWizard.invalidProtocols": {
+    "humanReviewed": false,
+    "sourceHash": "cca0d74457ac70b4335105b82628a9ed4d567092385d22cbcd0795d1ceb67fad"
+  },
   "pt.importWizard.licenseHint": {
     "humanReviewed": false,
     "sourceHash": "0095bad27e6404aa8a8b899944eec7ba34e38a7c45141470bbcb2592a0d3a343"
@@ -6330,6 +6350,18 @@
   "pt.status.validating": {
     "humanReviewed": false,
     "sourceHash": "cd51f8c88998b58cb76ac7e276b1bc6aa17dbdf6cb7228448d9ad71e1d11ccd7"
+  },
+  "pt.status.validatorCopied": {
+    "humanReviewed": false,
+    "sourceHash": "8d525e5f158b9afe05f3122af363ac67763bdc4e1395b46597b320c289766ce3"
+  },
+  "pt.status.validatorCopyFailed": {
+    "humanReviewed": false,
+    "sourceHash": "5b50e7a693fee952b9ed0e7c240bf4cba69b1dbf02af718145b297e4110591f3"
+  },
+  "pt.status.validatorCopyHint": {
+    "humanReviewed": false,
+    "sourceHash": "da438c6d5f9ed5d766b5795adf24931b8ac2004cd663ad8ed6f3d28cc9c8c46c"
   },
   "pt.status.validatorErrors": {
     "humanReviewed": false,

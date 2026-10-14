@@ -237,6 +237,41 @@ describe('planB0FieldEdits', () => {
     }
   })
 
+  test('same-polarity EPI pair is unusable: closer group skipped, never linked', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'bidsvue-postpass-samepol-'))
+    try {
+      const ses = join(root, 'sub-01')
+      const fmap = join(ses, 'fmap')
+      const func = join(ses, 'func')
+      await mkdir(fmap, { recursive: true })
+      await mkdir(func, { recursive: true })
+      const shims = ['100', '0', '0', '0', '0', '0', '0', '0']
+      // Closer in time, but both members share PhaseEncodingDirection "j".
+      for (const dir of ['AP', 'PA'])
+        await writeFmapFixture(fmap, `sub-01_run-1_dir-${dir}_epi`, {
+          AcquisitionTime: '10:44:00',
+          ShimSetting: shims,
+          PhaseEncodingDirection: 'j',
+        })
+      for (const s of ['magnitude1', 'magnitude2', 'phasediff'])
+        await writeFmapFixture(fmap, `sub-01_run-2_${s}`, {
+          AcquisitionTime: '11:00:00',
+          ShimSetting: shims,
+        })
+      await writeFmapFixture(func, 'sub-01_task-rest_bold', {
+        AcquisitionTime: '10:45:00',
+        ShimSetting: shims,
+      })
+
+      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const targetEdit = edits.find((e) => e.path.endsWith('_bold.json'))
+      expect(targetEdit?.content).toContain('"run-2"')
+      expect(edits.some((e) => e.path.endsWith('_epi.json'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('sbref sidecars ARE valid fmap targets', async () => {
     // An sbref shares its bold's readout, hence the same B0 distortion, so
     // it must reference the fieldmap too (BIDScoin parity). reproinx.py
@@ -271,6 +306,25 @@ describe('planB0FieldEdits', () => {
       expect(fmapEdits.length).toBe(2)
       for (const e of fmapEdits)
         expect(e.content).toContain('"B0FieldIdentifier"')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('_noRF is never an fmap target', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'bidsvue-postpass-norf-'))
+    try {
+      const ses = join(root, 'sub-01')
+      const fmap = join(ses, 'fmap')
+      const func = join(ses, 'func')
+      await mkdir(fmap, { recursive: true })
+      await mkdir(func, { recursive: true })
+      const shims = ['100', '0', '0', '0', '0', '0', '0', '0']
+      const sc = { AcquisitionTime: '10:00:00', ShimSetting: shims }
+      await writeFmapFixture(fmap, 'sub-01_dir-AP_epi', sc)
+      await writeFmapFixture(fmap, 'sub-01_dir-PA_epi', sc)
+      await writeFmapFixture(func, 'sub-01_task-rest_noRF', sc)
+      expect(await planB0FieldEdits(ses, nodeFsPostPassAdapter)).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -30,6 +30,10 @@
   } from '$lib/import/mneBidsDetectionTauri'
   import { toEventIdMap, validateEventRows } from '$lib/import/mneEventsFile'
   import { parseAuthorsInput } from '$lib/import/postpass/datasetDescription'
+  import {
+    importWizardExit,
+    reproinInvalidProtocols,
+  } from '$lib/import/runImport'
   import { preferencesStore } from '$lib/state/preferences.svelte'
   import { importDicoms, importMeg, importMneBids } from '$lib/state/actions'
   import { appView } from '$lib/state/view.svelte'
@@ -223,6 +227,13 @@
   // the warning explains which series were skipped (e.g. localizer
   // slice-orientation mismatch, issue 894). Cleared on every run.
   let partialFailureWarning = $state<string | null>(null)
+  let invalidProtocols = $state<string[]>([])
+  const hasRunWarnings = $derived(
+    postPassFailures.length > 0 ||
+      autoOpenError !== null ||
+      partialFailureWarning !== null ||
+      invalidProtocols.length > 0,
+  )
   // When true, a modal acknowledging `partialFailureWarning` is shown
   // over the wizard. Dismissing it closes the wizard so the user
   // lands on the auto-opened BIDS view of the freshly-imported
@@ -629,12 +640,7 @@
     // panel guides them. `partialFailureWarning` is included so a
     // dcm2niix exit-8 (some series failed) leaves the destDir
     // protected from accidental re-run on top of itself.
-    if (
-      postPassFailures.length > 0 ||
-      autoOpenError !== null ||
-      partialFailureWarning !== null
-    )
-      return false
+    if (hasRunWarnings) return false
     // Availability guard: sidecar and external tools both run a probe now.
     // Keep Run disabled until the selected tool's result lands so a fast
     // click cannot race ahead of a missing-binary failure.
@@ -698,6 +704,7 @@
    */
   function clearPartialSuccessGuard(): void {
     postPassFailures = []
+    invalidProtocols = []
     autoOpenError = null
     partialFailureWarning = null
     partialFailureModalOpen = false
@@ -1021,7 +1028,6 @@
           datasetName: datasetName || null,
         })
         runOutput = null
-        postPassFailures = []
         autoOpenError = mneResult.autoOpenError
         lastDurationMs = mneResult.durationMs
         console.info(
@@ -1069,7 +1075,6 @@
           description: buildDescriptionPayload(),
         })
         runOutput = null
-        postPassFailures = []
         autoOpenError = megResult.autoOpenError
         lastDurationMs = megResult.durationMs
         console.info(
@@ -1150,6 +1155,7 @@
         toolId: selectedToolId,
       })
       runOutput = { stdout: result.stdout, stderr: result.stderr }
+      invalidProtocols = reproinInvalidProtocols(result.stdout)
       lastDurationMs = result.durationMs
       console.info(
         `[importDicoms] ${tool.label}: imported ${result.filesCreated} file(s) in ${formatDurationMs(result.durationMs)}`,
@@ -1173,33 +1179,17 @@
       autoOpenError = result.autoOpenError
       partialFailureWarning = result.partialFailureWarning
       runState = 'idle'
-      // Two ways out of the wizard now that the run has finished:
-      //   1. Clean success (no warnings, auto-open OK) — close
-      //      immediately so the user lands on Explorer with the new
-      //      dataset open.
-      //   2. Partial-success only (post-pass clean + auto-open OK
-      //      but dcm2niix exited 8 / 10): show a modal acknowledging
-      //      the warning, then close on dismiss. The BIDS view is
-      //      already open in the background; closing the wizard
-      //      reveals it.
-      // The else branch (post-pass failures OR auto-open failed)
-      // leaves the wizard mounted with the inline warning panel — the
-      // user needs to see WHICH session failed / WHY auto-open
-      // failed in context, not via a modal.
-      const partialOnly =
-        partialFailureWarning !== null &&
-        postPassFailures.length === 0 &&
-        autoOpenError === null &&
-        result.autoOpenOk
-      if (
-        postPassFailures.length === 0 &&
-        partialFailureWarning === null &&
-        result.autoOpenOk
-      ) {
-        appView.closeImportWizard()
-      } else if (partialOnly) {
-        partialFailureModalOpen = true
-      }
+      // Clean run closes onto Explorer; a partial-failure-only run gets
+      // an acknowledgement modal first; anything else keeps the inline
+      // warning panel so the user sees WHICH session / series and WHY.
+      const exit = importWizardExit({
+        postPassFailures: postPassFailures.length,
+        invalidProtocols: invalidProtocols.length,
+        partialFailure: partialFailureWarning !== null,
+        autoOpenOk: result.autoOpenOk,
+      })
+      if (exit === 'close') appView.closeImportWizard()
+      else if (exit === 'ack') partialFailureModalOpen = true
     } catch (err) {
       runState = 'error'
       const message = err instanceof Error ? err.message : String(err)
@@ -1704,7 +1694,7 @@
       </section>
     {/if}
 
-    {#if !partialFailureModalOpen && (postPassFailures.length > 0 || autoOpenError !== null || partialFailureWarning !== null)}
+    {#if !partialFailureModalOpen && hasRunWarnings}
       <section class="block output-block warning-block" role="alert">
         <h2>{$_('importWizard.warningHeading')}</h2>
         {#if partialFailureWarning !== null}
@@ -1712,6 +1702,14 @@
             {$_('importWizard.partialConversion')}
           </p>
           <pre class="warning-detail-block">{partialFailureWarning}</pre>
+        {/if}
+        {#if invalidProtocols.length > 0}
+          <p class="warning-summary">
+            {$_('importWizard.invalidProtocols', {
+              values: { n: invalidProtocols.length },
+            })}
+          </p>
+          <pre class="warning-detail-block">{invalidProtocols.join('\n')}</pre>
         {/if}
         {#if postPassFailures.length > 0}
           <p class="warning-summary">

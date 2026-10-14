@@ -279,6 +279,59 @@ describe('planTaskBoldStubCleanup', () => {
     )
   })
 
+  test('drops acq stubs with no bold image (physio-only series), keeps curated ones', async () => {
+    await writeAcqRun('motor', 'a')
+    for (const [name, data] of [
+      ['task-motor_acq-a_bold.json', { TaskName: 'motor' }],
+      ['task-motor_acq-b_bold.json', { TaskName: 'motor' }],
+      ['task-motor_acq-c_bold.json', { TaskName: 'motor', RepetitionTime: 2 }],
+    ] as const) {
+      await writeFile(join(root, name), `${JSON.stringify(data)}\n`)
+    }
+    const out = await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)
+    expect(out.map(toPosix)).toEqual([
+      toPosix(join(root, 'task-motor_acq-b_bold.json')),
+    ])
+  })
+
+  test('keeps orphan-looking stub when a subject dir is unreadable', async () => {
+    const fs = {
+      ...nodeFsPostPassAdapter,
+      readDir: async (dir: string) => {
+        if (toPosix(dir).endsWith('/sub-01'))
+          throw new Error('permission denied')
+        return nodeFsPostPassAdapter.readDir(dir)
+      },
+    }
+    await writeAcqRun('rest', 'a')
+    await writeFile(
+      join(root, 'task-rest_bold.json'),
+      `${JSON.stringify({ TaskName: 'rest' })}\n`,
+    )
+    expect(await planTaskBoldStubCleanup(root, fs)).toEqual([])
+  })
+
+  test('counts symlinked (DataLad annex) bold images; ignores other entities', async () => {
+    await mkdir(join(root, 'sub-01', 'func'), { recursive: true })
+    await writeFile(join(root, 'annexed.nii.gz'), '')
+    await symlink(
+      join(root, 'annexed.nii.gz'),
+      join(root, 'sub-01', 'func', 'sub-01_task-motor_acq-a_bold.nii.gz'),
+    )
+    for (const name of [
+      'task-motor_acq-a_bold.json',
+      'task-motor_acq-a_run-01_bold.json',
+    ]) {
+      await writeFile(
+        join(root, name),
+        `${JSON.stringify({ TaskName: 'motor' })}\n`,
+      )
+    }
+    expect(await planTaskBoldStubCleanup(root, nodeFsPostPassAdapter)).toEqual(
+      [],
+    )
+  })
+
   test('preserves user-curated sidecar with extra fields (e.g. RepetitionTime)', async () => {
     await writeAcqRun('rest', 'dualecho')
     await writeFile(
@@ -346,6 +399,11 @@ describe('planTaskBoldStubCleanup', () => {
         'func',
         'sub-01_task-rest_acq-dualecho_bold.nii.gz',
       ),
+      '',
+    )
+    await mkdir(join(root, 'sub-01', 'func'), { recursive: true })
+    await writeFile(
+      join(root, 'sub-01', 'func', 'sub-01_task-rest_bold.nii.gz'),
       '',
     )
     await writeFile(

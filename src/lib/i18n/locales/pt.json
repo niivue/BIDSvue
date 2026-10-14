@@ -108,6 +108,7 @@
     "postPassFailures": "{n, plural, one {# sessão precisou} other {# sessões precisaram}} de atenção após a importação. Os DICOMs foram convertidos, mas as sessões listadas falharam durante a etapa pós-importação (agregação de scans.tsv ou pareamento de fmap). O conjunto de dados está no disco; você ainda pode abri-lo a partir da tela inicial.",
     "autoOpenFailed": "A importação foi concluída, mas a abertura automática do novo conjunto de dados falhou: {detail}. Você pode abri-lo a partir da tela inicial.",
     "partialConversion": "O dcm2niix converteu a maioria das séries, mas ignorou uma ou mais (normalmente um localizador com orientações de fatia incompatíveis ou uma série com volumes incompletos). O pós-processamento foi executado no que foi gravado em disco; os detalhes abaixo mostram quais séries foram ignoradas.",
+    "invalidProtocols": "{n, plural, one {# série foi salva} other {# séries foram salvas}} em Unknown/ e ocultada(s) pelo .bidsignore, geralmente porque o ProtocolName não é ReproIn válido (sem um token tipo-sufixo como func-bold). Renomeie o protocolo no scanner (por exemplo, func-bold_task-motor_acq-x_dir-PA); cada linha abaixo indica o motivo e o SeriesInstanceUID.",
     "partialConversionAcknowledge": "Abrir conjunto de dados",
     "error": {
       "nameSeparators": "O nome do conjunto de dados não pode conter barras.",
@@ -798,6 +799,9 @@
     "validatorSilentHint": "Visualizar > Mensagens do validador > Silencioso está ativado. Mude para Apenas erros ou Erros e avisos para ver contadores aqui.",
     "nextError": "Próximo erro",
     "nextErrorHint": "Revelar o próximo arquivo com um erro do validador",
+    "validatorCopyHint": "Copiar todas as mensagens do validador para a área de transferência como Markdown",
+    "validatorCopied": "Copiado",
+    "validatorCopyFailed": "Falha ao copiar",
     "validatorSkipped": "{n, plural, one {# não obtido ignorado} other {# não obtidos ignorados}}",
     "validatorSkippedTitle": "Arquivos excluídos da validação porque seu conteúdo não foi obtido. Obtenha-os com DataLad para incluí-los.",
     "validatorSkippedFetchHint": "Clique para obter cada arquivo de escopo do validador não obtido com DataLad ({bytes}).",

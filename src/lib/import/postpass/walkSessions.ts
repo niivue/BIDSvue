@@ -5,7 +5,8 @@
 //
 // Each emitted path is one of:
 //   - `<root>/sub-XX/ses-YY`     when the subject has explicit sessions
-//   - `<root>/sub-XX`            when the subject has no sessions
+//   - `<root>/sub-XX`            when the subject has no sessions, or
+//                                session-less datatype dirs beside ses-*
 //
 // Either path is the right "session directory" for both the scans.tsv
 // aggregator and the fmap pairing pass.
@@ -34,14 +35,14 @@ export async function walkSessions(
     } catch {
       continue
     }
-    const sesDirs = subEntries
-      .filter((e) => e.isDirectory && e.name.startsWith('ses-'))
+    const childDirs = subEntries.filter((e) => e.isDirectory)
+    const sesDirs = childDirs
+      .filter((e) => e.name.startsWith('ses-'))
       .sort((a, b) => a.name.localeCompare(b.name))
-    if (sesDirs.length > 0) {
-      for (const ses of sesDirs) sessions.push(`${subPath}/${ses.name}`)
-    } else {
-      sessions.push(subPath)
-    }
+    for (const ses of sesDirs) sessions.push(`${subPath}/${ses.name}`)
+    // Session-less datatype dirs beside ses-* (e.g. a rescued Unknown/ series
+    // got ses-<date> before session backfill) are still a session.
+    if (sesDirs.length < childDirs.length) sessions.push(subPath)
   }
   return sessions
 }
