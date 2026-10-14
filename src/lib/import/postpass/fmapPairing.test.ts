@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   b0Identifier,
   findFmapGroups,
@@ -13,6 +12,7 @@ import {
   stripFmapSuffix,
 } from './fmapPairing'
 import { buildSyntheticNiftiHeader } from './niftiHeader'
+import { nodePostPassFs } from './nodeFs'
 
 describe('stripFmapSuffix', () => {
   test('strips _dir-XX for EPI pairs', () => {
@@ -129,7 +129,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: shims,
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       // 2 fmap members + 1 target = 3 edits.
       expect(edits.length).toBe(3)
       const editedPaths = edits.map((e) => toPosix(e.path)).sort()
@@ -178,7 +178,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: ['999', '0', '0', '0', '0', '0', '0', '0'],
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       // No usedGroups => no fmap edits and no target edits.
       expect(edits).toEqual([])
     } finally {
@@ -225,7 +225,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: shims,
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       const targetEdit = edits.find((e) => e.path.endsWith('_bold.json'))
       expect(targetEdit?.content).toContain('"B0FieldSource"')
       // The identifier comes from the stripped prefix -- group 2's
@@ -263,7 +263,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: shims,
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       const targetEdit = edits.find((e) => e.path.endsWith('_bold.json'))
       expect(targetEdit?.content).toContain('"run-2"')
       expect(edits.some((e) => e.path.endsWith('_epi.json'))).toBe(false)
@@ -298,7 +298,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: shims,
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       const sbrefEdit = edits.find((e) => e.path.endsWith('_sbref.json'))
       expect(sbrefEdit?.content).toContain('"B0FieldSource"')
       // The epi pair is one group -> both members carry the identifier.
@@ -324,7 +324,7 @@ describe('planB0FieldEdits', () => {
       await writeFmapFixture(fmap, 'sub-01_dir-AP_epi', sc)
       await writeFmapFixture(fmap, 'sub-01_dir-PA_epi', sc)
       await writeFmapFixture(func, 'sub-01_task-rest_noRF', sc)
-      expect(await planB0FieldEdits(ses, nodeFsPostPassAdapter)).toEqual([])
+      expect(await planB0FieldEdits(ses, nodePostPassFs)).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -364,7 +364,7 @@ describe('planB0FieldEdits', () => {
         ShimSetting: shims,
       })
 
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       const boldEdit = edits.find((e) => e.path.endsWith('_bold.json'))
       const sbrefEdit = edits.find((e) => e.path.endsWith('_sbref.json'))
       const idOf = (content: string | undefined): string => {
@@ -385,7 +385,7 @@ describe('planB0FieldEdits', () => {
     try {
       const ses = join(root, 'sub-01')
       await mkdir(join(ses, 'anat'), { recursive: true })
-      const edits = await planB0FieldEdits(ses, nodeFsPostPassAdapter)
+      const edits = await planB0FieldEdits(ses, nodePostPassFs)
       expect(edits).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })

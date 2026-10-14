@@ -1,0 +1,8 @@
+{
+  "$comment": "dcm2niix exit codes that still leave usable output (dcm2niix/console/nii_dicom.h; reproinx.py PARTIAL_OK). Read by src-tauri/src/process.rs (include_str!) and src/lib/neuroflow/nodeExecutor.ts, so the window and the headless ingest agree.",
+  "tools": ["dcm2niix-reproin", "pet2bids"],
+  "codes": {
+    "8": "some series failed (kEXIT_SOME_OK_SOME_BAD)",
+    "10": "incomplete volumes in one or more series (kEXIT_INCOMPLETE_VOLUMES_FOUND)"
+  }
+}

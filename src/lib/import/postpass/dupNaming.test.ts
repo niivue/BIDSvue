@@ -4,10 +4,10 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { runDupNaming } from './dupNaming'
+import { nodePostPassFs } from './nodeFs'
 import { PROVENANCE_TSV_NAME } from './provenance'
 
 const tempDirs: string[] = []
@@ -106,7 +106,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'dup naming' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.renamed).toBe(1)
@@ -156,7 +156,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'dup naming' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(out.renamed).toBe(0)
     // The part-resolved files are untouched; no __dup family appears.
@@ -203,7 +203,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'dup naming' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(out.renamed).toBe(0)
     expect(out.skipped).toBe(1)
@@ -236,7 +236,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'dup naming acq guard' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.renamed).toBe(0)
@@ -252,7 +252,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'empty' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
     expect(out.renamed).toBe(0)
   })
@@ -296,7 +296,7 @@ describe('runDupNaming', () => {
       { opType: 'import', summary: 'stale tmp dup naming' },
       nodeMutateFs,
     )
-    const out = await runDupNaming(root, ctx, nodeFsPostPassAdapter)
+    const out = await runDupNaming(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(out.renamed).toBe(0)

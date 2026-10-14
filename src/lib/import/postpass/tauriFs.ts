@@ -3,7 +3,7 @@
 // The implementation is intentionally narrow: bun:test can't drive
 // Tauri's plugin layer, so there's nothing to unit-test here -- the
 // orchestrator-level coverage lives in postpass/*.test.ts via the
-// node:fs-backed `nodeFsPostPassAdapter`.
+// node:fs-backed `nodePostPassFs`.
 //
 // Two non-obvious behaviours:
 //

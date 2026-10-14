@@ -4,9 +4,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beginOperation } from '$lib/mutate/backup'
-import { nodeMutateFs } from '$lib/mutate/testFs'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import { stripSbrefGradients } from './stripSbref'
 
 const roots: string[] = []
@@ -50,7 +50,7 @@ describe('stripSbrefGradients', () => {
       { opType: 'import', summary: 'strip sbref' },
       nodeMutateFs,
     )
-    const removed = await stripSbrefGradients(ses, ctx, nodeFsPostPassAdapter)
+    const removed = await stripSbrefGradients(ses, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(removed).toBe(2)
@@ -77,7 +77,7 @@ describe('stripSbrefGradients', () => {
     const removed = await stripSbrefGradients(
       join(root, 'sub-01', 'ses-1'),
       ctx,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
     )
     await ctx.commit()
     expect(removed).toBe(0)

@@ -4,9 +4,9 @@ import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { readNiftiHeaderBytes } from './headerReader'
 import { buildSyntheticNiftiHeader, parseNiftiHeader } from './niftiHeader'
+import { nodePostPassFs } from './nodeFs'
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'bidsvue-postpass-hdr-'))
@@ -26,10 +26,7 @@ describe('readNiftiHeaderBytes', () => {
       const fullVolume = new Uint8Array(348 + 1024)
       fullVolume.set(hdr, 0)
       await writeFile(`${stem}.nii.gz`, gzipSync(Buffer.from(fullVolume)))
-      const bytes = await readNiftiHeaderBytes(
-        `${stem}.json`,
-        nodeFsPostPassAdapter,
-      )
+      const bytes = await readNiftiHeaderBytes(`${stem}.json`, nodePostPassFs)
       expect(bytes).not.toBeNull()
       expect(bytes?.length).toBe(348)
       if (bytes === null) throw new Error('expected bytes')
@@ -50,10 +47,7 @@ describe('readNiftiHeaderBytes', () => {
         sformCode: 2,
       })
       await writeFile(`${stem}.nii`, Buffer.from(hdr))
-      const bytes = await readNiftiHeaderBytes(
-        `${stem}.json`,
-        nodeFsPostPassAdapter,
-      )
+      const bytes = await readNiftiHeaderBytes(`${stem}.json`, nodePostPassFs)
       expect(bytes).not.toBeNull()
       if (bytes === null) throw new Error('expected bytes')
       const parsed = parseNiftiHeader(bytes)
@@ -69,7 +63,7 @@ describe('readNiftiHeaderBytes', () => {
     try {
       const bytes = await readNiftiHeaderBytes(
         join(dir, 'sub-01_T1w.json'),
-        nodeFsPostPassAdapter,
+        nodePostPassFs,
       )
       expect(bytes).toBeNull()
     } finally {
@@ -95,10 +89,7 @@ describe('readNiftiHeaderBytes', () => {
       full.set(payload, 348)
       await writeFile(`${stem}.nii.gz`, gzipSync(Buffer.from(full)))
       const t0 = Date.now()
-      const bytes = await readNiftiHeaderBytes(
-        `${stem}.json`,
-        nodeFsPostPassAdapter,
-      )
+      const bytes = await readNiftiHeaderBytes(`${stem}.json`, nodePostPassFs)
       const dt = Date.now() - t0
       expect(bytes?.length).toBe(348)
       // Soft latency check: 5 MB file should still resolve fast since we

@@ -1,16 +1,12 @@
-// Test helper: node:fs-backed PostPassFs adapter. Used by every bun:test
-// suite in postpass/. The leading underscores keep this file out of the
-// production module graph (Vite + svelte-kit pass-through filter would
-// exclude it anyway given the `.test.ts` peers, but explicit > implicit).
-//
-// This module is NOT importable from $lib/* at runtime; it's only used
-// from sibling *.test.ts files.
+// node:fs-backed PostPassFs adapter, used by the headless NeuroFlow
+// ingest (`scripts/neuroflow-ingest.ts`) and by every bun:test suite in
+// postpass/. The window uses `tauriPostPassFs`.
 
 import { createReadStream, promises as nodeFs } from 'node:fs'
 import { createGunzip } from 'node:zlib'
 import type { PostPassDirEntry, PostPassFs } from './fs'
 
-export const nodeFsPostPassAdapter: PostPassFs = {
+export const nodePostPassFs: PostPassFs = {
   async exists(path: string): Promise<boolean> {
     try {
       await nodeFs.access(path)

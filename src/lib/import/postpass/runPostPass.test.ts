@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { beginOperation } from '$lib/mutate/backup'
+import { nodeMutateFs } from '$lib/mutate/nodeFs'
 import { readOperationsLog } from '$lib/mutate/operationsLog'
-import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
-import { nodeFsPostPassAdapter } from './__testFs'
 import { buildSyntheticNiftiHeader } from './niftiHeader'
+import { nodePostPassFs } from './nodeFs'
 import { PartEntitiesIntegrityError } from './partEntities'
 import {
   computeEffectiveExcludeTopLevel,
@@ -106,7 +106,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'test import' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sessionCount).toBe(1)
@@ -188,7 +188,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'no-session import' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.scansTsvWrites).toBe(1)
@@ -232,7 +232,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'task-bold stub test' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.taskBoldStubsRemoved).toBe(1)
@@ -265,7 +265,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'task-bold curated test' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.taskBoldStubsRemoved).toBe(0)
@@ -309,7 +309,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'backfill orchestrator' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     // One subject backfilled into ses-1.
@@ -379,7 +379,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'description rewrite' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter, {
+    const result = await runPostPass(root, ctx, nodePostPassFs, {
       description: {
         license: 'CC0',
         authors: ['Ada Lovelace', 'Grace Hopper'],
@@ -424,7 +424,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'description noop' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter, {
+    const result = await runPostPass(root, ctx, nodePostPassFs, {
       // license: null + empty/blank authors → no override
       description: { license: null, authors: ['', '   '] },
     })
@@ -489,9 +489,9 @@ describe('runPostPass', () => {
         return typeof value === 'function' ? value.bind(target) : value
       },
     }) as typeof real
-    await expect(
-      runPostPass(root, ctx, nodeFsPostPassAdapter),
-    ).rejects.toBeInstanceOf(PartEntitiesIntegrityError)
+    await expect(runPostPass(root, ctx, nodePostPassFs)).rejects.toBeInstanceOf(
+      PartEntitiesIntegrityError,
+    )
     await real.rollback(new Error('test')).catch(() => {})
   })
 
@@ -504,7 +504,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'empty' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.sessionCount).toBe(0)
@@ -559,7 +559,7 @@ describe('runPostPass', () => {
       { opType: 'import', summary: 'multi-echo phase' },
       nodeMutateFs,
     )
-    const result = await runPostPass(root, ctx, nodeFsPostPassAdapter)
+    const result = await runPostPass(root, ctx, nodePostPassFs)
     await ctx.commit()
 
     expect(result.failures).toEqual([])
@@ -567,7 +567,7 @@ describe('runPostPass', () => {
     expect(result.dupRenames).toBe(0) // the consumed collision group is NOT dup-renamed
     expect(result.bidsignoreLinesAdded).toBe(0) // nothing left for .bidsignore
 
-    const names = (await nodeFsPostPassAdapter.readDir(func))
+    const names = (await nodePostPassFs.readDir(func))
       .filter((e) => e.isFile && e.name.endsWith('.nii.gz'))
       .map((e) => e.name)
       .sort()
@@ -579,14 +579,14 @@ describe('runPostPass', () => {
     ])
 
     // Exactly one run-level events.tsv, shared across echoes + parts.
-    const events = (await nodeFsPostPassAdapter.readDir(func))
+    const events = (await nodePostPassFs.readDir(func))
       .filter((e) => e.name.endsWith('_events.tsv'))
       .map((e) => e.name)
     expect(events).toEqual(['sub-01_ses-1_task-rest_events.tsv'])
 
     // BIDS requires Units on phase data; Siemens phase → "arbitrary".
     const phaseJson = JSON.parse(
-      await nodeFsPostPassAdapter.readTextFile(
+      await nodePostPassFs.readTextFile(
         `${func}/sub-01_ses-1_task-rest_echo-1_part-phase_bold.json`,
       ),
     )

@@ -4,13 +4,13 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   bidsRoots,
   discoverBidsRoots,
   discoverBidsRootsForProduced,
   walkSubjects,
 } from './bidsRoots'
+import { nodePostPassFs } from './nodeFs'
 
 // These helpers walk/join with POSIX separators internally (the product is
 // POSIX-canonical; production feeds them a `normalizeSeparators`-ed destDir).
@@ -63,7 +63,7 @@ describe('walkSubjects', () => {
     await mkdir(join(root, 'StudyA', 'sub-02'), { recursive: true })
     await mkdir(join(root, 'StudyB', 'sub-10'), { recursive: true })
 
-    const subs = await walkSubjects(root, nodeFsPostPassAdapter)
+    const subs = await walkSubjects(root, nodePostPassFs)
     expect(subs).toEqual([
       P(root, 'StudyA', 'sub-01'),
       P(root, 'StudyA', 'sub-02'),
@@ -75,7 +75,7 @@ describe('walkSubjects', () => {
     await mkdir(join(root, 'sub-01'), { recursive: true })
     await mkdir(join(root, 'sub-02'), { recursive: true })
 
-    expect(await walkSubjects(root, nodeFsPostPassAdapter)).toEqual([
+    expect(await walkSubjects(root, nodePostPassFs)).toEqual([
       P(root, 'sub-01'),
       P(root, 'sub-02'),
     ])
@@ -87,7 +87,7 @@ describe('walkSubjects', () => {
       recursive: true,
     })
 
-    expect(await walkSubjects(root, nodeFsPostPassAdapter)).toEqual([
+    expect(await walkSubjects(root, nodePostPassFs)).toEqual([
       P(root, 'StudyA', 'sub-01'),
     ])
   })
@@ -96,17 +96,14 @@ describe('walkSubjects', () => {
     await mkdir(join(root, 'sub-01', 'derivatives', 'sub-02'), {
       recursive: true,
     })
-    expect(await walkSubjects(root, nodeFsPostPassAdapter)).toEqual([
+    expect(await walkSubjects(root, nodePostPassFs)).toEqual([
       P(root, 'sub-01'),
     ])
   })
 
   test('handles missing destDir gracefully', async () => {
     expect(
-      await walkSubjects(
-        '/nonexistent-bidsvue-postpass-test',
-        nodeFsPostPassAdapter,
-      ),
+      await walkSubjects('/nonexistent-bidsvue-postpass-test', nodePostPassFs),
     ).toEqual([])
   })
 
@@ -119,15 +116,11 @@ describe('walkSubjects', () => {
     await mkdir(join(root, 'Cd', 'sub-crlab'), { recursive: true })
     await mkdir(join(root, 'SophieAP', 'TMS', 'sub-01'), { recursive: true })
 
-    const all = await walkSubjects(root, nodeFsPostPassAdapter)
+    const all = await walkSubjects(root, nodePostPassFs)
     expect(all).toContain(P(root, 'Cd', 'sub-crlab'))
     expect(all).toContain(P(root, 'SophieAP', 'TMS', 'sub-01'))
 
-    const filtered = await walkSubjects(
-      root,
-      nodeFsPostPassAdapter,
-      new Set(['Cd']),
-    )
+    const filtered = await walkSubjects(root, nodePostPassFs, new Set(['Cd']))
     expect(filtered).toEqual([P(root, 'SophieAP', 'TMS', 'sub-01')])
   })
 
@@ -136,7 +129,7 @@ describe('walkSubjects', () => {
     // should NOT be filtered — only depth-1 children of destDir
     // participate in the snapshot.
     await mkdir(join(root, 'StudyA', 'Cd', 'sub-01'), { recursive: true })
-    const out = await walkSubjects(root, nodeFsPostPassAdapter, new Set(['Cd']))
+    const out = await walkSubjects(root, nodePostPassFs, new Set(['Cd']))
     expect(out).toEqual([P(root, 'StudyA', 'Cd', 'sub-01')])
   })
 })
@@ -154,7 +147,7 @@ describe('discoverBidsRoots', () => {
     await mkdir(join(root, 'StudyA', 'sub-01'), { recursive: true })
     await mkdir(join(root, 'StudyB', 'sub-10'), { recursive: true })
 
-    expect(await discoverBidsRoots(root, nodeFsPostPassAdapter)).toEqual([
+    expect(await discoverBidsRoots(root, nodePostPassFs)).toEqual([
       P(root, 'StudyA'),
       P(root, 'StudyB'),
     ])
@@ -186,7 +179,7 @@ describe('discoverBidsRootsForProduced', () => {
 
     const discovered = await discoverBidsRootsForProduced(
       root,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
       [newFile],
     )
     expect(discovered).toEqual([P(root, 'NewStudy')])
@@ -219,7 +212,7 @@ describe('discoverBidsRootsForProduced', () => {
 
     const discovered = await discoverBidsRootsForProduced(
       root,
-      nodeFsPostPassAdapter,
+      nodePostPassFs,
       [newFile],
     )
     expect(discovered).toEqual([P(root, 'crlab', 'AgingBrain')])
@@ -228,7 +221,7 @@ describe('discoverBidsRootsForProduced', () => {
   test('empty produced returns []', async () => {
     await mkdir(join(root, 'StudyA', 'sub-01'), { recursive: true })
     expect(
-      await discoverBidsRootsForProduced(root, nodeFsPostPassAdapter, []),
+      await discoverBidsRootsForProduced(root, nodePostPassFs, []),
     ).toEqual([])
   })
 
@@ -238,9 +231,7 @@ describe('discoverBidsRootsForProduced', () => {
     const strayFile = join(root, 'derivatives', 'log.txt')
     await writeFile(strayFile, 'hi')
     expect(
-      await discoverBidsRootsForProduced(root, nodeFsPostPassAdapter, [
-        strayFile,
-      ]),
+      await discoverBidsRootsForProduced(root, nodePostPassFs, [strayFile]),
     ).toEqual([])
   })
 })

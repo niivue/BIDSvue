@@ -17,6 +17,25 @@ bun tauri dev
 
 Prereqs: [Bun](https://bun.sh), the [Rust toolchain](https://www.rust-lang.org/tools/install), and Tauri 2's platform tools — Xcode CLT on macOS, MSVC + WebView2 on Windows, `webkit2gtk-4.1` on Linux ([Tauri prereqs](https://v2.tauri.app/start/prerequisites/)). The first `tauri dev` builds the Rust shell (~few minutes); subsequent runs are fast. `bun install` auto-initializes the `datalad-rs` git submodule.
 
+## Headless import (NeuroFlow)
+
+`bun run neuroflow-ingest` converts a DICOM folder to BIDS without opening a window, using the same import pipeline and post-pass as the app. It takes a NeuroFlow session or plain flags:
+
+```bash
+# As a NeuroFlow step: reads $NEUROFLOW_SESSION/context.json (inputs.dicom_dir, outputDir)
+bun run neuroflow-ingest --neuroflow-session "$NEUROFLOW_SESSION"
+
+# Plain
+bun run neuroflow-ingest --dicom /data/dicom --out /data/out --importer dcm2niix-reproin --json
+```
+
+It writes `<out>/bids` and `<out>/neuroflow.handoff.json`, and appends to `provenance.jsonl` when run in a session. Importers: dcm2niix-reproin (default), pet2bids, heudiconv, dcm2bids. dcm2niix comes from `--dcm2niix`, `$DCM2NIIX`, the bundled sidecar in `src-tauri/binaries`, or `PATH`. Run with `--help` for every flag. Exit codes: 0 done, 1 import failed or its output already exists, 2 usage error. The script runs `svelte-kit sync` first, so it works in a fresh clone after `bun install`.
+
+- **No undo.** Unlike an import in the window, a headless run is not recorded in an `operations.log` and cannot be reverted. Its working state goes to a temp directory that is deleted when the run ends. To redo a run, delete `<out>` and run again. The CLI refuses to start if `<out>/bids` or the staging folder `<out>/bidsvue-import` (left by a failed run) already exists.
+- **Heuristics are code.** heudiconv runs a heuristic `.py` file as Python. A heuristic file given in a session's `context.json` (`inputs.heuristic`) is refused unless you pass `--allow-heuristic-file`; a file named with `--heuristic` on the command line, or a built-in name such as `reproin`, needs no flag. A dcm2bids `config` is a JSON mapping, not code.
+
+`bun run neuroflow-ingest --check` runs no import: it checks that dcm2niix starts and prints one JSON line (`{"ready": true, "dcm2niix": …, "dcm2niixVersion": …, "problems": []}`), exiting 0 when ready and 1 when not. NeuroFlow's Environment panel runs it before offering the tool.
+
 ## More
 
 - [AGENTS.md](AGENTS.md) — working guide for AI coding (stack, build, domain rules)

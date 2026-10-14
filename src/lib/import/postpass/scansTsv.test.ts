@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodePostPassFs } from './nodeFs'
 import {
   acqIso,
   aggregateScansTsv,
@@ -195,7 +195,7 @@ describe('aggregateScansTsv', () => {
       )
       await writeFile(join(func, 'sub-01_ses-01_task-rest_bold.nii.gz'), '')
 
-      const result = await aggregateScansTsv(ses, nodeFsPostPassAdapter)
+      const result = await aggregateScansTsv(ses, nodePostPassFs)
       expect(result).not.toBeNull()
       expect(result?.path).toBe(`${ses}/sub-01_ses-01_scans.tsv`)
       const lines = result?.content.split('\n') ?? []
@@ -220,7 +220,7 @@ describe('aggregateScansTsv', () => {
       await mkdir(join(dir, 'sub-01'), { recursive: true })
       const result = await aggregateScansTsv(
         join(dir, 'sub-01'),
-        nodeFsPostPassAdapter,
+        nodePostPassFs,
       )
       expect(result).toBeNull()
     } finally {
@@ -237,7 +237,7 @@ describe('aggregateScansTsv', () => {
       await writeFile(join(anat, 'sub-01_T1w.json'), JSON.stringify({}))
       await writeFile(join(anat, 'sub-01_T1w.nii.gz'), '')
 
-      const result = await aggregateScansTsv(ses, nodeFsPostPassAdapter)
+      const result = await aggregateScansTsv(ses, nodePostPassFs)
       expect(result?.content).toContain('anat/sub-01_T1w.nii.gz\tn/a')
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -262,7 +262,7 @@ describe('aggregateScansTsv', () => {
       )
       await writeFile(join(anat, 'sub-01_T2w.nii.gz'), '')
 
-      const result = await aggregateScansTsv(ses, nodeFsPostPassAdapter)
+      const result = await aggregateScansTsv(ses, nodePostPassFs)
       expect(result?.content).not.toContain('T1w.nii')
       expect(result?.content).toContain('anat/sub-01_T2w.nii.gz')
     } finally {

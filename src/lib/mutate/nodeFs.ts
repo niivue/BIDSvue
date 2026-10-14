@@ -1,46 +1,46 @@
-// Shared node:fs adapter for `MutateFs`-driven unit tests.
+// node:fs implementation of `MutateFs`.
 //
-// Both `backup.test.ts` and the M6 `rename/applyPlan.test.ts` need a
-// node:fs implementation of `MutateFs` so they can run under bun:test
-// without spinning up Tauri. The two test files previously defined
-// near-identical copies; this module is the single source of truth.
+// The headless NeuroFlow ingest (`scripts/neuroflow-ingest.ts`) runs the
+// import orchestrator under Bun with no Tauri host, and the bun:test
+// suites drive the same code against a temp directory; both use this
+// adapter. The window keeps using `tauriMutateFs` in `backup.ts`, whose
+// writes route through Rust for fsync and scope checks.
 //
-// The `exists` implementation handles two error shapes:
-//
-//   - ENOENT → the path doesn't exist.
-//   - EISDIR → directories throw EISDIR from `readFile`. We treat that
-//     as "exists" so the adapter answers honestly for directories.
-//
-// Any other error is re-thrown.
-//
-// **Only imported from test files.** The Tauri plugin-fs implementation
-// (`tauriMutateFs` in `backup.ts`) is the one production code uses.
+// Durability differences from the Tauri adapter: `appendLogLine` and
+// `writeTextAtomicAppData` are plain appends/writes (no fsync). The
+// no-replace rename is modelled with link+unlink and falls back to a plain
+// rename where a volume has no hard links (exFAT, SMB); finalizing a new
+// file uses an exclusive copy, which works everywhere.
 
 import {
+  constants,
   appendFile,
   chmod,
   copyFile,
   link,
+  lstat,
   mkdir,
   stat as nodeStat,
   readFile,
   readdir,
   rename,
   rm,
+  rmdir,
   writeFile,
 } from 'node:fs/promises'
 import type { MutateFs } from './backup'
 
 export const nodeMutateFs: MutateFs = {
   async exists(path) {
+    // `stat` rather than reading the file: the headless ingest asks this
+    // about multi-gigabyte NIfTIs. Like plugin-fs, a dangling symlink
+    // reads as absent.
     try {
-      await readFile(path)
+      await nodeStat(path)
       return true
     } catch (e) {
       const err = e as NodeJS.ErrnoException
-      if (err.code === 'ENOENT') return false
-      // readFile on a directory throws EISDIR; that means it exists.
-      if (err.code === 'EISDIR') return true
+      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return false
       throw e
     }
   },
@@ -113,9 +113,11 @@ export const nodeMutateFs: MutateFs = {
   },
   async finalizeNewFileNoReplace(src, dst) {
     // node has no no-replace rename on POSIX. Model the production
-    // contract with link+unlink: link throws EEXIST if dst exists; on
-    // success src is removed so callers never record an orphan temp.
-    await link(src, dst)
+    // contract with an exclusive copy, then remove src: COPYFILE_EXCL
+    // throws EEXIST if dst exists, and on success src is removed so
+    // callers never record an orphan temp. Not link(): exFAT and SMB
+    // volumes have no hard links.
+    await copyFile(src, dst, constants.COPYFILE_EXCL)
     try {
       await rm(src, { force: false })
     } catch (err) {
@@ -128,6 +130,20 @@ export const nodeMutateFs: MutateFs = {
     // (the production Tauri plugin-fs::remove is also forgiving of
     // ENOENT). The `recursive` option lets the M8 import-undo path
     // collapse the imported dataset wholesale.
+    // plugin-fs removes an empty directory without `recursive` (the
+    // NeuroFlow relocation prunes emptied locator folders that way);
+    // node's rm refuses, so use rmdir for that case.
+    if (options?.recursive !== true) {
+      try {
+        if ((await lstat(path)).isDirectory()) {
+          await rmdir(path)
+          return
+        }
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw e
+      }
+    }
     await rm(path, { recursive: options?.recursive ?? false, force: true })
   },
 }

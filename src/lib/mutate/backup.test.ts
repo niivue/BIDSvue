@@ -24,7 +24,7 @@ import {
   generateOperationId,
   renamePath,
 } from './backup'
-import { nodeMutateFs as nodeFs } from './testFs'
+import { nodeMutateFs as nodeFs } from './nodeFs'
 
 /**
  * Wrap a real fs adapter and force one operation to throw. `targetMatch`
