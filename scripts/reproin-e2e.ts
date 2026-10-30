@@ -74,8 +74,9 @@ function statePaths(name: string) {
 }
 
 function diff(a: string, b: string): string {
-  return spawnSync('python3', ['-I', compare, a, b], { encoding: 'utf8' })
-    .stdout
+  const r = spawnSync('python3', ['-I', compare, a, b], { encoding: 'utf8' })
+  // A comparator failure (exit 2, empty stdout) must never read as identical.
+  return r.status === 0 ? '' : r.stdout || r.stderr || `compare.py exited ${r.status}`
 }
 
 let failed = false
