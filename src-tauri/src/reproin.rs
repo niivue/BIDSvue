@@ -71,7 +71,15 @@ fn walk(dir: &Path, rel: &str, exclude: &[String], v: &mut Vfs) -> std::io::Resu
         let e = e?;
         let name = e.file_name().to_string_lossy().into_owned();
         if rel.is_empty() && exclude.contains(&name) {
-            v.add_dir(&name);
+            // Pre-existing user data: visible to existence checks with its real
+            // kind, never read, and never a subject (an empty `sub-*` would make
+            // destDir a BIDS root and trigger scaffolding there).
+            let ft = e.file_type()?;
+            if ft.is_dir() && !name.starts_with("sub-") {
+                v.add_dir(&name);
+            } else if !ft.is_dir() {
+                v.add_file(&name, e.metadata()?.len(), Data::Opaque);
+            }
             continue;
         }
         let r = if rel.is_empty() {
@@ -203,6 +211,38 @@ mod tests {
             h.extend([v, v]);
         }
         h
+    }
+
+    #[test]
+    fn excluded_files_and_subjects_never_become_a_root() {
+        let t = tempfile::tempdir().unwrap();
+        let mine = t.path().join("crlab/generic/sub-01/anat");
+        fs::create_dir_all(&mine).unwrap();
+        fs::write(mine.join("sub-01_T1w.json"), "{}").unwrap();
+        fs::create_dir_all(t.path().join("sub-01")).unwrap();
+        fs::write(t.path().join("participants.tsv"), "x").unwrap();
+        fs::write(t.path().join("dataset_description.json"), "{}").unwrap();
+        let ex = [
+            "sub-01".into(),
+            "participants.tsv".into(),
+            "dataset_description.json".into(),
+        ];
+        let p = plan_tree(t.path(), &ex, &opts()).unwrap();
+        assert_eq!(p["roots"], serde_json::json!(["crlab/generic"]));
+        assert_eq!(p["failures"], serde_json::json!([]));
+        let paths =
+            p["ops"].as_array().unwrap().iter().flat_map(|o| {
+                ["path", "from", "to"].map(|k| o[k].as_str().unwrap_or("").to_string())
+            });
+        assert!(
+            paths
+                .clone()
+                .all(|x| x.is_empty() || x.starts_with("crlab/")),
+            "ops stay inside the import"
+        );
+        assert!(paths
+            .into_iter()
+            .any(|x| x == "crlab/generic/participants.tsv"));
     }
 
     #[test]

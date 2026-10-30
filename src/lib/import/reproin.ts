@@ -111,8 +111,14 @@ export async function runReproinPostPass(
   if (plan.fatal !== null) {
     throw new PostPassIntegrityError(`reproin post-pass aborted: ${plan.fatal}`)
   }
+  const excluded = new Set(opts.excludeTopLevel ?? [])
   const abs = (rel: string) => {
     if (unsafeRel(rel)) throw new Error(`reproin: unsafe planned path "${rel}"`)
+    if (excluded.has(rel.split('/')[0])) {
+      throw new PostPassIntegrityError(
+        `reproin: plan touches pre-existing "${rel}"`,
+      )
+    }
     return `${destDir}/${rel}`
   }
   const why = { kind: 'reproin-post-pass' }
@@ -147,7 +153,12 @@ export async function runReproinPostPass(
           await ctx.fs.remove(temp).catch(() => {})
           throw err
         }
-        await ctx.adoptNewFile(temp, target, why)
+        try {
+          await ctx.adoptNewFile(temp, target, why)
+        } catch (err) {
+          await ctx.fs.remove(temp).catch(() => {})
+          throw err
+        }
         break
       }
       default:
