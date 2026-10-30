@@ -17,7 +17,7 @@
     getSidecarSupported,
   } from '$lib/deface/capabilities'
   import { probeNiftiDimensions } from '$lib/deface/headerProbe'
-  import { tauriPostPassFs } from '$lib/import/postpass/tauriFs'
+  import { tauriPostPassFs } from '$lib/util/tauriReadFs'
   import {
     DEFACE_TOOLS,
     type DefaceToolId,

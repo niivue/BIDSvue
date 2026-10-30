@@ -2,8 +2,8 @@
 // WebKit's built-in `DecompressionStream("gzip")` for stream-gunzip.
 // The implementation is intentionally narrow: bun:test can't drive
 // Tauri's plugin layer, so there's nothing to unit-test here -- the
-// orchestrator-level coverage lives in postpass/*.test.ts via the
-// node:fs-backed `nodeFsPostPassAdapter`.
+// orchestrator-level coverage uses the node:fs-backed
+// `nodeFsPostPassAdapter` (test-utils/nodeReadFs.ts).
 //
 // Two non-obvious behaviours:
 //
@@ -22,7 +22,7 @@ import {
   resolveSymlinkIfPresent,
 } from '$lib/util/readTextFile'
 import { type DirEntry, open, readDir } from '@tauri-apps/plugin-fs'
-import type { PostPassDirEntry, PostPassFs } from './fs'
+import type { PostPassDirEntry, PostPassFs } from './readFs'
 
 const COMPRESSED_CHUNK = 4096
 

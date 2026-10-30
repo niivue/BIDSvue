@@ -26,7 +26,7 @@ import { openEventsCloneDialog } from '$lib/components/eventsCloneDialogEvents'
 import { openRenameDialog } from '$lib/components/renameDialogEvents'
 import { groupPrimaryPath } from '$lib/components/treeHelpers'
 import { extractTaskLabel } from '$lib/events/eventsPaths'
-import { mergeTaskNameIntoSidecar } from '$lib/import/postpass/rootScaffolding'
+import { mergeTaskNameIntoSidecar } from '$lib/import/scaffolding'
 import { eventsRowActions } from '$lib/menu/eventsMenu'
 import {
   classifyEntityFolder,

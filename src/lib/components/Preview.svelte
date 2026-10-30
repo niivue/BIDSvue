@@ -28,7 +28,7 @@
   } from '$lib/util/fileFormat'
   import { posixShellQuote } from '$lib/util/paths'
   import { type NiftiKind, probeNiftiKind } from '$lib/deface/headerProbe'
-  import { tauriPostPassFs } from '$lib/import/postpass/tauriFs'
+  import { tauriPostPassFs } from '$lib/util/tauriReadFs'
   import ModalShell from './ModalShell.svelte'
   import NiivueViewer from './NiivueViewer.svelte'
   import SidecarEditor from './SidecarEditor.svelte'

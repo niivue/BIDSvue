@@ -27,6 +27,7 @@ import {
   readdir,
   rename,
   rm,
+  rmdir,
   writeFile,
 } from 'node:fs/promises'
 import type { MutateFs } from './backup'
@@ -128,6 +129,11 @@ export const nodeMutateFs: MutateFs = {
     // (the production Tauri plugin-fs::remove is also forgiving of
     // ENOENT). The `recursive` option lets the M8 import-undo path
     // collapse the imported dataset wholesale.
+    // Like plugin-fs, a non-recursive remove of an EMPTY dir succeeds.
+    if (!options?.recursive) {
+      const st = await nodeStat(path).catch(() => null)
+      if (st?.isDirectory()) return rmdir(path)
+    }
     await rm(path, { recursive: options?.recursive ?? false, force: true })
   },
 }

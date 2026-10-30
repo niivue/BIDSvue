@@ -1,14 +1,9 @@
-// Test helper: node:fs-backed PostPassFs adapter. Used by every bun:test
-// suite in postpass/. The leading underscores keep this file out of the
-// production module graph (Vite + svelte-kit pass-through filter would
-// exclude it anyway given the `.test.ts` peers, but explicit > implicit).
-//
-// This module is NOT importable from $lib/* at runtime; it's only used
-// from sibling *.test.ts files.
+// Test helper: node:fs-backed PostPassFs adapter for bun:test suites and
+// scripts. Never imported by production code.
 
 import { createReadStream, promises as nodeFs } from 'node:fs'
 import { createGunzip } from 'node:zlib'
-import type { PostPassDirEntry, PostPassFs } from './fs'
+import type { PostPassDirEntry, PostPassFs } from '$lib/util/readFs'
 
 export const nodeFsPostPassAdapter: PostPassFs = {
   async exists(path: string): Promise<boolean> {

@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from '$lib/import/postpass/__testFs'
 import { beginOperation } from '$lib/mutate/backup'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { nodeFsPostPassAdapter } from '$lib/test-utils/nodeReadFs'
 import { runPetPostPass } from './runPetPostPass'
 
 const tempDirs: string[] = []

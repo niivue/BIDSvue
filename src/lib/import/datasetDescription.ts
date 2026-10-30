@@ -16,7 +16,7 @@
 // Pure: returns a `{ content, opts? }` plan and the orchestrator does
 // the `ctx.writeText` so each rewrite is audited + reversible.
 
-import type { PostPassFs } from './fs'
+import type { PostPassFs } from '$lib/util/readFs'
 
 /**
  * BIDS Appendix III short labels. The canonical English values are

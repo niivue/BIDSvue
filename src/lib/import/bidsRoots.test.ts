@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { nodeFsPostPassAdapter } from '$lib/test-utils/nodeReadFs'
 import { toPosix } from '$lib/test-utils/posix'
-import { nodeFsPostPassAdapter } from './__testFs'
 import {
   bidsRoots,
   discoverBidsRoots,

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { nodeFsPostPassAdapter } from './__testFs'
+import { nodeFsPostPassAdapter } from '$lib/test-utils/nodeReadFs'
 import { walkSessions } from './walkSessions'
 
 function makeRoot(): string {

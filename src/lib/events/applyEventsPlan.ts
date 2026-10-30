@@ -5,7 +5,7 @@
 // through the injected MutateFs, so it runs on a node:fs adapter in tests and
 // through Tauri in production.
 
-import { mergeTaskNameIntoSidecar } from '$lib/import/postpass/rootScaffolding'
+import { mergeTaskNameIntoSidecar } from '$lib/import/scaffolding'
 import { type MutateFs, beginOperation } from '$lib/mutate/backup'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { isUnderPath, stripTrailingSeparators } from '$lib/util/paths'

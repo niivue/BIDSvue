@@ -11,11 +11,11 @@
 // `_scans.tsv` aggregation) don't apply here: each `_pet.json` is
 // edited independently.
 
-import type { PostPassFs } from '$lib/import/postpass/fs'
-import { walkSessions } from '$lib/import/postpass/walkSessions'
 import type { OperationContext } from '$lib/mutate/backup'
 import { parseSidecar, serializeSidecar } from '$lib/sidecar/parse'
+import type { PostPassFs } from '$lib/util/readFs'
 import { type SidecarJson, enrichPetSidecar } from './enrich'
+import { walkSessions } from './walkSessions'
 
 export interface PetPostPassResult {
   /** Number of `_pet.json` sidecars successfully enriched. */

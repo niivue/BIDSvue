@@ -35,12 +35,12 @@
 /** Minimum bytes we need off disk to parse `sizeof_hdr` + `dim[0..7]`. */
 export const NIFTI_HEADER_PROBE_SIZE = 352
 
-// `PartialReadFs` is canonically defined in `src/lib/import/postpass/fs.ts`
+// `PartialReadFs` is canonically defined in `src/lib/util/readFs.ts`
 // (the import post-pass and the deface 4D guard both need the same
 // partial-read primitives). Re-export so deface callers don't have to
 // reach across packages just to type their adapter, and import as a
 // value below so the rest of this module can reference the type.
-import type { PartialReadFs } from '$lib/import/postpass/fs'
+import type { PartialReadFs } from '$lib/util/readFs'
 export type { PartialReadFs }
 
 export interface NiftiDimensions {

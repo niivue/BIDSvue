@@ -1,8 +1,7 @@
-// Filesystem surface the import post-pass needs. Kept separate from
-// `MutateFs` (the orchestrator's write-side adapter) because the post-
-// pass needs partial reads + streaming gunzip that MutateFs doesn't
-// expose; mixing them would force every MutateFs consumer to grow
-// methods they don't need.
+// Read-only filesystem surface for importer post-passes (PET, non-ReproIn
+// scaffolding) and header probes. Kept separate from `MutateFs` (the
+// write-side adapter) because it needs partial reads + streaming gunzip
+// that MutateFs doesn't expose.
 //
 // Production implementation lives in `tauriPostPassFs` (Tauri plugin-fs
 // for raw reads + WebKit's `DecompressionStream("gzip")` for gunzip).

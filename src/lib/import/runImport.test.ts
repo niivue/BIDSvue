@@ -4,15 +4,16 @@
 
 import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
-import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readOperationsLog } from '$lib/mutate/operationsLog'
 import { nodeMutateFs } from '$lib/mutate/testFs'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
+import { fakeReproinBridge } from '$lib/test-utils/fakeReproin'
+import { nodeFsPostPassAdapter } from '$lib/test-utils/nodeReadFs'
 import { toPosix } from '$lib/test-utils/posix'
 import { detectSeparator } from '$lib/util/paths'
-import { nodeFsPostPassAdapter } from './postpass/__testFs'
 import {
   type ImportExecutor,
   buildDcm2bidsArgv,
@@ -479,6 +480,15 @@ describe('runImport', () => {
     const dest = join(destParent, 'fresh-bids')
     const sp = makeStatePaths()
     const recordedArgv: string[] = []
+    const scans = 'sub-M123/ses-42/sub-M123_ses-42_scans.tsv'
+    const reproin = fakeReproinBridge({
+      ops: [
+        { op: 'write', path: scans, text: 'filename\tacq_time\n' },
+        { op: 'write', path: 'CHANGES', text: '0.0.1\n' },
+      ],
+      roots: [''],
+      log: ['reproinx: ok'],
+    })
 
     const result = await runImport({
       statePaths: sp,
@@ -492,7 +502,15 @@ describe('runImport', () => {
       executor: makeStubExecutor({ recordedArgv }),
       fs: nodeMutateFs,
       postPassFs: nodeFsPostPassAdapter,
+      reproin: reproin.bridge,
     })
+    expect(reproin.calls).toEqual([
+      {
+        root: toPosix(dest),
+        exclude: [],
+        options: { keepDerivatives: false, shiftDates: false, minVolumes: 5 },
+      },
+    ])
 
     // dcm2niix wrote into dest.
     expect(await pathExists(dest)).toBe(true)
@@ -508,19 +526,8 @@ describe('runImport', () => {
     expect(recordedArgv).toContain('-bv')
     expect(recordedArgv).toContain('42')
 
-    // One log entry with the import opType. Children include:
-    //   - one `'created-tree'` marker for destDir (M8 epilogue —
-    //     makes the import undoable as one wholesale remove)
-    //   - the post-pass writes from Pass 2 (per-session scans.tsv)
-    //     and Pass 3 (per-root scaffolding: CHANGES / README /
-    //     .bidsignore / scans.json / participants.tsv + json).
-    //
-    // The dataset_description.json stub is NO LONGER written by
-    // runImport for the dcm2niix-reproin path: post-v1.0.20260515
-    // dcm2niix writes its own at each `<StudyDescription>/` BIDS
-    // root that `-f %H` produces. We let that stub stand. For
-    // pet2bids, runImport still writes the stub because destDir
-    // IS the BIDS root for that path.
+    // One import entry: a created-tree marker for destDir + the engine's
+    // planned writes (journaled through the same ctx).
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
     expect(entries).toHaveLength(1)
     expect(entries[0]?.opType).toBe('import')
@@ -529,27 +536,11 @@ describe('runImport', () => {
     expect(createdTrees.length).toBe(1)
     // destDir IS the dataset root, so target collapses to "".
     expect((createdTrees[0] as { target: string }).target).toBe('')
-    // Pass 2: scans.tsv (1). Pass 3: CHANGES / README / scans.json (3)
-    // + participants.tsv + participants.json (2) = 5 + dataset_-
-    // description.json upgrade (1, heudiconv template) = 7. No fmap →
-    // no B0Field edits; no func → no events.tsv, no task-bold. Total
-    // = 7 writes. (.bidsignore was dropped to avoid the Tauri dotfile
-    // scope issue at nested BIDS roots.)
     const writes = entries[0]?.children.filter((c) => c.kind === 'write') ?? []
-    expect(writes.length).toBe(7)
-    expect(
-      writes.some((c) =>
-        (c as { target: string }).target.includes('sub-M123_ses-42_scans.tsv'),
-      ),
-    ).toBe(true)
-    expect(
-      writes.some((c) => (c as { target: string }).target.endsWith('CHANGES')),
-    ).toBe(true)
-    expect(
-      writes.some((c) =>
-        (c as { target: string }).target.endsWith('participants.tsv'),
-      ),
-    ).toBe(true)
+    expect(writes.map((c) => (c as { target: string }).target).sort()).toEqual([
+      'CHANGES',
+      scans,
+    ])
     expect((entries[0]?.details as { srcDir: string }).srcDir).toBe(src)
     // destDir is normalized to POSIX at runImport entry, so the op-log records
     // the forward-slash form (audit 2026-07-03).
@@ -561,11 +552,9 @@ describe('runImport', () => {
     // Result shape.
     expect(result.operationId).toBe(entries[0]?.id ?? '')
     expect(result.filesCreated).toBe(2)
-    expect(result.postPass.sessionCount).toBe(1)
-    expect(result.postPass.scansTsvWrites).toBe(1)
-    expect(result.postPass.b0FieldEdits).toBe(0)
-    expect(result.postPass.scaffoldingWrites).toBe(5)
-    expect(result.postPass.datasetDescriptionUpgrades).toBe(1)
+    expect(result.postPass.bidsRoots).toEqual([toPosix(dest)])
+    expect(result.postPass.log).toEqual(['reproinx: ok'])
+    expect(result.postPass.opsApplied).toBe(2)
     expect(result.postPass.failures).toEqual([])
     expect(result.partialFailureWarning).toBeNull()
   })
@@ -602,31 +591,22 @@ describe('runImport', () => {
       executor,
       fs: nodeMutateFs,
       postPassFs: nodeFsPostPassAdapter,
+      reproin: fakeReproinBridge().bridge,
     })
 
-    // The import landed on disk + the post-pass produced its usual
-    // shape; the warning is preserved verbatim.
+    // The import landed on disk + the post-pass ran; the warning is
+    // preserved verbatim.
     expect(result.filesCreated).toBe(2)
     expect(result.partialFailureWarning).toBe(warning)
     expect(result.postPass.failures).toEqual([])
   })
 
-  test('dataset_description.json is written by the post-pass when dcm2niix did not produce one', async () => {
-    // Real dcm2niix's `-f %H` writes a dummy `dataset_description.json`
-    // (Name = "dcm2niix dummy dataset") at each <StudyDescription>/
-    // BIDS root. The v1.0.20260520 post-pass upgrades that dummy to
-    // the heudiconv reproin template + `DatasetType: "raw"` +
-    // GeneratedBy + SourceDatasets. When the stub executor in this
-    // test produces NO sidecar at all, the upgrade plan creates the
-    // file from scratch with the same template (file-missing branch).
+  test('reproin: License/Authors rewrite lands at each engine-scaffolded root; failures surface', async () => {
     const src = makeTmp('bidsvue-dicom-src-')
     await writeFile(join(src, 'placeholder.dcm'), new Uint8Array([0]))
-    const destParent = makeTmp('bidsvue-import-dest-parent-')
-    const dest = join(destParent, 'fancy-folder-name')
-    const sp = makeStatePaths()
-
-    await runImport({
-      statePaths: sp,
+    const dest = join(makeTmp('bidsvue-import-dest-parent-'), 'study')
+    const result = await runImport({
+      statePaths: makeStatePaths(),
       srcDir: src,
       destDir: dest,
       anonymize: true,
@@ -635,17 +615,56 @@ describe('runImport', () => {
       executor: makeStubExecutor({ recordedArgv: [] }),
       fs: nodeMutateFs,
       postPassFs: nodeFsPostPassAdapter,
+      description: { license: 'CC0', authors: ['A. Author'] },
+      saveDerivatives: true,
+      shiftDates: true,
+      reproin: fakeReproinBridge({
+        ops: [
+          {
+            op: 'write',
+            path: 'dataset_description.json',
+            text: '{"Name": "x", "BIDSVersion": "1.10.0"}\n',
+          },
+        ],
+        roots: [''],
+        failures: ['sub-M123: could not pair fmap'],
+      }).bridge,
     })
-
-    const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
-    const writes = entries[0]?.children.filter((c) => c.kind === 'write') ?? []
-    const ddesc = writes.find((c) =>
-      (c as { target: string }).target.endsWith('dataset_description.json'),
+    const dd = JSON.parse(
+      await readFile(join(dest, 'dataset_description.json'), 'utf8'),
     )
-    expect(ddesc).toBeDefined()
-    // The upgrade plan logged a 'post-pass-dataset-description-upgrade'
-    // child step (kind set by planDatasetDescriptionUpgrade).
-    expect((ddesc as { kind: string }).kind).toBe('write')
+    expect(dd.License).toBe('CC0')
+    expect(dd.Authors).toEqual(['A. Author'])
+    expect(result.postPass.failures).toEqual([
+      { sessionDir: toPosix(dest), error: 'sub-M123: could not pair fmap' },
+    ])
+  })
+
+  test('reproin: an engine abort (fatal) applies nothing and removes the import', async () => {
+    const src = makeTmp('bidsvue-dicom-src-')
+    await writeFile(join(src, 'placeholder.dcm'), new Uint8Array([0]))
+    const dest = join(makeTmp('bidsvue-import-dest-parent-'), 'study')
+    const sp = makeStatePaths()
+    await expect(
+      runImport({
+        statePaths: sp,
+        srcDir: src,
+        destDir: dest,
+        anonymize: false,
+        shiftDates: true,
+        bidsVersion: '1.10.0',
+        toolId: 'dcm2niix-reproin',
+        executor: makeStubExecutor({ recordedArgv: [] }),
+        fs: nodeMutateFs,
+        postPassFs: nodeFsPostPassAdapter,
+        reproin: fakeReproinBridge({
+          ops: [{ op: 'write', path: 'CHANGES', text: 'x' }],
+          fatal: 'shift-dates: no AcquisitionDateTime',
+        }).bridge,
+      }),
+    ).rejects.toThrow(/aborted: shift-dates/)
+    expect(await pathExists(dest)).toBe(false)
+    expect(await pathExists(sp.operationsLogPath)).toBe(false)
   })
 
   test('refuses non-empty destDir for tools that write subjects directly under destDir', async () => {
@@ -784,7 +803,7 @@ describe('runImport', () => {
 
   // Note: the locator-name-collision scenario (pre-existing `crlab/`
   // shell + new content nested under `crlab/AgingBrain/`) is unit-
-  // tested at the helper level in `postpass/bidsRoots.test.ts`
+  // tested at the helper level in `bidsRoots.test.ts`
   // (`discoverBidsRootsForProduced > regression`). At the orchestrator
   // level, a populated pre-existing `crlab/` correctly trips the
   // collision check earlier in the flow (that's a load-bearing
@@ -812,6 +831,7 @@ describe('runImport', () => {
     // Stub writes a fresh sub-XX/... tree (NOT under the StudyDescription
     // intermediate — the stub doesn't model -f %H, but the runImport
     // logic only cares about top-level diffing).
+    const reproin = fakeReproinBridge()
     const result = await runImport({
       statePaths: sp,
       srcDir: src,
@@ -822,7 +842,13 @@ describe('runImport', () => {
       executor: makeStubExecutor({ recordedArgv: [] }),
       fs: nodeMutateFs,
       postPassFs: nodeFsPostPassAdapter,
+      reproin: reproin.bridge,
     })
+    // The engine never plans against the user's siblings.
+    expect(reproin.calls[0]?.exclude).toEqual([
+      'existing-folder',
+      'existing.txt',
+    ])
     // Pre-existing siblings are untouched on disk.
     expect(await pathExists(join(dest, 'existing.txt'))).toBe(true)
     expect(await pathExists(join(dest, 'existing-folder', 'a.json'))).toBe(true)
@@ -1240,10 +1266,8 @@ describe('runImport', () => {
     expect(recordedArgv).not.toContain('-bv')
     expect(recordedArgv).not.toContain('-ba')
 
-    // Post-pass is skipped — sessionCount stays 0, no failures.
-    expect(result.postPass.sessionCount).toBe(0)
-    expect(result.postPass.scansTsvWrites).toBe(0)
-    expect(result.postPass.b0FieldEdits).toBe(0)
+    // reproin post-pass is skipped.
+    expect(result.postPass.opsApplied).toBe(0)
     expect(result.postPass.failures).toEqual([])
 
     // Log entry: created-tree marker plus if-absent scaffolding stubs
@@ -1335,9 +1359,7 @@ describe('runImport', () => {
     expect(recordedArgv).not.toContain('--files')
 
     // Post-pass skipped — dcm2bids writes its own sidecars + IntendedFor.
-    expect(result.postPass.sessionCount).toBe(0)
-    expect(result.postPass.scansTsvWrites).toBe(0)
-    expect(result.postPass.b0FieldEdits).toBe(0)
+    expect(result.postPass.opsApplied).toBe(0)
 
     // Log entry records the config for audit / undo UI.
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)
@@ -1785,7 +1807,7 @@ describe('runImport — pet2bids orchestrator integration (P2.1)', () => {
       postPassFs: nodeFsPostPassAdapter,
     })
 
-    expect(result.postPass.sessionCount).toBe(0)
+    expect(result.postPass.opsApplied).toBe(0)
     expect(result.petPostPass.sidecarsEnriched).toBe(1)
     expect(result.petPostPass.failures).toHaveLength(0)
     // Uses the pet2bids argv (explicit -f sub-<subject>_pet, no -br /

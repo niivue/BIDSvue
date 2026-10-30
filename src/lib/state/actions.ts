@@ -47,7 +47,6 @@ import {
   runMegImport,
 } from '$lib/import/meg/runMegImport'
 import { buildMneBidsOptions } from '$lib/import/mneBidsRunner'
-import { tauriPostPassFs } from '$lib/import/postpass/tauriFs'
 import { type RunImportResult, runImport } from '$lib/import/runImport'
 import { applyMneBidsStaging } from '$lib/import/runMneBidsImport'
 import { createTauriImportExecutor } from '$lib/import/tauriExecutor'
@@ -126,6 +125,7 @@ import {
   readTextFileWithRustFallback,
   resolveSymlinkIfPresent,
 } from '$lib/util/readTextFile'
+import { tauriPostPassFs } from '$lib/util/tauriReadFs'
 import { runValidator } from '$lib/validation/runValidator'
 import { invoke } from '@tauri-apps/api/core'
 import { appDataDir } from '@tauri-apps/api/path'

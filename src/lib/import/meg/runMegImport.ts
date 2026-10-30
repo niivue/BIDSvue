@@ -164,7 +164,7 @@ export interface RunMegImportOptions {
    * Optional License + Authors overrides for the wizard's
    * dataset_description.json rewrite. When set, replaces the
    * corresponding fields in the description stub written below.
-   * See `import/postpass/datasetDescription.ts` for the exact
+   * See `import/datasetDescription.ts` for the exact
    * semantics.
    */
   description?: {

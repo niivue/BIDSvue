@@ -29,7 +29,7 @@
     detectMneEvents,
   } from '$lib/import/mneBidsDetectionTauri'
   import { toEventIdMap, validateEventRows } from '$lib/import/mneEventsFile'
-  import { parseAuthorsInput } from '$lib/import/postpass/datasetDescription'
+  import { parseAuthorsInput } from '$lib/import/datasetDescription'
   import {
     importWizardExit,
     reproinInvalidProtocols,

@@ -1,8 +1,8 @@
 // Orchestrate a DICOM-to-BIDS import. Dispatches to one of four
 // converters based on `opts.toolId`:
 //
-//   - `dcm2niix-reproin` (bundled sidecar; reproin one-pass mode,
-//     mirrors dcm2niix's `tools/reproinx.py` in TS)
+//   - `dcm2niix-reproin` (bundled sidecar; reproin one-pass mode, then
+//     the reproin-core engine's post-pass, applied via ./reproin.ts)
 //   - `pet2bids`         (bundled dcm2niix sidecar + a BIDSvue-side
 //                         pypet2bids port for PET sidecar enrichment)
 //   - `heudiconv`        (optional PATH-resolved Python tool)
@@ -50,16 +50,22 @@ import {
 } from '$lib/mutate/backup'
 import type { DatasetStatePaths } from '$lib/state/appPaths'
 import { basename, normalizeSeparators } from '$lib/util/paths'
-import type { SidecarJson } from './pet/enrich'
-import { type PetPostPassResult, runPetPostPass } from './pet/runPetPostPass'
-import { discoverBidsRootsForProduced } from './postpass/bidsRoots'
+import type { PostPassFs } from '$lib/util/readFs'
+import { discoverBidsRootsForProduced } from './bidsRoots'
 import {
   type DatasetDescriptionOptions,
   planDescriptionRewrite,
-} from './postpass/datasetDescription'
-import type { PostPassFs } from './postpass/fs'
-import { planNonReproinScaffolding } from './postpass/rootScaffolding'
-import { type PostPassResult, runPostPass } from './postpass/runPostPass'
+} from './datasetDescription'
+import type { SidecarJson } from './pet/enrich'
+import { type PetPostPassResult, runPetPostPass } from './pet/runPetPostPass'
+import {
+  EMPTY_POST_PASS,
+  type PostPassResult,
+  type ReproinBridge,
+  runReproinPostPass,
+  tauriReproinBridge,
+} from './reproin'
+import { planNonReproinScaffolding } from './scaffolding'
 import {
   type ImportTool,
   type ImportToolId,
@@ -222,11 +228,13 @@ export interface RunImportOptions {
   executor: ImportExecutor
   fs: MutateFs
   /**
-   * Read-only FS adapter the M8-A2 post-pass uses to walk the freshly
-   * imported dataset (NIfTI headers, sidecars, listings). Tests inject
+   * Read-only FS adapter the PET / non-reproin post-passes and the
+   * dataset_description rewrite use (sidecars, listings). Tests inject
    * a node:fs adapter; production passes `tauriPostPassFs`.
    */
   postPassFs: PostPassFs
+  /** reproin-core native bridge; tests inject a fake. */
+  reproin?: ReproinBridge
 }
 
 export interface RunImportResult {
@@ -245,10 +253,9 @@ export interface RunImportResult {
    */
   durationMs: number
   /**
-   * Summary of the M8-A2 reproin post-pass: how many sessions were
-   * walked, how many `_scans.tsv` files written, how many B0Field*
-   * sidecar edits applied, and any per-session failures (non-fatal).
-   * Empty stats when `tool.bidsvuePostPass !== 'reproin'`.
+   * Summary of the reproin post-pass: BIDS roots, produced root, engine
+   * log and non-fatal failures. `bidsRoots` is also filled for the
+   * `'none'` tools; otherwise empty when `tool.bidsvuePostPass !== 'reproin'`.
    */
   postPass: PostPassResult
   /**
@@ -645,6 +652,7 @@ export async function runImport(
     executor,
     fs,
     postPassFs,
+    reproin = tauriReproinBridge,
   } = opts
 
   // Windows: the native folder picker + Import.svelte compose a MIXED-separator
@@ -1030,7 +1038,7 @@ export async function runImport(
     // under `<destDir>/<StudyDescription>/`, so destDir is the STUDY
     // HOME (potentially N BIDS roots). dcm2niix writes a
     // dataset_description.json at each root automatically; the BIDSvue
-    // post-pass's Pass 3 root scaffolding handles the rest. Writing one
+    // reproin-core post-pass scaffolds the rest. Writing one
     // here would land at the wrong level (the study home, which is not
     // itself a BIDS root).
     //
@@ -1147,64 +1155,22 @@ export async function runImport(
     // The orchestrator returns empty summary structs for whichever
     // branches don't fire so the wizard's warning-panel code can
     // iterate failures uniformly.
-    const emptyReproin: PostPassResult = {
-      rootCount: 0,
-      sessionCount: 0,
-      scansTsvWrites: 0,
-      b0FieldEdits: 0,
-      eventsTsvWrites: 0,
-      sbrefGradientsStripped: 0,
-      scaffoldingWrites: 0,
-      readmeMdStubsRemoved: 0,
-      taskBoldStubsRemoved: 0,
-      sessionBackfills: [],
-      physioRescues: [],
-      derivativesRemoved: 0,
-      descriptionRewrites: 0,
-      datasetDescriptionUpgrades: 0,
-      bidsRoots: [],
-      producedRoot: null,
-      nonReproinCollapses: 0,
-      unknownRescues: 0,
-      unknownDiscardPurges: 0,
-      dupRenames: 0,
-      bidsguessDiscardsRemoved: 0,
-      bidsguessBoldDemotes: 0,
-      partResolved: 0,
-      bidsignoreLinesAdded: 0,
-      unknownPhysioRescues: 0,
-      derivedStemsMoved: 0,
-      shortEpiToFmap: 0,
-      t2wToInplaneT2: 0,
-      orphanRunsStripped: 0,
-      dateShiftSubjects: 0,
-      failures: [],
-    }
     const emptyPet: PetPostPassResult = {
       sidecarsEnriched: 0,
       failures: [],
     }
     if (tool.bidsvuePostPass === 'reproin') {
-      postPass = await runPostPass(destDir, ctx, postPassFs, {
+      postPass = await runReproinPostPass(destDir, ctx, reproin, {
         saveDerivatives,
         shiftDates,
-        description,
-        // Scope BIDS-root discovery to what THIS import wrote.
-        // Without this, walkSubjects would also find subjects from
-        // the user's OTHER datasets that share the destDir parent
-        // (e.g. when destDir is the user's `~/datasets/` folder
-        // containing multiple pre-existing BIDS trees), and the
-        // auto-open would land on destDir instead of the freshly-
-        // created <StudyDescription>/ root. `producedFiles` is more
-        // robust than the older `excludeTopLevel` here: it correctly
-        // handles the case where the new locator name collides with
-        // a pre-existing top-level dir (where the name-based filter
-        // would skip the whole subtree).
+        // The user's pre-existing siblings are never planned against
+        // (a collision INTO one already failed fast above).
+        excludeTopLevel: preExistingChildren,
         producedFiles: produced,
       })
       petPostPass = emptyPet
     } else if (tool.bidsvuePostPass === 'pet') {
-      postPass = emptyReproin
+      postPass = EMPTY_POST_PASS
       petPostPass = await runPetPostPass(destDir, ctx, postPassFs, {
         metadata: petMetadata,
       })
@@ -1238,13 +1204,13 @@ export async function runImport(
       // (actions.ts: `discoveredRoots = result.postPass.bidsRoots`)
       // auto-opens the actual BIDS root rather than destDir for the
       // heudiconv-reproin nested-locator case.
-      postPass = { ...emptyReproin, bidsRoots: discoveredNoneRoots }
+      postPass = { ...EMPTY_POST_PASS, bidsRoots: discoveredNoneRoots }
       petPostPass = emptyPet
     }
 
-    // dataset_description.json License / Authors rewrite for the
-    // non-reproin branches. The reproin branch handles this inside
-    // runPostPass (one rewrite per discovered BIDS root); pet2bids
+    // dataset_description.json License / Authors rewrite (a BIDSvue
+    // wizard option, not a reproin-core rule). reproin rewrites at each
+    // root the engine scaffolded; pet2bids
     // writes a single dataset_description.json AT destDir. For the
     // `'none'` external tools the BIDS root may be destDir (dcm2bids,
     // ezbids-meg, heudiconv with non-reproin heuristics) or nested
@@ -1265,7 +1231,7 @@ export async function runImport(
         rewriteRoots =
           discoveredNoneRoots.length > 0 ? discoveredNoneRoots : [destDir]
       } else {
-        rewriteRoots = []
+        rewriteRoots = postPass.bidsRoots
       }
       for (const root of rewriteRoots) {
         const rewrite = await planDescriptionRewrite(

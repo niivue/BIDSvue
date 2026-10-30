@@ -1,4 +1,5 @@
-// Multi-root BIDS discovery. Mirrors reproinx.py's `_walk_subjects` +
+// Multi-root BIDS discovery for importers that arrange BIDS themselves
+// (heudiconv/dcm2bids). Same shape as reproinx.py's `_walk_subjects` +
 // `_bids_roots`: dcm2niix's `-f %H` argv appends a `<StudyDescription>/`
 // hierarchy below `-o`, so a single conversion can produce N BIDS
 // datasets (one per StudyDescription) under one destination dir. Each
@@ -9,7 +10,7 @@
 // Pure helpers, parameterised on `PostPassFs` so bun:test can inject a
 // node:fs adapter.
 
-import type { PostPassFs } from './fs'
+import type { PostPassFs } from '$lib/util/readFs'
 
 /**
  * Find every top-level `sub-*` directory under `destDir`, skipping the
@@ -114,70 +115,6 @@ export async function discoverBidsRoots(
 ): Promise<string[]> {
   const subs = await walkSubjects(destDir, fs, excludeTopLevel)
   return bidsRoots(subs)
-}
-
-/**
- * Walk `destDir` recursively and return the absolute path of every
- * directory that contains an `Unknown/` child directory. Mirrors
- * reproinx.py's `out_root.rglob("Unknown")` traversal which the
- * `_rescue_unknown_dir` pass uses to find every BIDS root with
- * non-reproin-classified output regardless of nesting depth.
- *
- * Why this exists separately from `walkSubjects`: when dcm2niix's
- * `-f %H` lands ALL series in `Unknown/` (the non-reproin DICOM case),
- * the BIDS root has NO `sub-*` directories yet — those are CREATED by
- * the rescue. So the rescue's discovery can't depend on `sub-*`
- * walking. It has to find the Unknown/ dirs directly.
- *
- * Skips:
- *   - the `derivatives/` subtree (the C side routes scouts there, but
- *     never to an Unknown/-named child of derivatives; defence in depth)
- *   - any top-level `destDir`-child whose basename is in
- *     `excludeTopLevel` so pre-existing user datasets under destDir
- *     don't have their `Unknown/`-named folders (if any) rescued by
- *     accident.
- *
- * Returns sorted, deduplicated parent paths. An Unknown/ child of a
- * sub-X/ses-Y/ subtree would be incorrect BIDS but harmless to
- * include — the rescue's per-stem guards reject anything that doesn't
- * look like a real BidsGuess sidecar.
- */
-export async function discoverUnknownDirParents(
-  destDir: string,
-  fs: PostPassFs,
-  excludeTopLevel?: ReadonlySet<string>,
-): Promise<string[]> {
-  const parents = new Set<string>()
-  await walkForUnknown(destDir, fs, parents, excludeTopLevel ?? null, true)
-  return Array.from(parents).sort()
-}
-
-async function walkForUnknown(
-  dir: string,
-  fs: PostPassFs,
-  out: Set<string>,
-  excludeTopLevel: ReadonlySet<string> | null,
-  atTopLevel: boolean,
-): Promise<void> {
-  let entries: Awaited<ReturnType<PostPassFs['readDir']>>
-  try {
-    entries = await fs.readDir(dir)
-  } catch {
-    return
-  }
-  for (const e of entries) {
-    if (!e.isDirectory) continue
-    if (e.name === 'derivatives') continue
-    if (atTopLevel && excludeTopLevel?.has(e.name)) continue
-    if (e.name === 'Unknown') {
-      out.add(dir)
-      // Don't recurse into Unknown/ itself — nested Unknown/Unknown/
-      // would never be valid output anyway, and the rescue handles
-      // contents non-recursively.
-      continue
-    }
-    await walkForUnknown(`${dir}/${e.name}`, fs, out, excludeTopLevel, false)
-  }
 }
 
 /**

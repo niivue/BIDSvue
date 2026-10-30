@@ -153,8 +153,6 @@ Three paste-in-token backends exist behind the Share… modal (brainlife / OpenN
 
 - **`ImportOutput` (multi-root imports)** *(L)* — return `{ roots: string[]; … }`; wizard picks which to auto-open. Reproin multi-root + future multi-vendor PET both need it.
 - **Importer typed-policy descriptor** *(M)* — `{ argvBuilder, postPass, scaffolding, cleanup }` makes a fifth importer declarative.
-- **Split `rootScaffolding.ts`** (~880 LOC) into `participants.ts` + `taskBold.ts` + `datasetDescription.ts` (only if a fifth scaffolding pass appears).
-- **Post-pass per-root context object** *(M)* — `{root, provenance, failures, physio, cleanup, destructiveSkips}` makes the cross-pass counter-read data-loss class (the 2026-06-11 H1 physio bug) structurally impossible.
 - **Extract remaining shared validators out of `process.rs`** *(S)* — move `validate_abs_path` and importer path helpers into a small validation module. Clone URL validation already lives in `datalad-rs`.
 - **`finalizeUpload(datasetRoot, result, io)` helper** *(S)* — the 3-backend `writeShareState → clearIntent → backendMeta-merge` block is open-coded thrice.
 - **Shared NiiVue viewer lifecycle helper** *(M)* — `NiivueViewer` + `SpectroscopyViewer` duplicate ~60 LOC of lifecycle + ~80 LOC of CSS; extract when a third overlay viewer arrives.

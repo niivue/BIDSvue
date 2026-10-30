@@ -918,6 +918,23 @@ describe('OperationContext — transactional grouping', () => {
     expect(await pathExists(newFile)).toBe(false)
   })
 
+  test('a path written then deleted in one op keeps both before-images', async () => {
+    const root = makeTempRoot()
+    const sp = makeStatePaths()
+    const f = join(root, 'a.json')
+    await writeFile(f, 'v0')
+    const ctx = beginOperation(
+      root,
+      sp,
+      { opType: 'sidecarEdit', summary: 'twice' },
+      nodeFs,
+    )
+    await ctx.writeText(f, 'v1')
+    await ctx.delete(f)
+    await ctx.rollback()
+    expect(await readFile(f, 'utf8')).toBe('v0')
+  })
+
   test('rollback walks children in LIFO order', async () => {
     // sub-01 → sub-02 then sub-02/anat/foo → sub-02/anat/bar. Rollback
     // must reverse the leaf rename before reversing the folder rename

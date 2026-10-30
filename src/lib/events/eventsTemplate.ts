@@ -1,12 +1,10 @@
-// PURE: scaffold content for new events files. Reuses the importer's header
-// constant so importer-created and user-created `_events.tsv` files are
-// byte-identical. No I/O.
+// PURE: scaffold content for new events files. No I/O.
 
-import { EVENTS_TSV_HEADER } from '$lib/import/postpass/eventsTsv'
 import { toLfEol } from '$lib/util/eol'
 import { eventsJsonCoversTask } from './eventsPaths'
 
-export { EVENTS_TSV_HEADER }
+/** Header-only `_events.tsv` (same bytes reproin-core writes on import). */
+export const EVENTS_TSV_HEADER = 'onset\tduration\ttrial_type\n'
 
 /**
  * Build the inheritable `_events.json` column-description scaffold. Describes

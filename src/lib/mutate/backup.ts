@@ -451,6 +451,7 @@ export class OperationContext {
 
   private _children: ChildStep[] = []
   private _state: 'open' | 'committed' | 'rolledBack' = 'open'
+  private _backupCount = new Map<string, number>()
   // Rollback bookkeeping; not persisted to the log.
   private _undo: Array<
     | {
@@ -461,6 +462,7 @@ export class OperationContext {
       }
     | { kind: 'rename'; from: string; to: string }
     | { kind: 'delete'; target: string; backupAbsPath: string | null }
+    | { kind: 'mkdir'; target: string }
   > = []
 
   constructor(
@@ -594,6 +596,46 @@ export class OperationContext {
       throw err
     }
     await this._finalizeNewFile(tempPath, target, 'writeNewText', details)
+  }
+
+  /**
+   * Create ONE directory level (parent must exist; no-op if present).
+   * Rollback removes it again if empty. Not journaled: undo after commit
+   * leaves it (imports undo wholesale via their created-tree marker).
+   */
+  async mkdir(target: string): Promise<void> {
+    this._ensureOpen()
+    assertNoUnsafePathSegments('mkdir', target)
+    if (!isUnderRoot(this.datasetRoot, target)) {
+      throw new Error(
+        `mkdir: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
+      )
+    }
+    if (await this.fs.exists(target)) return
+    await this.fs.mkdir(target, { recursive: false })
+    this._undo.push({ kind: 'mkdir', target })
+  }
+
+  /**
+   * Land `temp` (a file the caller already wrote beside `target`, e.g. a
+   * native streaming transform) at the ABSENT `target` with the no-replace
+   * finalizer; recorded like `writeNewText` (undo deletes it). To replace an
+   * existing file, `delete` it first so its before-image is kept.
+   */
+  async adoptNewFile(
+    temp: string,
+    target: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    this._ensureOpen()
+    assertNoUnsafePathSegments('adoptNewFile', target)
+    if (!isUnderRoot(this.datasetRoot, target)) {
+      throw new Error(
+        `adoptNewFile: target "${target}" is not under datasetRoot "${this.datasetRoot}"`,
+      )
+    }
+    await this.fs.mkdir(this.statePaths.stateDir, { recursive: true })
+    await this._finalizeNewFile(temp, target, 'adoptNewFile', details)
   }
 
   /** Sibling temp path for a new-file write. Dot-stripped per the Tauri
@@ -738,7 +780,8 @@ export class OperationContext {
     const relPathNativeForBackup =
       this.stateSep === '/' ? relPathPosix : relPathPosix.split('/').join('\\')
 
-    const backupOpDir = `${this.statePaths.originalsDir}${this.stateSep}${this.operationId}`
+    const backupDir = this._backupDirName(relPathPosix)
+    const backupOpDir = `${this.statePaths.originalsDir}${this.stateSep}${backupDir}`
     const backupAbsPath = `${backupOpDir}${this.stateSep}${relPathNativeForBackup}`
     const backupParent = dirname(backupAbsPath)
     if (backupParent === null) {
@@ -768,9 +811,7 @@ export class OperationContext {
     this._children.push({
       kind: 'delete',
       target: relPathPosix,
-      backupRelPath: targetExisted
-        ? `${this.operationId}/${relPathPosix}`
-        : null,
+      backupRelPath: targetExisted ? `${backupDir}/${relPathPosix}` : null,
       details,
     })
     this._undo.push({
@@ -998,11 +1039,17 @@ export class OperationContext {
           // No-clobber on the inverse too: if the original location is now
           // occupied, refuse rather than destroy it (the per-step catch
           // below logs and continues — a partial rollback is safer than
-          // clobbering external/cloud-synced data).
+          // clobbering external/cloud-synced data). The source parent
+          // may have been removed by a later `removeEmptyDir`.
+          await this._mkdirParent(step.from)
           await this._renameNoClobber(step.to, step.from)
+        } else if (step.kind === 'mkdir') {
+          // Non-recursive: refuses (logged) if anything else landed in it.
+          await this.fs.remove(step.target)
         } else {
           // 'delete' — reversal is restore-from-backup (if any).
           if (step.backupAbsPath !== null) {
+            await this._mkdirParent(step.target)
             await this.fs.copyFile(step.backupAbsPath, step.target)
             await this.fs
               .remove(step.backupAbsPath)
@@ -1022,6 +1069,22 @@ export class OperationContext {
   }
 
   // -- internals -------------------------------------------------------------
+
+  /**
+   * `<opId>` for a path's first before-image in this op, `<opId>-<n>` for
+   * later ones, so a path written/deleted twice keeps every image (LIFO
+   * rollback/undo restore each step's own bytes).
+   */
+  private _backupDirName(relPathPosix: string): string {
+    const n = this._backupCount.get(relPathPosix) ?? 0
+    this._backupCount.set(relPathPosix, n + 1)
+    return n === 0 ? this.operationId : `${this.operationId}-${n}`
+  }
+
+  private async _mkdirParent(path: string): Promise<void> {
+    const parent = dirname(path)
+    if (parent !== null) await this.fs.mkdir(parent, { recursive: true })
+  }
 
   private async _copyBackupOverTarget(
     backupAbsPath: string,
@@ -1083,7 +1146,8 @@ export class OperationContext {
     const relPathNativeForBackup =
       this.stateSep === '/' ? relPathPosix : relPathPosix.split('/').join('\\')
 
-    const backupOpDir = `${this.statePaths.originalsDir}${this.stateSep}${this.operationId}`
+    const backupDir = this._backupDirName(relPathPosix)
+    const backupOpDir = `${this.statePaths.originalsDir}${this.stateSep}${backupDir}`
     const backupAbsPath = `${backupOpDir}${this.stateSep}${relPathNativeForBackup}`
     const backupParent = dirname(backupAbsPath)
     if (backupParent === null) {
@@ -1203,9 +1267,7 @@ export class OperationContext {
     this._children.push({
       kind: 'write',
       target: relPathPosix,
-      backupRelPath: targetExisted
-        ? `${this.operationId}/${relPathPosix}`
-        : null,
+      backupRelPath: targetExisted ? `${backupDir}/${relPathPosix}` : null,
       details,
     })
     this._undo.push({

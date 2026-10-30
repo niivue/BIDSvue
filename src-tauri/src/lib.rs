@@ -17,6 +17,7 @@ mod datalad_native;
 mod fsprobe;
 mod import_mne_bids;
 mod process;
+pub mod reproin;
 mod runtime;
 mod share;
 #[cfg(test)]
@@ -4187,6 +4188,8 @@ pub fn run() {
             recent_paths_existence,
             read_link,
             read_authorized_text_file,
+            reproin::reproin_plan,
+            reproin::reproin_drop_volumes,
             write_authorized_text_file,
             purge_legacy_bidsvue_dir,
             stat_followed,

@@ -19,7 +19,7 @@ The Rust surface is intentionally narrow — security boundary work, no business
 
 ## When (and only when) to add Rust
 
-Rust enters only when measurement proves TS is the bottleneck for a specific op. Two pre-identified triggers, **neither fired**: scanner port (M1 measured 1.42 s for 100k files; gate at `bench/baselines/scanner.json`) and backup/undo atomicity (M6 shipped pure-TS LIFO rollback). When you do add Rust: narrow surface, generate TS bindings via `tauri-specta`, **keep the TS fallback** so the cloud port still works. Reaching for Rust outside these triggers → stop and write down the measurement.
+Rust enters only when measurement proves TS is the bottleneck for a specific op. Two pre-identified triggers, **neither fired**: scanner port (M1 measured 1.42 s for 100k files; gate at `bench/baselines/scanner.json`) and backup/undo atomicity (M6 shipped pure-TS LIFO rollback). When you do add Rust: narrow surface, generate TS bindings via `tauri-specta`, **keep the TS fallback** so the cloud port still works. Reaching for Rust outside these triggers → stop and write down the measurement. **Exception: [reproin.rs](src/reproin.rs)** bridges the reusable `reproin-core` engine (ReproIn conversion rules shared with the reproinx CLI and webapps): `reproin_plan` canonical-authorizes destDir, inventories it (348-byte NIfTI headers, symlinks skipped) and returns ops; `reproin_drop_volumes` streams the one voxel transform to a temp sibling. Neither mutates the dataset; the renderer applies ops under its lease/journal. Path dep on `/Users/chris/src/reproin-rs/core` until it becomes the `crates/reproin-rs` submodule.
 
 ## Durable / log / fs escape-hatch commands
 

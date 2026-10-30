@@ -11,7 +11,7 @@
 // Either path is the right "session directory" for both the scans.tsv
 // aggregator and the fmap pairing pass.
 
-import type { PostPassFs } from './fs'
+import type { PostPassFs } from '$lib/util/readFs'
 
 export async function walkSessions(
   rootDir: string,
