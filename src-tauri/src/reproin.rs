@@ -88,6 +88,13 @@ fn walk(dir: &Path, rel: &str, exclude: &[String], v: &mut Vfs) -> std::io::Resu
             format!("{rel}/{name}")
         };
         let ft = e.file_type()?;
+        if ft.is_symlink() {
+            // Fail closed: the mutation layer replaces links on write, which
+            // would silently de-annex a git-annex/datalad file.
+            return Err(std::io::Error::other(format!(
+                "symlink in import tree: {r}"
+            )));
+        }
         if ft.is_dir() {
             v.add_dir(&r);
             walk(&e.path(), &r, exclude, v)?;
@@ -211,6 +218,19 @@ mod tests {
             h.extend([v, v]);
         }
         h
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_in_import_tree_rejects_the_plan() {
+        let t = tempfile::tempdir().unwrap();
+        let anat = t.path().join("crlab/sub-01/anat");
+        fs::create_dir_all(&anat).unwrap();
+        fs::write(t.path().join("real.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(t.path().join("real.json"), anat.join("sub-01_T1w.json"))
+            .unwrap();
+        let e = plan_tree(t.path(), &["real.json".into()], &opts()).unwrap_err();
+        assert!(e.contains("symlink in import tree"), "{e}");
     }
 
     #[test]
