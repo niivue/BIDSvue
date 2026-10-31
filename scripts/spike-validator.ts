@@ -1,5 +1,5 @@
 /**
- * M3 Phase A spike: drive @bids/validator@2.4.1 from a Bun process and log
+ * M3 Phase A spike: drive @bids/validator@3.0.2 from a Bun process and log
  * the diagnostic shape. The point of this script is to validate three things
  * before we wire the validator into the renderer:
  *

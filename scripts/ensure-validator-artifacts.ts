@@ -37,7 +37,7 @@ const metaPath = resolve(
   'src/lib/validation/_validator.bundle.meta.json',
 )
 // `@bids/validator` is an npm alias for `@jsr/bids__validator` (see
-// package.json — `"npm:@jsr/bids__validator@2.4.1"`), so the install
+// package.json — `"npm:@jsr/bids__validator@3.0.2"`), so the install
 // path on disk is the alias name, not the JSR-prefixed name. The
 // schema package keeps its native @jsr/bids__schema path.
 const validatorPkg = resolve(
@@ -75,8 +75,9 @@ if (backend === 'rust') {
     metaPath,
     `${JSON.stringify(
       {
-        validator: 'bids-validator-rs',
-        schema: '1.2.1',
+        // Keep in sync with `resources/darwin/bids-validator -V`.
+        validator: 'bids-validator-rs 3.0.2',
+        schema: '1.2.7',
         backend: 'rust',
       },
       null,

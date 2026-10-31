@@ -7,7 +7,7 @@
 //                       process boundary. Implementation in
 //                       `./runValidatorRust.ts`. Shipping as the v0.1
 //                       default so beta testers exercise it.
-//   - `js`            : the offline-bundled `@bids/validator` 2.4.1
+//   - `js`            : the offline-bundled `@bids/validator` 3.0.2
 //                       run in-WebView via a lazy `TauriFileOpener`.
 //                       Implementation in `./runValidatorJs.ts`. Opt-in
 //                       fallback for parity comparisons or when the

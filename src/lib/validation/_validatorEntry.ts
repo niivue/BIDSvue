@@ -1,4 +1,4 @@
-// Esbuild entry point for @bids/validator@2.4.1.
+// Esbuild entry point for @bids/validator@3.0.2.
 //
 // This file is the input to scripts/bundle-validator.ts, which emits a
 // self-contained ESM bundle at src/lib/validation/_validator.bundle.js

@@ -108,7 +108,7 @@ Windows x86_64. The binary is unmodified; no source is vendored.
 
 Upstream: <https://github.com/bids-standard/bids-validator> (MIT)
 
-BIDSvue ships both the JS validator (`@bids/validator` 2.4.1, JSR
+BIDSvue ships both the JS validator (`@bids/validator` 3.0.2, JSR
 `@jsr/bids__validator`) and a Rust parity sidecar (committed under
 [`resources/<platform>/`](resources/) for macOS arm64, Linux x86_64, and
 Windows x86_64). The JS bundle is pre-built offline by

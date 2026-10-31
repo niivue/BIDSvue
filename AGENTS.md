@@ -20,7 +20,7 @@ The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `
 - **Package manager + runtime:** [Bun](https://bun.sh). Always `bun` / `bunx` — never `npm` / `npx` / `pnpm` / `yarn`. **Lint/format:** [Biome](https://biomejs.dev/).
 - **Tauri plugins (TS, official):** `plugin-fs` / `-dialog` / `-store` / `-os`. `plugin-shell` is intentionally NOT installed — process spawning is owned by Rust.
 - **i18n:** `svelte-i18n` (ICU). Catalogs `en` (source) / `pt` / `es` at `src/lib/i18n/locales/` (pt/es AI-bootstrapped, `humanReviewed:false`).
-- **Validator:** `bids-validator-rs` (bundled sidecar, default) — JS `@bids/validator` 2.4.1 is an opt-in fallback. **DataLad engine:** the vendored [`datalad-rs`](https://github.com/rordenlab/datalad-rs) submodule. **Viewer:** `@niivue/niivue` (npm `1.0.0-rc.61`, pinned exactly; the universal entry renders WebGL2 by default — BIDSvue never opts into WebGPU — see [LIMITATIONS.md](LIMITATIONS.md)).
+- **Validator:** `bids-validator-rs` (bundled sidecar, default) — JS `@bids/validator` 3.0.2 is an opt-in fallback. **DataLad engine:** the vendored [`datalad-rs`](https://github.com/rordenlab/datalad-rs) submodule. **Viewer:** `@niivue/niivue` (npm `1.0.0-rc.61`, pinned exactly; the universal entry renders WebGL2 by default — BIDSvue never opts into WebGPU — see [LIMITATIONS.md](LIMITATIONS.md)).
 - Bundled sidecars (`dcm2niix`, `niimath`, `bids-validator`, `brainchop-mindgrab` native deface — macOS arm64 only) + optional PATH-resolved Python tools (`heudiconv`, `dcm2bids`) + an in-WebView WebGL2 mindgrab wasm build (`VITE_BIDSVUE_MINDGRAB_BACKEND=wasm`, the Linux deface story). Recompile recipes + the cross-platform sidecar matrix: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
 
 ## Workspace layout

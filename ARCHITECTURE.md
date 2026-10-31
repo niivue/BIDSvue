@@ -44,7 +44,7 @@ We use **Tauri 2** for small bundle size, native WebView, first-class sidecar su
 | Package manager / runtime | [Bun](https://bun.sh). Always `bun` / `bunx`. |
 | Lint + format | [Biome](https://biomejs.dev/) |
 | Viewer | `@niivue/niivue` — npm `1.0.0-rc.61` (universal entry; WebGL2 default backend, MSAA on). Was a `file:../mono/packages/niivue` sibling build during M-PHY0; re-pinned to npm 2026-07-01, so the release-script `file:`/`link:` gate is satisfied. |
-| Validator | `bids-validator-rs` sidecar by default; optional `@bids/validator` 2.4.1 JS bundle via `VITE_BIDSVUE_VALIDATOR_BACKEND=js` |
+| Validator | `bids-validator-rs` sidecar by default; optional `@bids/validator` 3.0.2 JS bundle via `VITE_BIDSVUE_VALIDATOR_BACKEND=js` |
 | Data model | Plain TS structures (`Map`, `Set`, objects). No SQLite, no IndexedDB. |
 | i18n | `svelte-i18n` with ICU MessageFormat. English is source-of-truth; pt/es catalogs are AI-bootstrapped and flagged unreviewed. |
 | Testing | Bun (TS unit + integration), `cargo test` (Rust), WebdriverIO + `tauri-driver` (E2E) |
@@ -417,7 +417,7 @@ The architecture preserves these even though we don't build them now:
 - **Data model:** plain TS structures (Maps, Sets, plain objects). No SQLite / IndexedDB.
 - **Editor component:** Monaco (raw JSON view); custom Svelte form components for the schema-driven view.
 - **Viewer:** [`@niivue/niivue`](https://github.com/niivue/niivue) — npm `1.0.0-rc.61`, imported via the universal entry (WebGL2 default backend as of rc.61; constructed with `isAntiAlias: true`) so the renderer can call `loadSignals(...)` / `removeAllSignals()` / `setSignal(...)` for physio overlays. Default export is `NiiVue`; `destroy()` exists. Was a `file:../mono/packages/niivue` sibling build during M-PHY0; re-pinned to npm 2026-07-01 (dropped the `@niivue/dev-images` `overrides` entry + `bunfig.toml`'s `linker = "hoisted"`), so `scripts/macos-release.sh`'s `file:`/`link:`/relative-dep + `bunfig.toml`-linker gate is satisfied.
-- **Validator:** bundled `bids-validator-rs` sidecar by default; optional [`@bids/validator`](https://www.npmjs.com/package/@bids/validator) 2.4.1 JS fallback, pre-bundled offline by esbuild and run in-WebView.
+- **Validator:** bundled `bids-validator-rs` sidecar by default; optional [`@bids/validator`](https://www.npmjs.com/package/@bids/validator) 3.0.2 JS fallback, pre-bundled offline by esbuild and run in-WebView.
 - **Schema:** Extracted from `@jsr/bids__schema` to `static/_validator.schema.json` at bundle time.
 - **External binaries (bundled Tauri sidecars):** `dcm2niix`, `niimath`, `bids-validator` (macOS arm64, Linux x86_64, Windows x86_64). `niimath` is a BSD-2 build on every platform. `brainchop-mindgrab` (MeshNet brain extraction for `mindgrab`/`mindgrab8` deface) is bundled macOS arm64 only — that's the default `native` backend. A `wasm` backend (`VITE_BIDSVUE_MINDGRAB_BACKEND=wasm`) runs the same models via the in-WebView `@brainchop/mindgrab` npm package's WebGL2 module instead, with no bundled binary; see §7/§9.7.
 - **External binaries (optional, PATH-detected):** `heudiconv`, `dcm2bids`.
