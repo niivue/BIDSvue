@@ -38,7 +38,7 @@
 #                          Opt out of the "no local-path deps in package.json"
 #                          gate. NOT needed in normal operation: as of
 #                          2026-07-01 `@niivue/niivue` is pinned to the npm
-#                          release `1.0.0-rc.10` and no `file:`/`link:`/relative
+#                          release `1.0.0-rc.61` and no `file:`/`link:`/relative
 #                          spec remains, so the gate passes clean. This escape
 #                          hatch only exists for a future one-off where someone
 #                          deliberately points a dep back at a local build; a
@@ -149,7 +149,7 @@ APP_VERSION="$package_version"
 
 # Block release if any dependency OR override uses a local-path spec (file:/,
 # link:, or a relative ./ or ../ path). Normal releases should have no
-# offenders: `@niivue/niivue` is now pinned to npm rc.10, and the old M-PHY0
+# offenders: `@niivue/niivue` is now pinned to npm rc.61, and the old M-PHY0
 # sibling-build override is gone. Keep checking `overrides` too, because a
 # future local testing escape hatch there would still embed developer-local
 # bytes in the DMG.

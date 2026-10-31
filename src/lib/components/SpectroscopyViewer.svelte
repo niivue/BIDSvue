@@ -52,8 +52,8 @@
   let { path }: Props = $props()
 
   let canvasEl: HTMLCanvasElement | undefined = $state()
-  // Universal NiiVue entry (auto WebGPU->WebGL2 fallback) — see the
-  // import block in `NiivueViewer.svelte` for the trade-off rationale.
+  // Universal NiiVue entry (WebGL2 default) — see the import block in
+  // `NiivueViewer.svelte`.
   let viewer: InstanceType<
     typeof import('@niivue/niivue').default
   > | null = null
@@ -240,6 +240,8 @@
       const nv = new Niivue({
         backgroundColor: [0.06, 0.06, 0.07, 1],
         isGraphVisible: true,
+        // See NiivueViewer.svelte.
+        isAntiAlias: true,
       })
       await nv.attachToCanvas(canvasEl)
       if (destroyed) {

@@ -40,19 +40,11 @@
   // chain widens them to `unknown`, so we narrow with an explicit
   // local cast at the read sites.
   //
-  // Using the universal `@niivue/niivue` entry (NOT the WebGPU-only
-  // `/webgpu` subpath). The universal bundle ships both renderers and
-  // `attachToCanvas` selects at runtime: it tries `["webgpu","webgl2"]`
-  // and falls back to WebGL2 when `navigator.gpu` is absent. This keeps
-  // WebGPU on macOS WKWebView (where Tauri 2 ships it) while letting the
-  // Linux WebKitGTK WebView — which has no WebGPU — render via WebGL2.
-  // The earlier WebGPU-only choice shrank the shipped macOS DMG but left
-  // the Linux build unusable (the WebGPU-only constructor throws "This
-  // niivuegpu distribution includes only WebGPU"). Trade-off accepted:
-  // the universal bundle is larger because it carries the WebGL2 path.
-  // (Deface no longer runs any in-WebView GPU model — the mindgrab
-  // brain-extraction path is the native `brainchop-mindgrab` sidecar —
-  // so nothing here depends on WebGPU beyond NiiVue's own rendering.)
+  // Universal `@niivue/niivue` entry. As of rc.61 it renders WebGL2 by
+  // default (WebGPU only via an explicit `backend: 'webgpu'`, which we
+  // don't pass), so macOS WKWebView and Linux WebKitGTK (no WebGPU) share
+  // one render path. The WebGPU-only `/webgpu` subpath left the Linux
+  // build unusable.
   import type { NVImage } from '@niivue/niivue'
 
   /**
@@ -176,19 +168,15 @@
   } as const
   type ViewMode = keyof typeof SLICE_TYPE
   /**
-   * Curated colormap subset for the dropdown, drawn from NiiVue rc.3's
+   * Curated colormap subset for the dropdown, drawn from NiiVue's
    * shipped LUTs. Perceptually-uniform options lead (viridis / plasma /
    * inferno / cividis), then the CVD-friendly scientific colormap
    * (batlow), then the activation-style maps people reach for by habit
    * (hot / cool / redyell). gray sits at the top as the structural-MRI
    * default.
    *
-   * `jet`, `turbo`, and `blue2red` were deliberately excluded — they
-   * either don't ship by default in rc.3 or have well-known
-   * perceptual-uniformity / CVD problems.
-   *
-   * The full `nv.colormaps` list is still reachable via NiiVue's own
-   * right-click menu for power users who need a niche map.
+   * `jet`, `turbo`, and `blue2red` were deliberately excluded for their
+   * well-known perceptual-uniformity / CVD problems.
    */
   const COLORMAP_CHOICES: ReadonlyArray<{ value: string; label?: string }> = [
     { value: 'gray' },
@@ -293,6 +281,16 @@
   // the row can disable its inputs.
   let viewMode = $state<ViewMode>('MULTIPLANAR')
   let colormap = $state<string | null>(null)
+  // As of rc.61 a NIFTI_INTENT_LABEL volume (some `_dseg` files) loads with the
+  // `Random` label colormap. List the volume's load-time colormap when it
+  // isn't curated so it stays reselectable after trying another map.
+  let loadedColormap = $state<string | null>(null)
+  const colormapChoices = $derived(
+    loadedColormap === null ||
+      COLORMAP_CHOICES.some((c) => c.value.toLowerCase() === loadedColormap?.toLowerCase())
+      ? COLORMAP_CHOICES
+      : [{ value: loadedColormap }, ...COLORMAP_CHOICES],
+  )
   let calMin = $state<number | null>(null)
   let calMax = $state<number | null>(null)
   let globalMin = $state<number | null>(null)
@@ -521,9 +519,8 @@
     if (canvasEl === undefined) return
     loadState = 'attaching'
     try {
-      // NiiVue 1.0.0-rc.8/rc.9 exports the viewer class as its default
-      // export. The universal entry auto-selects WebGPU->WebGL2 at
-      // attach time (see the import comment up top).
+      // The viewer class is the default export (WebGL2 backend; see the
+      // import comment up top).
       const [niivueModule, { convertFileSrc }] = await Promise.all([
         import('@niivue/niivue'),
         import('@tauri-apps/api/core'),
@@ -536,6 +533,9 @@
       const nv = new Niivue({
         backgroundColor: [0.06, 0.06, 0.07, 1],
         isGraphVisible: true,
+        // 4x MSAA. Upstream defaults it off for Safari-WebGPU cost (#318);
+        // irrelevant on the WebGL2 backend.
+        isAntiAlias: true,
         // Match the BIDSvue accent (View > Accent) on first paint so the
         // crosshair doesn't briefly flash NiiVue's default red. The
         // `accent` effect below keeps it in sync on live switches.
@@ -783,7 +783,7 @@
         // bounds and the user can compare current vs full range.
         const vol = v.volumes[0] as NVImage | undefined
         if (vol !== undefined) {
-          colormap = vol.colormap ?? 'gray'
+          colormap = loadedColormap = vol.colormap ?? 'gray'
           calMin = roundForDisplay(vol.calMin)
           calMax = roundForDisplay(vol.calMax)
           globalMin = roundForDisplay(vol.globalMin ?? vol.calMin)
@@ -914,7 +914,7 @@
   // Force a redraw when the wrapper transitions hidden → visible.
   // Defence in depth: today's caller (`Preview.svelte`'s persistent
   // mount) hides the wrapper with `visibility:hidden` + off-screen
-  // positioning, which preserves the WebGPU swap chain so a redraw
+  // positioning, which preserves the GPU context so a redraw
   // is not strictly needed. Kept so a future caller using
   // `display:none` (which CAN drop the compositor surface in some
   // WebViews) still recovers cleanly. The track-then-act shape
@@ -1164,7 +1164,7 @@
       <span class="sr-only">{$_('niivue.colormapLabel')}</span>
       <Dropdown
         value={colormap}
-        options={COLORMAP_CHOICES}
+        options={colormapChoices}
         placeholder="—"
         disabled={colormap === null}
         monospace={false}

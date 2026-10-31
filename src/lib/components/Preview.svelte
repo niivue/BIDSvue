@@ -439,7 +439,7 @@
   /**
    * Show the canvas via CSS when the active selection is the volume
    * member AND the view is the binary card. In every other case the
-   * viewer stays mounted (its WebGPU context + loaded volume
+   * viewer stays mounted (its GPU context + loaded volume
    * survive) but the wrapper is hidden via off-screen positioning
    * + `visibility: hidden` (NOT `display: none` — see the
    * `.persistent-volume.hidden` CSS rule for why).
@@ -1107,7 +1107,7 @@
       image tab swaps within that group. Hidden via CSS
       (visibility:hidden + off-screen positioning, NOT display:none —
       see the `.persistent-volume.hidden` CSS rule below for why) so
-      the WebGPU swap chain + the loaded volume don't have to be torn
+      the GPU context + the loaded volume don't have to be torn
       down and re-built on every click. Sidecar-first navigation
       does NOT prefetch — the latch is what closes audit 2026-06-17
       P2.1 (clicking a paired group's JSON sidecar previously kicked
@@ -1348,7 +1348,7 @@
 
   /*
    * Persistent NiivueViewer wrapper: kept in the DOM across a JSON ↔
-   * image tab swap so the WebGPU swap chain and the loaded volume
+   * image tab swap so the GPU context and the loaded volume
    * survive. We deliberately do NOT use `display: none` here — a
    * `display: none` on a WebGPU-backed canvas can drop the
    * compositor surface and force a re-acquire on the next paint,
