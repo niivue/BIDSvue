@@ -45,6 +45,8 @@ export default defineConfig({
     // large chunk that ISN'T the validator.
     chunkSizeWarningLimit: 10_000,
   },
+  // Dev pre-bundling ignores build.target; @brainchop/mindgrab uses TLA.
+  optimizeDeps: { esbuildOptions: { target: 'es2022' } },
 
   // Tauri expects a fixed port and obscures useful Rust output if Vite clears the screen.
   clearScreen: false,
