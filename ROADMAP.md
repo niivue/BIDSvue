@@ -6,6 +6,13 @@ Living document: when an item lands, delete it here — shipped state belongs in
 
 ---
 
+## 0. Pending before push
+
+- **Push `datalad-rs` 292e88b** (DataLad compat 1.7.3) to GitHub before pushing BIDSvue; the submodule pointer references a commit that is not yet on the remote, so fresh clones would fail.
+- **Linux/Windows `bids-validator` sidecars** are still 2.4.1 (macOS + JS fallback are 3.0.2 / schema 1.2.7), pending a bids-validator-rs release; then add GitHub release pins to `scripts/fetch-sidecars.ts` and refresh `resources/{linux,windows}/`.
+
+---
+
 ## 1. v0.2 priorities (scheduled)
 
 The next signed cut. Items users reported or audits escalated.

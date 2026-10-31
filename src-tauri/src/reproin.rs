@@ -4,7 +4,7 @@
 //! one voxel transform: streamed here to a temp sibling the renderer swaps in.
 
 use std::fs;
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use reproin_core::{nifti, want, Data, Op, Options, Vfs, Want};
@@ -149,14 +149,27 @@ pub fn drop_volumes_to_temp(path: &Path, indices: &[usize]) -> Result<PathBuf, S
     let tmp = path.with_file_name(format!("{name}.bidsvue-tmp-{}", uuid::Uuid::new_v4()));
     let run = || -> std::io::Result<()> {
         let src = BufReader::new(fs::File::open(path)?);
-        let dst = BufWriter::new(fs::File::create_new(&tmp)?);
-        nifti::drop_volumes_file(&name, src, dst, indices)
+        let mut dst = BufWriter::new(fs::File::create_new(&tmp)?);
+        drop_volumes_flushed(&name, src, &mut dst, indices)
     };
     run().map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("reproin_drop_volumes {}: {e}", path.display())
     })?;
     Ok(tmp)
+}
+
+/// The engine drops its writer on success, and a dropped `BufWriter`
+/// swallows its final flush error (e.g. disk full): keep ownership and
+/// flush explicitly so a truncated temp is never reported as success.
+fn drop_volumes_flushed<R: Read, W: Write>(
+    name: &str,
+    src: R,
+    dst: &mut W,
+    indices: &[usize],
+) -> std::io::Result<()> {
+    nifti::drop_volumes_file(name, src, &mut *dst, indices)?;
+    dst.flush()
 }
 
 #[tauri::command]
@@ -304,5 +317,23 @@ mod tests {
         fs::write(&src, short).unwrap();
         assert!(drop_volumes_to_temp(&src, &[0]).is_err());
         assert_eq!(fs::read_dir(t.path()).unwrap().count(), 2);
+    }
+
+    /// Accepts nothing: every byte stays in the BufWriter until flush.
+    struct Full;
+    impl Write for Full {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn drop_volumes_reports_a_failed_final_flush() {
+        // The .gz path ends in the same explicit flush.
+        let mut dst = BufWriter::new(Full);
+        assert!(drop_volumes_flushed("sub-01_asl.nii", &nii(4)[..], &mut dst, &[0]).is_err());
     }
 }
