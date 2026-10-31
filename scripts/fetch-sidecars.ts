@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-// Fetch the Linux + Windows bundled sidecars from AppVeyor and write them
+// Fetch the Linux + Windows bundled sidecars (GitHub releases) and write them
 // to the committed source-of-truth at `resources/{linux,windows}/<basename>`.
 //
 // Why this exists: unlike the macOS arm64 sidecars (built locally by the
-// maintainer), the Linux/Windows binaries come from AppVeyor CI. This script
+// maintainer), the Linux/Windows binaries come from upstream CI releases. This script
 // is the single source of truth for WHICH build each one comes from. Run it
 // when bumping a sidecar version, then commit the refreshed binaries:
 //
@@ -11,17 +11,12 @@
 //
 // It is NOT part of the build/CI path — the binaries are committed, so a
 // fresh clone + `bun install` stages them via `stage-sidecars.ts` without any
-// network access. This keeps cross-platform builds reproducible and AppVeyor
+// network access. This keeps cross-platform builds reproducible and network
 // uptime off the critical path.
 //
-// Each AppVeyor artifact is a zip containing exactly one correctly-named
-// binary (verified 2026-06-28), so extraction is a straight unzip.
-//
-// Pins are either a GitHub release asset (tagged releases: dcm2niix,
-// niimath) or an AppVeyor build job (bids-validator-rs, until it cuts a
-// release). Release assets are durable; AppVeyor artifacts EXPIRE (the
-// bids-validator-rs jobs already 404), so move it to a release asap. The
-// sha256 check guarantees a re-fetch reproduces the bytes we validated. Release zips may carry extras
+// Pins are GitHub release assets: durable, unlike AppVeyor artifacts, which
+// expire. The sha256 check guarantees a re-fetch reproduces the bytes we
+// validated. Release zips may carry extras
 // (LICENSE, MSVC DLLs the static exe doesn't need); only `binary` is taken.
 
 import { Buffer } from 'node:buffer'
@@ -42,29 +37,16 @@ interface Sidecar {
   sha256: string
 }
 
-// Pinned builds:
-//   bids-validator-rs 28-Jun-2026_g321ac30
+// Pinned builds (bids-validator-rs is NOT fetched: its 28-Jun-2026_g321ac30
+// AppVeyor artifacts expired; the committed resources/ binaries are the only
+// copy until it publishes a GitHub release, then add it here):
 //   niimath           v1.0.20261016 (GitHub release)
 //   dcm2niix          v1.0.20261029 (GitHub release)
-const APPVEYOR = 'https://ci.appveyor.com/api/buildjobs'
 const GH = 'https://github.com/rordenlab'
 const NIIMATH = `${GH}/niimath/releases/download/v1.0.20261016`
 const DCM2NIIX = `${GH}/dcm2niix/releases/download/v1.0.20261029`
 
 const SIDECARS: Sidecar[] = [
-  // bids-validator-rs (neurolabusc/bids-validator-rs)
-  {
-    platform: 'linux',
-    url: `${APPVEYOR}/25w2p4xfkhpl22dt/artifacts/bids-validator_lnx.zip`,
-    binary: 'bids-validator',
-    sha256: 'e3d3b1dce9fdac76904e8271aeb92a85e00339ede8e93c3c2df4fb353a1ea2a1',
-  },
-  {
-    platform: 'windows',
-    url: `${APPVEYOR}/qquliuyr55c94pq5/artifacts/bids-validator_win.zip`,
-    binary: 'bids-validator.exe',
-    sha256: 'a953b08dbbcd6786d60af033245e322b2d58deb4f0afc109a1f8ff0fd93f2504',
-  },
   // niimath (neurolabusc/niimath)
   {
     platform: 'linux',

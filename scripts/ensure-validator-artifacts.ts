@@ -75,9 +75,9 @@ if (backend === 'rust') {
     metaPath,
     `${JSON.stringify(
       {
-        // Keep in sync with `resources/darwin/bids-validator -V`.
-        validator: 'bids-validator-rs 3.0.2',
-        schema: '1.2.7',
+        // Platform-neutral: macOS ships 3.0.2 (schema 1.2.7), Linux/Windows
+        // still 2.4.1. Stamp the version once all three binaries match.
+        validator: 'bids-validator-rs',
         backend: 'rust',
       },
       null,
