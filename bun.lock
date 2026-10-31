@@ -6,7 +6,7 @@
       "name": "bidsvue",
       "dependencies": {
         "@bids/validator": "npm:@jsr/bids__validator@2.4.1",
-        "@brainchop/mindgrab": "^0.1.20260813",
+        "@brainchop/mindgrab": "0.1.20260813",
         "@niivue/niivue": "1.0.0-rc.61",
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-dialog": "^2",
