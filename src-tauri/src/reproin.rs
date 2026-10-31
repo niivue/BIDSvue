@@ -65,7 +65,7 @@ pub fn plan_tree(
     }))
 }
 
-/// Symlinks are skipped (never followed, never planned against).
+/// Any symlink rejects the whole plan (see below).
 fn walk(dir: &Path, rel: &str, exclude: &[String], v: &mut Vfs) -> std::io::Result<()> {
     for e in fs::read_dir(dir)? {
         let e = e?;

@@ -25,7 +25,7 @@ The product/UI name is **BIDSvue**; the repo, npm package, and Rust crate stay `
 
 ## Workspace layout
 
-- `src-tauri/` — Rust; the **Cargo workspace root**. `src-tauri/crates/datalad-rs` is a **git submodule** (path-dep workspace member) → `bun install` auto-initializes it (`scripts/ensure-submodules.ts`); to init by hand instead, run `git submodule update --init --recursive`. ReproIn conversion rules live in the reusable Rust engine `reproin-core` ([reproin-rs](https://github.com/rordenlab/reproin-rs); local path dep until it becomes the `src-tauri/crates/reproin-rs` submodule); BIDSvue still owns authorization and mutation. Backend gotchas: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
+- `src-tauri/` — Rust; the **Cargo workspace root**. `src-tauri/crates/datalad-rs` is a **git submodule** (path-dep workspace member) → `bun install` auto-initializes it (`scripts/ensure-submodules.ts`); to init by hand instead, run `git submodule update --init --recursive`. ReproIn conversion rules live in the reusable Rust engine `reproin-core` ([reproin-rs](https://github.com/rordenlab/reproin-rs); a tag-pinned Cargo git dep, not a submodule: Cargo cannot nest its workspace inside ours as a path dep; bump the `tag` in `src-tauri/Cargo.toml`); BIDSvue still owns authorization and mutation. Backend gotchas: [src-tauri/AGENTS.md](src-tauri/AGENTS.md).
 - `src/` — Svelte + TS renderer (browser-portable — keep it so for a future hosted deployment). Frontend gotchas: [src/AGENTS.md](src/AGENTS.md).
 - Data model is plain TS structures (Map/Set/objects) — no SQLite, no IndexedDB.
 

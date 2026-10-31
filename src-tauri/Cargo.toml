@@ -38,10 +38,10 @@ tauri-build = { version = "2", features = [] }
 # Native DataLad / git-annex engine (M-DL9 extraction). Path dep on the
 # vendored submodule; imported in Rust as `datalad_rs`.
 datalad-rs = { path = "crates/datalad-rs" }
-# ReproIn post-pass rules (reproin-rs `core`). TODO: becomes the
-# `crates/reproin-rs` git submodule (like datalad-rs) once
-# rordenlab/reproin-rs is pushed; local path until then.
-reproin-core = { path = "/Users/chris/src/reproin-rs/core" }
+# ReproIn post-pass rules (reproin-rs `core`). A git dep, not a submodule:
+# Cargo can't nest reproin-rs's own workspace inside ours as a path dep.
+# Local co-development: `[patch."https://github.com/rordenlab/reproin-rs"]`.
+reproin-core = { git = "https://github.com/rordenlab/reproin-rs", tag = "v0.1.20261030" }
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2"
 # `watch` pulls in the `notify` crate so plugin-fs::watch / unwatch register

@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "datalad-rs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bstr",
  "bytes",
@@ -3964,6 +3964,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "reproin-core"
 version = "0.1.20261030"
+source = "git+https://github.com/rordenlab/reproin-rs?tag=v0.1.20261030#dfe223a8e2fb16b087d9dc533a6feb6c867aa042"
 dependencies = [
  "flate2",
  "md-5",
