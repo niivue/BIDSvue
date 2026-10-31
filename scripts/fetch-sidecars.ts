@@ -17,15 +17,12 @@
 // Each AppVeyor artifact is a zip containing exactly one correctly-named
 // binary (verified 2026-06-28), so extraction is a straight unzip.
 //
-// Two URL forms exist on AppVeyor:
-//   - pinned (a specific build, reproducible):
-//       https://ci.appveyor.com/api/buildjobs/<jobId>/artifacts/<file>
-//   - latest-on-branch (auto-tracks releases):
-//       https://ci.appveyor.com/api/projects/<acct>/<proj>/artifacts/<file>?branch=master&job=<linux|win>
-// We pin every entry below so a re-fetch reproduces the exact bytes we
-// validated. dcm2niix MUST stay pinned (we track a dev build, not a release);
-// niimath + bids-validator-rs can move to the latest-on-branch form once they
-// cut releases matching the macOS binary.
+// Pins are either a GitHub release asset (tagged releases: dcm2niix,
+// niimath) or an AppVeyor build job (bids-validator-rs, until it cuts a
+// release). Release assets are durable; AppVeyor artifacts EXPIRE (the
+// bids-validator-rs jobs already 404), so move it to a release asap. The
+// sha256 check guarantees a re-fetch reproduces the bytes we validated. Release zips may carry extras
+// (LICENSE, MSVC DLLs the static exe doesn't need); only `binary` is taken.
 
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
@@ -37,10 +34,8 @@ import { join } from 'node:path'
 interface Sidecar {
   /** `resources/<platform>/` subdir. */
   platform: 'linux' | 'windows'
-  /** AppVeyor build job id (the `buildjobs/<jobId>` segment). */
-  jobId: string
-  /** Artifact file name AND the single binary inside the zip. */
-  file: string
+  /** Zip download URL. */
+  url: string
   /** Expected basename written under resources/<platform>/. */
   binary: string
   /** Expected SHA-256 of the extracted binary. */
@@ -49,53 +44,52 @@ interface Sidecar {
 
 // Pinned builds:
 //   bids-validator-rs 28-Jun-2026_g321ac30
-//   niimath           12-Jul-2026_g74e9bbc (PR #66 merge, modern allineate)
-//   dcm2niix (dev)    28-Jun-2026_gb07bfe2
+//   niimath           v1.0.20261016 (GitHub release)
+//   dcm2niix          v1.0.20261029 (GitHub release)
+const APPVEYOR = 'https://ci.appveyor.com/api/buildjobs'
+const GH = 'https://github.com/rordenlab'
+const NIIMATH = `${GH}/niimath/releases/download/v1.0.20261016`
+const DCM2NIIX = `${GH}/dcm2niix/releases/download/v1.0.20261029`
+
 const SIDECARS: Sidecar[] = [
   // bids-validator-rs (neurolabusc/bids-validator-rs)
   {
     platform: 'linux',
-    jobId: '25w2p4xfkhpl22dt',
-    file: 'bids-validator_lnx.zip',
+    url: `${APPVEYOR}/25w2p4xfkhpl22dt/artifacts/bids-validator_lnx.zip`,
     binary: 'bids-validator',
     sha256: 'e3d3b1dce9fdac76904e8271aeb92a85e00339ede8e93c3c2df4fb353a1ea2a1',
   },
   {
     platform: 'windows',
-    jobId: 'qquliuyr55c94pq5',
-    file: 'bids-validator_win.zip',
+    url: `${APPVEYOR}/qquliuyr55c94pq5/artifacts/bids-validator_win.zip`,
     binary: 'bids-validator.exe',
     sha256: 'a953b08dbbcd6786d60af033245e322b2d58deb4f0afc109a1f8ff0fd93f2504',
   },
   // niimath (neurolabusc/niimath)
   {
     platform: 'linux',
-    jobId: '2ryi6y71hfql6r2j',
-    file: 'niimath_lnx.zip',
+    url: `${NIIMATH}/niimath_lnx.zip`,
     binary: 'niimath',
-    sha256: 'ebd5a91d386f1c8bfef4216e7a0c6c435bc5824a973ec5ad87f2948bb700624c',
+    sha256: '19f6cbdf97d691cf7a867311960c9f760aa50ea860ed2feba16fc18fbbf6b4ce',
   },
   {
     platform: 'windows',
-    jobId: 'r7k984qip2ramhhf',
-    file: 'niimath_win.zip',
+    url: `${NIIMATH}/niimath_win.zip`,
     binary: 'niimath.exe',
-    sha256: '31092fb487a4ec0d7d400968f904486d124c65bc2a3f10d8319a21108c183307',
+    sha256: '6d9f4ed705c2bf3bd58527dd1db0eb449b0116a267633ab959fb084fe7360e2c',
   },
-  // dcm2niix DEV build (chrisfilo/dcm2niix) — keep pinned, not latest-on-branch
+  // dcm2niix (rordenlab/dcm2niix)
   {
     platform: 'linux',
-    jobId: 't47t99lk6gx0i1x0',
-    file: 'dcm2niix_lnx.zip',
+    url: `${DCM2NIIX}/dcm2niix_lnx.zip`,
     binary: 'dcm2niix',
-    sha256: 'a08f50fb259650adc039c8008984a1c25814540446f479a6ae0b631f2a08a306',
+    sha256: 'a1aeea2a700fbc76d1233cbf17c78c7e63d40e821e03e9e01772e9cde1400429',
   },
   {
     platform: 'windows',
-    jobId: 'yjmgu6n24an7b64x',
-    file: 'dcm2niix_win.zip',
+    url: `${DCM2NIIX}/dcm2niix_win.zip`,
     binary: 'dcm2niix.exe',
-    sha256: 'c5c0310ba6b84b0059a0245d6eb3d5aae6e3c1a1c209b6c75056d69abc31982d',
+    sha256: '583b3066cdc961f33662562be15fbd925411b3ff6126aa822a8050550449cb0a',
   },
 ]
 
@@ -110,21 +104,21 @@ function run(cmd: string, args: string[]): Promise<void> {
 }
 
 async function fetchOne(s: Sidecar, scratch: string): Promise<void> {
-  const url = `https://ci.appveyor.com/api/buildjobs/${s.jobId}/artifacts/${s.file}`
+  const url = s.url
   const destDir = join('resources', s.platform)
   await mkdir(destDir, { recursive: true })
 
   const res = await fetch(url)
   if (!res.ok) throw new Error(`fetch ${url} -> HTTP ${res.status}`)
-  const zipPath = join(scratch, s.file)
+  const zipPath = join(scratch, `${s.platform}-${s.binary}.zip`)
   await Bun.write(zipPath, await res.arrayBuffer())
 
-  // Each zip holds exactly one file named `s.binary`. `unzip -o -j` flattens
-  // and overwrites into destDir; `unzip` ships on macOS + Linux.
+  // `unzip -o -j` extracts just `s.binary`, flattened, overwriting into
+  // destDir; `unzip` ships on macOS + Linux.
   await run('unzip', ['-o', '-j', zipPath, s.binary, '-d', destDir])
   const out = join(destDir, s.binary)
   if (!(await Bun.file(out).exists())) {
-    throw new Error(`expected ${out} after extracting ${s.file}`)
+    throw new Error(`expected ${out} after extracting ${url}`)
   }
   const actualSha256 = createHash('sha256')
     .update(Buffer.from(await Bun.file(out).arrayBuffer()))
