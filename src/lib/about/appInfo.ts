@@ -13,7 +13,7 @@
 //     subprocess per app launch.
 //   - niimath version string: BUNDLED_TOOL_DESCRIPTIONS constant
 //     below. A static string is the right shape there (the Linux/Windows
-//     AppVeyor sidecars do not expose an upstream semver tag we rely on).
+//     release sidecars do not expose an upstream semver tag we rely on).
 
 import { aiFeatureEnabled } from '$lib/ai/featureFlag'
 import { AI_CLI_IDS, AI_CLI_LABELS, type AiCliProbe } from '$lib/ai/types'
@@ -34,7 +34,7 @@ import type { AppInfo, BundledToolVersions, ExternalToolStatus } from './types'
 /**
  * v1 bundled-tool descriptions for the binaries we don't probe live.
  * niimath has no single upstream semver to track across the macOS GPL
- * build and the Linux/Windows AppVeyor builds. dcm2niix IS probed live
+ * build and the Linux/Windows release builds. dcm2niix IS probed live
  * (see loadAppInfo) so it doesn't need a static line here — refreshing
  * `resources/<platform>/dcm2niix` is automatically reflected in the
  * About dialog.

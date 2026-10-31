@@ -8,6 +8,7 @@ Living document: when an item lands, delete it here — shipped state belongs in
 
 ## 0. Pending
 
+- **mindgrab wasm build duplicates its `.wasm`** in `assets/` and `workers/assets/` (~2.2 MB, wasm builds only); main thread only needs `checkWebgl2Support`, so a lighter main-thread import would drop the copy.
 - **reproin-rs `2701c17`** (engine flushes its drop-volumes writer) is committed but unreleased; BIDSvue already flushes on its side, so bump the `reproin-core` tag at the next reproin-rs release, not before.
 
 ---
@@ -44,7 +45,7 @@ Plus LIMITATIONS.md §"Security limitations": operation-log path portability, PE
 
 ### Cross-platform deployment
 
-macOS arm64 is released locally (notarized DMG); `x86_64` macOS is permanently out of scope. Linux x86_64 + Windows x86_64 unsigned bundles build on GitHub Actions ([.github/workflows/crossplatform-bundles.yml](.github/workflows/crossplatform-bundles.yml)); committed sidecars live under `resources/{linux,windows}/` (fetched from AppVeyor via `scripts/fetch-sidecars.ts`). Remaining:
+macOS arm64 is released locally (notarized DMG); `x86_64` macOS is permanently out of scope. Linux x86_64 + Windows x86_64 unsigned bundles build on GitHub Actions ([.github/workflows/crossplatform-bundles.yml](.github/workflows/crossplatform-bundles.yml)); committed sidecars live under `resources/{linux,windows}/` (GitHub release assets fetched by `scripts/fetch-sidecars.ts`). Remaining:
 
 | Item | Effort | Notes |
 |---|---|---|

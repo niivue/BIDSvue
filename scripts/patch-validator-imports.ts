@@ -19,7 +19,7 @@
 // files in node_modules directly, post `bun install`. Idempotent so
 // running multiple times is safe.
 //
-// Files in @bids/validator@2.4.1 + @jsr/bids__schema that use the
+// Files in @bids/validator + @jsr/bids__schema that use the
 // pattern (as of writing):
 //   @bids/validator/src/files/ignore.js
 //   @bids/validator/src/files/repo.js
