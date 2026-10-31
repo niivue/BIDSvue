@@ -160,10 +160,9 @@ Two interchangeable backends, one per build (`VITE_BIDSVUE_MINDGRAB_BACKEND`):
   binary (model weights compiled in) as a Tauri sidecar under
   [`resources/darwin/`](resources/darwin/), macOS arm64 only.
 - **wasm (MIT):** the `@brainchop/mindgrab` npm package, consumed
-  unmodified from the npm-published package; its WebGL2 module + assets
-  are staged into `static/brainchop/` at build time by
-  [`scripts/stage-mindgrab-wasm.ts`](scripts/stage-mindgrab-wasm.ts) and
-  served in-WebView. No source is vendored.
+  unmodified from the npm-published package; Vite bundles its
+  `./mindgrab` entry (that model's modules only) for wasm builds. No
+  source is vendored.
 
 ### Other dependencies
 

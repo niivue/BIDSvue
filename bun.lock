@@ -6,7 +6,7 @@
       "name": "bidsvue",
       "dependencies": {
         "@bids/validator": "npm:@jsr/bids__validator@3.0.2",
-        "@brainchop/mindgrab": "0.1.20260813",
+        "@brainchop/mindgrab": "0.1.20261029",
         "@niivue/niivue": "1.0.0-rc.61",
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-dialog": "^2",
@@ -62,7 +62,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@1.9.4", "", { "os": "win32", "cpu": "x64" }, "sha512-8Y5wMhVIPaWe6jw2H+KlEm4wP/f7EW3810ZLmDlrEEy5KvBsb9ECEfu/kMWD484ijfQ8+nIi0giMgu9g1UAuuA=="],
 
-    "@brainchop/mindgrab": ["@brainchop/mindgrab@0.1.20260813", "", { "dependencies": { "@webgpu/types": "^0.1.71" } }, "sha512-HpushBfOzG5yhzgKmhjy1q+8DYxLdM96LeeciF+W2wwStKFzNW1ABY87fwGZjFXcivoWVv+HWPfakBe/GrQPsA=="],
+    "@brainchop/mindgrab": ["@brainchop/mindgrab@0.1.20261029", "", { "dependencies": { "@webgpu/types": "^0.1.71" } }, "sha512-s1hvPdSMntLN46tIh4rNGIGvZPPp4ZYh2tGC2iSyvdXkC+Pco0142mQnCuBgIS54hG+ebk56YUEIYwefDUTeAw=="],
 
     "@cbor-extract/cbor-extract-darwin-arm64": ["@cbor-extract/cbor-extract-darwin-arm64@2.2.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA=="],
 

@@ -67,7 +67,9 @@ export async function getMindgrabSupported(): Promise<boolean> {
         if (import.meta.env.VITE_BIDSVUE_MINDGRAB_BACKEND === 'wasm') {
           // In-WebView WebGL2: supported wherever the WebView exposes a
           // usable WebGL2 context (Linux WebKitGTK, macOS WKWebView, …).
-          const { checkWebgl2Support } = await import('@brainchop/mindgrab')
+          const { checkWebgl2Support } = await import(
+            '@brainchop/mindgrab/mindgrab'
+          )
           return checkWebgl2Support().supported
         }
         // Native brainchop sidecar: bundled for macOS arm64 today.

@@ -14,9 +14,9 @@
   },
   "type": "module",
   "scripts": {
-    "predev": "bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-mindgrab-wasm.ts",
+    "predev": "bun run scripts/ensure-validator-artifacts.ts",
     "dev": "vite dev",
-    "prebuild": "bun run scripts/ensure-validator-artifacts.ts && bun run scripts/stage-mindgrab-wasm.ts",
+    "prebuild": "bun run scripts/ensure-validator-artifacts.ts",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@bids/validator": "npm:@jsr/bids__validator@3.0.2",
-    "@brainchop/mindgrab": "0.1.20260813",
+    "@brainchop/mindgrab": "0.1.20261029",
     "@niivue/niivue": "1.0.0-rc.61",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",

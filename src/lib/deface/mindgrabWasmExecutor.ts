@@ -9,9 +9,8 @@
 //
 // The WebGL2 module is synchronous (it blocks the calling thread), so we
 // pass `worker: true` — the only way to keep the UI responsive during a
-// run. The `.js` / `.wasm` / `worker.js` are served from `static/brainchop/`
-// (staged by `scripts/stage-mindgrab-wasm.ts`), reached same-origin via
-// `assetPath`.
+// run. The `@brainchop/mindgrab/mindgrab` entry names only this model's
+// modules, so Vite emits just those (needs `worker.format: 'es'`).
 
 import { resolveResource } from '@tauri-apps/api/path'
 import { writeFile as tauriWriteFile } from '@tauri-apps/plugin-fs'
@@ -21,9 +20,6 @@ import { readFileWithSymlinkResolve } from '$lib/util/readTextFile'
 import { defaceCacheTempDir } from './cacheTempDir'
 import type { DefaceExecutor } from './runDeface'
 import { type DefaceToolId, isMindgrabTool } from './tools'
-
-/** Base URL the staged model `.js`/`.wasm`/`worker.js` are served from. */
-const ASSET_PATH = '/brainchop/'
 
 /**
  * Both `mindgrab` and `mindgrab8` run the one MeshNet skull-strip model;
@@ -100,7 +96,7 @@ export const wasmMindgrabExecutor: DefaceExecutor = {
     const { input, output, borderMm } = parseArgv(argv)
     const inputBytes = await readFileWithSymlinkResolve(input)
 
-    const { segment } = await import('@brainchop/mindgrab')
+    const { segment } = await import('@brainchop/mindgrab/mindgrab')
     const log: string[] = []
     // Pass the Uint8Array view directly (segment accepts an ArrayBufferView)
     // so a non-zero byteOffset / partial-length view is honoured — `.buffer`
@@ -111,7 +107,6 @@ export const wasmMindgrabExecutor: DefaceExecutor = {
       // borderMm implies mask; 0 = no dilation (matches the native default).
       borderMm,
       worker: true,
-      assetPath: ASSET_PATH,
       onLog: (line) => log.push(line),
     })
 
