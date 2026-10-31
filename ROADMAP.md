@@ -6,10 +6,8 @@ Living document: when an item lands, delete it here — shipped state belongs in
 
 ---
 
-## 0. Pending before push
+## 0. Pending
 
-- **Push `datalad-rs` 292e88b** (DataLad compat 1.7.3) to GitHub before pushing BIDSvue; the submodule pointer references a commit that is not yet on the remote, so fresh clones would fail.
-- **Linux/Windows `bids-validator` sidecars** are still 2.4.1 (macOS + JS fallback are 3.0.2 / schema 1.2.7), pending a bids-validator-rs release; then add GitHub release pins to `scripts/fetch-sidecars.ts` and refresh `resources/{linux,windows}/`, and restore the version in the About stamp (`scripts/ensure-validator-artifacts.ts`, currently neutral). Release from bids-validator-rs branch `sync-3.0.2` (7574e07 + 16666f6) as tag `v0.1.20261031` with the AppVeyor zips attached as GitHub release assets (AppVeyor artifacts expire).
 - **reproin-rs `2701c17`** (engine flushes its drop-volumes writer) is committed but unreleased; BIDSvue already flushes on its side, so bump the `reproin-core` tag at the next reproin-rs release, not before.
 
 ---

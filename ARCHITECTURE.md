@@ -260,7 +260,7 @@ Argv validators today: `validate_reproin_argv`, `validate_pet2bids_argv`, `valid
 Source-of-truth: `resources/<platform>/<basename>` (committed). Tauri's `bundle.externalBin` reads `src-tauri/binaries/<basename>-<target-triple>` (gitignored; Windows uses `<basename>-<target-triple>.exe`). `bun install` runs `scripts/stage-sidecars.ts`, which stages the current host's committed sidecars automatically.
 
 - `scripts/build-dcm2bids-sidecar.sh` is retained as the round-trip path back to bundling (drops the binary under `resources/darwin/dcm2bids`); dcm2bids ships PATH-resolved today so the staged binary is intentionally absent.
-- dcm2niix / niimath / bids-validator: macOS arm64 binaries are maintained locally; Linux/Windows x86_64 binaries are committed under `resources/{linux,windows}/`. dcm2niix + niimath are pinned GitHub release assets refreshed by `scripts/fetch-sidecars.ts`; bids-validator is the committed 2.4.1 AppVeyor build (artifacts expired, not fetched) until bids-validator-rs publishes a release.
+- dcm2niix / niimath / bids-validator: macOS arm64 binaries are maintained locally; Linux/Windows x86_64 binaries are committed under `resources/{linux,windows}/`. All three are pinned GitHub release assets refreshed by `scripts/fetch-sidecars.ts`.
 - `scripts/stage-sidecars.ts::stagedName` owns the Windows `.exe` rule. Never stage `dcm2niix.exe-x86_64-pc-windows-msvc`; Tauri expects `dcm2niix-x86_64-pc-windows-msvc.exe`.
 
 ## 8. Validator integration

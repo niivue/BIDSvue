@@ -37,14 +37,14 @@ interface Sidecar {
   sha256: string
 }
 
-// Pinned builds (bids-validator-rs is NOT fetched: its 28-Jun-2026_g321ac30
-// AppVeyor artifacts expired; the committed resources/ binaries are the only
-// copy until it publishes a GitHub release, then add it here):
-//   niimath           v1.0.20261016 (GitHub release)
-//   dcm2niix          v1.0.20261029 (GitHub release)
+// Pinned builds (GitHub releases):
+//   niimath           v1.0.20261016
+//   dcm2niix          v1.0.20261029
+//   bids-validator-rs v0.1.20261031 (BIDS Validator 3.0.2, schema 1.2.7)
 const GH = 'https://github.com/rordenlab'
 const NIIMATH = `${GH}/niimath/releases/download/v1.0.20261016`
 const DCM2NIIX = `${GH}/dcm2niix/releases/download/v1.0.20261029`
+const VALIDATOR = `${GH}/bids-validator-rs/releases/download/v0.1.20261031`
 
 const SIDECARS: Sidecar[] = [
   // niimath (neurolabusc/niimath)
@@ -72,6 +72,19 @@ const SIDECARS: Sidecar[] = [
     url: `${DCM2NIIX}/dcm2niix_win.zip`,
     binary: 'dcm2niix.exe',
     sha256: '583b3066cdc961f33662562be15fbd925411b3ff6126aa822a8050550449cb0a',
+  },
+  // bids-validator-rs (rordenlab/bids-validator-rs)
+  {
+    platform: 'linux',
+    url: `${VALIDATOR}/bids-validator_lnx.zip`,
+    binary: 'bids-validator',
+    sha256: 'da9c68fa40399fcfb071e74a715cb3b0cb7e2d5a78297731b53b6eefab55b9f1',
+  },
+  {
+    platform: 'windows',
+    url: `${VALIDATOR}/bids-validator_win.zip`,
+    binary: 'bids-validator.exe',
+    sha256: '9b36ff0449266e1de19ff948e7ce8b9ddb145b6398e1791dae55cb6ba041d926',
   },
 ]
 

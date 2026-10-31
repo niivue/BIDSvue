@@ -75,10 +75,9 @@ if (backend === 'rust') {
     metaPath,
     `${JSON.stringify(
       {
-        // Platform-neutral: macOS ships 3.0.2 (schema 1.2.7), Linux/Windows
-        // still 2.4.1. Stamp the version once all three binaries match.
-        validator: 'bids-validator-rs',
-        schema: 'unknown',
+        // All three bundled binaries: bids-validator-rs v0.1.20261031.
+        validator: 'bids-validator-rs 3.0.2',
+        schema: '1.2.7',
         backend: 'rust',
       },
       null,

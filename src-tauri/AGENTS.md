@@ -45,7 +45,7 @@ Source-of-truth binaries: `resources/<platform>/<basename>` (committed); Tauri r
 
 ## Validator
 
-`bids-validator-rs` is the default backend, a bundled sidecar (macOS arm64 / Linux x86_64 / Windows x86_64), spawned by `run_bids_validator` with fixed argv (`--format json --content-mode parity --link-mode no-follow`). Build-time switch `VITE_BIDSVUE_VALIDATOR_BACKEND` — unset/`rust` = sidecar; `js` = in-WebView `@bids/validator` 3.0.2. Both track upstream **3.0.2** (schema 1.2.7) on macOS arm64; the committed Linux/Windows `bids-validator` binaries are still the 2.4.1 AppVeyor builds until bids-validator-rs `sync-3.0.2` is pushed and CI publishes new ones (then refresh `fetch-sidecars.ts`). The dispatcher dead-codes the unused branch so rust-mode doesn't carry the ~9 MB JS chunk. (Validator RUNS in the WebView for the JS backend — see [../src/AGENTS.md](../src/AGENTS.md) / ARCHITECTURE for that path.)
+`bids-validator-rs` is the default backend, a bundled sidecar (macOS arm64 / Linux x86_64 / Windows x86_64), spawned by `run_bids_validator` with fixed argv (`--format json --content-mode parity --link-mode no-follow`). Build-time switch `VITE_BIDSVUE_VALIDATOR_BACKEND` — unset/`rust` = sidecar; `js` = in-WebView `@bids/validator` 3.0.2. Both track upstream **3.0.2** (schema 1.2.7) on all three platforms (bids-validator-rs `v0.1.20261031`; Linux/Windows pinned in `fetch-sidecars.ts`). The dispatcher dead-codes the unused branch so rust-mode doesn't carry the ~9 MB JS chunk. (Validator RUNS in the WebView for the JS backend — see [../src/AGENTS.md](../src/AGENTS.md) / ARCHITECTURE for that path.)
 
 ## AI Rust surface ([ai/](src/ai/))
 
