@@ -362,6 +362,16 @@ pub async fn datalad_native_get(
     for raw in &paths {
         validate_fetch_path(raw, &root)?;
     }
+    // Annex objects + journal are written under `git_dir`, which a
+    // `gitdir:`/`commondir` file (or a `.git` symlink) can point anywhere:
+    // bound it to the trusted paths too. Fails closed for a subdataset whose
+    // superdataset (holding `.git/modules/<sub>`) isn't open.
+    let git_dir = datalad_rs::repo_info::git_dir(&root);
+    crate::validate_authorized_path_canonical(
+        &state,
+        &git_dir.to_string_lossy(),
+        "datalad_native_get",
+    )?;
     let repo = open_repo(&root)?;
     let remote_log = read_remote_log(&repo)?.unwrap_or_default();
     let s3_remotes: Vec<S3Remote> = pick_all_latest_s3(&remote_log)

@@ -148,7 +148,9 @@ pub fn drop_volumes_to_temp(path: &Path, indices: &[usize]) -> Result<PathBuf, S
     let run = || -> std::io::Result<()> {
         let src = BufReader::new(fs::File::open(path)?);
         let mut dst = BufWriter::new(fs::File::create_new(&tmp)?);
-        drop_volumes_flushed(&name, src, &mut dst, indices)
+        drop_volumes_flushed(&name, src, &mut dst, indices)?;
+        // Durable before the renderer deletes the source and adopts us.
+        dst.get_ref().sync_all()
     };
     run().map_err(|e| {
         let _ = fs::remove_file(&tmp);

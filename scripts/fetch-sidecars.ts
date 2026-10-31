@@ -22,7 +22,7 @@
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -95,21 +95,21 @@ async function fetchOne(s: Sidecar, scratch: string): Promise<void> {
   const zipPath = join(scratch, `${s.platform}-${s.binary}.zip`)
   await Bun.write(zipPath, await res.arrayBuffer())
 
-  // `unzip -o -j` extracts just `s.binary`, flattened, overwriting into
-  // destDir; `unzip` ships on macOS + Linux.
-  await run('unzip', ['-o', '-j', zipPath, s.binary, '-d', destDir])
-  const out = join(destDir, s.binary)
-  if (!(await Bun.file(out).exists())) {
-    throw new Error(`expected ${out} after extracting ${url}`)
-  }
-  const actualSha256 = createHash('sha256')
-    .update(Buffer.from(await Bun.file(out).arrayBuffer()))
-    .digest('hex')
+  // Extract + verify in scratch; only verified bytes reach resources/.
+  // `unzip` ships on macOS + Linux.
+  const unpacked = join(scratch, s.platform)
+  await run('unzip', ['-o', '-j', zipPath, s.binary, '-d', unpacked])
+  const bytes = Buffer.from(
+    await Bun.file(join(unpacked, s.binary)).arrayBuffer(),
+  )
+  const actualSha256 = createHash('sha256').update(bytes).digest('hex')
   if (actualSha256 !== s.sha256) {
     throw new Error(
-      `sha256 mismatch for ${out}: expected ${s.sha256}, got ${actualSha256}`,
+      `sha256 mismatch for ${url}: expected ${s.sha256}, got ${actualSha256}`,
     )
   }
+  const out = join(destDir, s.binary)
+  await copyFile(join(unpacked, s.binary), out)
   console.log(`[fetch-sidecars] ${url} -> ${out}`)
 }
 
