@@ -7,13 +7,6 @@ export interface ScaffoldEntry {
   path: string
   /** Text contents to write. */
   content: string
-  /**
-   * When true, the orchestrator must check `fs.exists(path)` first and
-   * skip the write if the file already exists. This is how
-   * scaffolding stays additive across re-runs and never overwrites
-   * the user's curated README / participants / task JSONs.
-   */
-  ifAbsent: boolean
   /** Diagnostic tag for the operations.log child. */
   kind: string
 }
@@ -22,18 +15,16 @@ export interface ScaffoldEntry {
  * Plan top-level scaffolding for the **non-reproin import paths**
  * (`bidsvuePostPass: 'none'` — heudiconv, dcm2bids, ezbids-meg).
  *
- * Unlike `planStaticScaffolding` which runs per-discovered-BIDS-root
- * after dcm2niix's `-f %H` produces N study subdirectories, these
- * external tools arrange the BIDS tree themselves (one root at
- * destDir). They emit a richer `dataset_description.json` AT the root
- * during conversion when they care to (heudiconv does, ezbids-meg
+ * These external tools arrange the BIDS tree themselves (one root at
+ * destDir; ReproIn scaffolding lives in reproin-core). They emit a
+ * richer `dataset_description.json` AT the root during conversion when
+ * they care to (heudiconv does, ezbids-meg
  * does, dcm2bids 3.x deliberately does not). Without a top-level
  * `dataset_description.json`, BIDSvue's open-dataset gate
  * (`scanner.ts: no-dataset-description`) refuses to auto-open the
  * freshly-written tree.
  *
- * Returns minimal stubs marked `ifAbsent: true`, so the orchestrator
- * skips the write when the tool already produced its own — never
+ * Returns minimal stubs; the orchestrator skips each write when the tool already produced its own — never
  * clobbers heudiconv / ezbids-meg's richer file but rescues the
  * dcm2bids path. Caller passes `toolLabel` (rendered in the README)
  * and `toolId` (`GeneratedBy.CodeURL` slug).
@@ -60,13 +51,11 @@ export function planNonReproinScaffolding(opts: {
     {
       path: `${opts.destDir}/dataset_description.json`,
       content: datasetDescription,
-      ifAbsent: true,
       kind: 'dataset-description-stub',
     },
     {
       path: `${opts.destDir}/README`,
       content: readme,
-      ifAbsent: true,
       kind: 'readme-stub',
     },
   ]
@@ -78,8 +67,8 @@ export function planNonReproinScaffolding(opts: {
  * indent + trailing newline), or `null` when no write is warranted: the JSON
  * is unparseable / not an object, or it already carries a non-empty TaskName.
  * Spread-first-then-override preserves every other field while filling a
- * missing / null / empty TaskName. Shared by the importer post-pass and the
- * task-events "Add TaskName…" action.
+ * missing / null / empty TaskName. Used by the task-events "Add TaskName…"
+ * action and the context menu.
  */
 export function mergeTaskNameIntoSidecar(
   raw: string,

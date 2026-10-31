@@ -1,8 +1,6 @@
 // Multi-root BIDS discovery for importers that arrange BIDS themselves
-// (heudiconv/dcm2bids). Same shape as reproinx.py's `_walk_subjects` +
-// `_bids_roots`: dcm2niix's `-f %H` argv appends a `<StudyDescription>/`
-// hierarchy below `-o`, so a single conversion can produce N BIDS
-// datasets (one per StudyDescription) under one destination dir. Each
+// (heudiconv/dcm2bids): a single conversion can produce N BIDS datasets
+// (e.g. one per StudyDescription) under one destination dir. Each
 // must be scaffolded independently; collapsing to their common ancestor
 // would put `participants.tsv` / `task-*.json` at a directory that is
 // not actually a BIDS root.
@@ -23,23 +21,13 @@ import type { PostPassFs } from '$lib/util/readFs'
  * `sub-*` or `ses-*` directory. This filters out spurious matches
  * inside an existing session (impossible with dcm2niix output but
  * possible in user-curated trees).
- *
- * `excludeTopLevel`: when supplied, the recursion skips any top-level
- * `destDir`-child whose basename is in the set. The import
- * orchestrator passes this for the dcm2niix-reproin "non-empty
- * destDir" case so the walker only sees subjects that *this* import
- * produced — pre-existing user datasets under destDir don't pollute
- * the bidsRoots result (which drives the auto-open target). Only
- * applies at the FIRST level under destDir; nested directories are
- * never skipped this way.
  */
 export async function walkSubjects(
   destDir: string,
   fs: PostPassFs,
-  excludeTopLevel?: ReadonlySet<string>,
 ): Promise<string[]> {
   const found: string[] = []
-  await walk(destDir, found, fs, false, excludeTopLevel ?? null, true)
+  await walk(destDir, found, fs, false)
   return found.sort()
 }
 
@@ -48,8 +36,6 @@ async function walk(
   out: string[],
   fs: PostPassFs,
   insideSubjectOrSession: boolean,
-  excludeTopLevel: ReadonlySet<string> | null,
-  atTopLevel: boolean,
 ): Promise<void> {
   let entries: Awaited<ReturnType<PostPassFs['readDir']>>
   try {
@@ -59,16 +45,8 @@ async function walk(
   }
   for (const e of entries) {
     if (!e.isDirectory) continue
-    // Skip the derivatives/ subtree wholesale — scouts + DERIVED images
-    // live there but we never treat them as primary subjects. The
-    // dropDerivatives pass deletes the whole tree if `saveDerivatives`
-    // is false.
+    // derivatives/ holds no primary subjects.
     if (e.name === 'derivatives') continue
-    // Skip pre-existing top-level entries (snapshot from runImport)
-    // so the post-pass walker can't pull in subjects from the user's
-    // OTHER datasets that share the destDir parent. Applies only at
-    // depth 1 of destDir; we don't propagate the exclusion deeper.
-    if (atTopLevel && excludeTopLevel?.has(e.name)) continue
     const full = `${dir}/${e.name}`
     if (e.name.startsWith('sub-')) {
       if (!insideSubjectOrSession) out.push(full)
@@ -79,7 +57,7 @@ async function walk(
     // find subjects under the `<StudyDescription>/` parent dcm2niix
     // creates for `-f %H`. Skip recursion below ses-* dirs.
     if (e.name.startsWith('ses-')) continue
-    await walk(full, out, fs, insideSubjectOrSession, excludeTopLevel, false)
+    await walk(full, out, fs, insideSubjectOrSession)
   }
 }
 
@@ -102,22 +80,6 @@ export function bidsRoots(subjectPaths: string[]): string[] {
 }
 
 /**
- * Composite helper: walk `destDir` and return the unique BIDS roots.
- * Wraps `walkSubjects` + `bidsRoots` for callers that don't need the
- * subject paths themselves. `excludeTopLevel` is forwarded so the
- * import orchestrator can scope discovery to its own output when
- * destDir already had user data under it.
- */
-export async function discoverBidsRoots(
-  destDir: string,
-  fs: PostPassFs,
-  excludeTopLevel?: ReadonlySet<string>,
-): Promise<string[]> {
-  const subs = await walkSubjects(destDir, fs, excludeTopLevel)
-  return bidsRoots(subs)
-}
-
-/**
  * Discover only the BIDS roots that THIS conversion produced — even
  * when destDir held pre-existing user data AND the converter's output
  * landed under a top-level name that happened to already exist (e.g.
@@ -129,11 +91,9 @@ export async function discoverBidsRoots(
  * `listFiles(destDir)` output captured between converter exit and
  * the post-pass; subjects with zero produced files under them
  * pre-existed and are skipped.
- *
- * The older `excludeTopLevel` predicate (which keys on top-level
- * dir name) breaks down when the locator name collides with a
- * pre-existing top-level dir; this helper doesn't have that
- * vulnerability. Path-separator-safe (matches both `/` and `\`).
+ * Keyed on produced files, not top-level names, so a collision with a
+ * pre-existing top-level dir can't misattribute it. Path-separator-safe
+ * (matches both `/` and `\`).
  */
 export async function discoverBidsRootsForProduced(
   destDir: string,

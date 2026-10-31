@@ -1,15 +1,7 @@
-// Read-only filesystem surface for importer post-passes (PET, non-ReproIn
-// scaffolding) and header probes. Kept separate from `MutateFs` (the
-// write-side adapter) because it needs partial reads + streaming gunzip
-// that MutateFs doesn't expose.
-//
-// Production implementation lives in `tauriPostPassFs` (Tauri plugin-fs
-// for raw reads + WebKit's `DecompressionStream("gzip")` for gunzip).
-// Tests inject a node:fs-backed adapter.
-//
-// The partial-read methods are shared with the deface header probe via
-// `PartialReadFs`; defining the type here and reusing it keeps the two
-// modules from drifting if a future read primitive changes shape.
+// Read-only filesystem surfaces: `PostPassFs` for importer post-passes
+// (PET, non-ReproIn scaffolding), `PartialReadFs` (partial reads +
+// streaming gunzip) for the deface header probe. Production: both via
+// `tauriPostPassFs`. Tests inject a node:fs-backed `PostPassFs`.
 
 export interface PostPassDirEntry {
   name: string
@@ -17,14 +9,7 @@ export interface PostPassDirEntry {
   isDirectory: boolean
 }
 
-/**
- * Header-only read surface. Lives here (rather than in
- * `src/lib/deface/headerProbe.ts`) so it can be the canonical
- * partial-read contract: `PostPassFs` extends it for the import path,
- * and the deface 4D guard imports it directly. Two callers, one
- * type — adding a new partial-read method or changing semantics
- * updates one definition.
- */
+/** Header-only read surface (deface 4D guard). */
 export interface PartialReadFs {
   /**
    * Read the first `size` bytes of an uncompressed file. Caller may
@@ -42,7 +27,7 @@ export interface PartialReadFs {
   readPartialGzipBytes(path: string, size: number): Promise<Uint8Array>
 }
 
-export interface PostPassFs extends PartialReadFs {
+export interface PostPassFs {
   /** Does anything (file or directory) exist at this path? */
   exists(path: string): Promise<boolean>
   /** Non-recursive directory listing. */

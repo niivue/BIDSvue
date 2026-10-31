@@ -18,7 +18,6 @@ use crate::trust::TrustStore;
 pub struct ReproinOptions {
     pub keep_derivatives: bool,
     pub shift_dates: bool,
-    pub min_volumes: Option<i64>,
 }
 
 /// Inventory `root` and plan the post-pass. `exclude_top_level` names are
@@ -40,14 +39,13 @@ pub fn plan_tree(
     let mut tree = Vfs::new(parts);
     walk(root, "", exclude_top_level, &mut tree)
         .map_err(|e| format!("reproin inventory {}: {e}", root.display()))?;
-    let d = Options::default();
     let plan = reproin_core::plan(
         tree,
         &Options {
             strict: false,
             keep_derivatives: opts.keep_derivatives,
-            min_volumes: opts.min_volumes.unwrap_or(d.min_volumes),
             shift_dates: opts.shift_dates,
+            ..Options::default()
         },
     );
     let ops = plan
@@ -209,7 +207,6 @@ mod tests {
         ReproinOptions {
             keep_derivatives: false,
             shift_dates: false,
-            min_volumes: None,
         }
     }
 

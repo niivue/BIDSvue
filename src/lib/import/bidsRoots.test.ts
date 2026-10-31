@@ -7,7 +7,6 @@ import { nodeFsPostPassAdapter } from '$lib/test-utils/nodeReadFs'
 import { toPosix } from '$lib/test-utils/posix'
 import {
   bidsRoots,
-  discoverBidsRoots,
   discoverBidsRootsForProduced,
   walkSubjects,
 } from './bidsRoots'
@@ -108,56 +107,6 @@ describe('walkSubjects', () => {
         nodeFsPostPassAdapter,
       ),
     ).toEqual([])
-  })
-
-  test('skips top-level entries in excludeTopLevel', async () => {
-    // The user's destDir has a pre-existing dataset (Cd) AND a
-    // freshly-imported StudyDescription tree (SophieAP). The
-    // exclude-set tells the walker to ignore Cd so only the new
-    // subjects surface — which is what the auto-open logic needs to
-    // pick a single bidsRoot.
-    await mkdir(join(root, 'Cd', 'sub-crlab'), { recursive: true })
-    await mkdir(join(root, 'SophieAP', 'TMS', 'sub-01'), { recursive: true })
-
-    const all = await walkSubjects(root, nodeFsPostPassAdapter)
-    expect(all).toContain(P(root, 'Cd', 'sub-crlab'))
-    expect(all).toContain(P(root, 'SophieAP', 'TMS', 'sub-01'))
-
-    const filtered = await walkSubjects(
-      root,
-      nodeFsPostPassAdapter,
-      new Set(['Cd']),
-    )
-    expect(filtered).toEqual([P(root, 'SophieAP', 'TMS', 'sub-01')])
-  })
-
-  test('exclude only applies at the top level, not deeper', async () => {
-    // A directory named "Cd" nested inside the freshly-imported tree
-    // should NOT be filtered — only depth-1 children of destDir
-    // participate in the snapshot.
-    await mkdir(join(root, 'StudyA', 'Cd', 'sub-01'), { recursive: true })
-    const out = await walkSubjects(root, nodeFsPostPassAdapter, new Set(['Cd']))
-    expect(out).toEqual([P(root, 'StudyA', 'Cd', 'sub-01')])
-  })
-})
-
-describe('discoverBidsRoots', () => {
-  let root: string
-  beforeEach(() => {
-    root = tmp()
-  })
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true })
-  })
-
-  test('composes walk + group across multiple StudyDescriptions', async () => {
-    await mkdir(join(root, 'StudyA', 'sub-01'), { recursive: true })
-    await mkdir(join(root, 'StudyB', 'sub-10'), { recursive: true })
-
-    expect(await discoverBidsRoots(root, nodeFsPostPassAdapter)).toEqual([
-      P(root, 'StudyA'),
-      P(root, 'StudyB'),
-    ])
   })
 })
 

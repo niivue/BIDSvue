@@ -1,8 +1,7 @@
 // Test helper: node:fs-backed PostPassFs adapter for bun:test suites and
 // scripts. Never imported by production code.
 
-import { createReadStream, promises as nodeFs } from 'node:fs'
-import { createGunzip } from 'node:zlib'
+import { promises as nodeFs } from 'node:fs'
 import type { PostPassDirEntry, PostPassFs } from '$lib/util/readFs'
 
 export const nodeFsPostPassAdapter: PostPassFs = {
@@ -26,63 +25,5 @@ export const nodeFsPostPassAdapter: PostPassFs = {
 
   async readTextFile(path: string): Promise<string> {
     return nodeFs.readFile(path, 'utf8')
-  },
-
-  async readPartialBytes(path: string, size: number): Promise<Uint8Array> {
-    const fh = await nodeFs.open(path, 'r')
-    try {
-      const buf = Buffer.alloc(size)
-      const { bytesRead } = await fh.read(buf, 0, size, 0)
-      return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead)
-    } finally {
-      await fh.close()
-    }
-  },
-
-  readPartialGzipBytes(path: string, size: number): Promise<Uint8Array> {
-    return new Promise<Uint8Array>((resolve, reject) => {
-      const source = createReadStream(path)
-      const gunzip = createGunzip()
-      const chunks: Buffer[] = []
-      let total = 0
-      let settled = false
-
-      const settle = (value: Uint8Array | Error): void => {
-        if (settled) return
-        settled = true
-        source.destroy()
-        gunzip.destroy()
-        if (value instanceof Error) reject(value)
-        else resolve(value)
-      }
-
-      gunzip.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-        total += chunk.length
-        if (total >= size) {
-          const combined = Buffer.concat(chunks)
-          settle(
-            new Uint8Array(
-              combined.buffer,
-              combined.byteOffset,
-              Math.min(combined.length, size),
-            ),
-          )
-        }
-      })
-      gunzip.on('end', () => {
-        const combined = Buffer.concat(chunks)
-        settle(
-          new Uint8Array(
-            combined.buffer,
-            combined.byteOffset,
-            Math.min(combined.length, size),
-          ),
-        )
-      })
-      gunzip.on('error', settle)
-      source.on('error', settle)
-      source.pipe(gunzip)
-    })
   },
 }

@@ -508,7 +508,7 @@ describe('runImport', () => {
       {
         root: toPosix(dest),
         exclude: [],
-        options: { keepDerivatives: false, shiftDates: false, minVolumes: 5 },
+        options: { keepDerivatives: false, shiftDates: false },
       },
     ])
 
@@ -1272,7 +1272,7 @@ describe('runImport', () => {
 
     // Log entry: created-tree marker plus if-absent scaffolding stubs
     // (heudiconv normally writes its own dataset_description.json, so the
-    // ifAbsent guard would skip these against a real heudiconv run; the
+    // exists() guard would skip these against a real heudiconv run; the
     // stub executor here writes nothing on disk so the orchestrator
     // rescues the open-dataset gate). No 'post-pass-*' kinds.
     const entries = await readOperationsLog(sp.operationsLogPath, nodeMutateFs)

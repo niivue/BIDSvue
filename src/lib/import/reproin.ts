@@ -31,7 +31,6 @@ export interface ReproinPlan {
 export interface ReproinOptions {
   keepDerivatives: boolean
   shiftDates: boolean
-  minVolumes?: number
 }
 
 /** Native bridge (Tauri commands in src-tauri/src/reproin.rs). */
@@ -104,7 +103,6 @@ export async function runReproinPostPass(
   const plan = await bridge.plan(destDir, [...(opts.excludeTopLevel ?? [])], {
     keepDerivatives: opts.saveDerivatives === true,
     shiftDates: opts.shiftDates === true,
-    minVolumes: 5,
   })
   // The plan is computed before anything changes, so an abort applies
   // nothing (reproinx.py would leave the ops before the abort on disk).
@@ -149,11 +147,6 @@ export async function runReproinPostPass(
         const temp = await bridge.dropVolumes(target, op.indices)
         try {
           await ctx.delete(target, why)
-        } catch (err) {
-          await ctx.fs.remove(temp).catch(() => {})
-          throw err
-        }
-        try {
           await ctx.adoptNewFile(temp, target, why)
         } catch (err) {
           await ctx.fs.remove(temp).catch(() => {})

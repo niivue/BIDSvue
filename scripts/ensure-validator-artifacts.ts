@@ -78,6 +78,7 @@ if (backend === 'rust') {
         // Platform-neutral: macOS ships 3.0.2 (schema 1.2.7), Linux/Windows
         // still 2.4.1. Stamp the version once all three binaries match.
         validator: 'bids-validator-rs',
+        schema: 'unknown',
         backend: 'rust',
       },
       null,

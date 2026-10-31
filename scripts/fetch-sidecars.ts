@@ -86,7 +86,7 @@ function run(cmd: string, args: string[]): Promise<void> {
 }
 
 async function fetchOne(s: Sidecar, scratch: string): Promise<void> {
-  const url = s.url
+  const { url } = s
   const destDir = join('resources', s.platform)
   await mkdir(destDir, { recursive: true })
 

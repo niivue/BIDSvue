@@ -1102,7 +1102,7 @@ export async function runImport(
           toolId: tool.id,
         })
         for (const entry of entries) {
-          if (entry.ifAbsent && (await fs.exists(entry.path))) continue
+          if (await fs.exists(entry.path)) continue
           await ctx.writeText(entry.path, entry.content, { kind: entry.kind })
         }
       }
@@ -1142,9 +1142,8 @@ export async function runImport(
     // marker recorded above is what makes the import as a whole
     // reversible via removeTree.
     //
-    //   - `'reproin'` -- M8-A2: aggregate `_scans.tsv` per session,
-    //     pair fmaps via Shims + ImagingVolume with Closest-in-time
-    //     tie-break.
+    //   - `'reproin'` -- the reproin-core engine's planned ops
+    //     (./reproin.ts).
     //   - `'pet'`     -- M12: walk every `_pet.json` and apply
     //     `enrichPetSidecar` with the optional operator-supplied
     //     metadata overlay.

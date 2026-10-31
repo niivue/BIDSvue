@@ -22,11 +22,11 @@ import {
   resolveSymlinkIfPresent,
 } from '$lib/util/readTextFile'
 import { type DirEntry, open, readDir } from '@tauri-apps/plugin-fs'
-import type { PostPassDirEntry, PostPassFs } from './readFs'
+import type { PartialReadFs, PostPassDirEntry, PostPassFs } from './readFs'
 
 const COMPRESSED_CHUNK = 4096
 
-export const tauriPostPassFs: PostPassFs = {
+export const tauriPostPassFs: PostPassFs & PartialReadFs = {
   async exists(path: string): Promise<boolean> {
     // Dotfile-safe existence check: plugin-fs's `exists()` throws
     // "forbidden path" for paths outside the runtime-widened scope
